@@ -1,0 +1,94 @@
+# 책임: [통합] 비밀정보와 개발·테스트 환경의 생성물을 추적 대상에서 제외한다.
+# 구현할 기능: OS별 임시 파일, 로컬 데이터, 캐시와 빌드 산출물을 제외한다.
+# 완료 기준: 공개 예제와 잠금 파일은 유지하고 개인 데이터·생성물은 제외한다.
+
+# 로컬 비밀정보와 환경 설정
+.env
+.env.*
+!.env.example
+!frontend/.env.development
+
+# Python 가상환경, 캐시, 테스트 결과와 패키지 빌드
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*.py,cover
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+wheels/
+
+# Frontend 의존성, 캐시, 테스트·빌드 결과
+node_modules/
+coverage/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+
+# 로컬 DB와 백업 데이터
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+
+# 로그와 편집기 임시 파일
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*.orig
+*.rej
+*~
+.#*
+\#*#
+
+# IDE별 사용자 상태 (공유 프로젝트 설정은 추적 가능)
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/shelf/
+.idea/httpRequests/
+
+# macOS Finder 및 Spotlight 메타데이터
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+.DocumentRevisions-V100/
+.TemporaryItems/
+
+# Windows 탐색기 및 휴지통 메타데이터
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.stackdump
+
+# Windows Visual Studio 사용자 상태
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Linux 파일 관리자 메타데이터
+.directory

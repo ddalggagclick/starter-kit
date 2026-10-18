@@ -1,0 +1,30 @@
+// 책임: [A] Frontend TypeScript/TSX/JSON/CSS lint·format 설정을 한 곳에서 관리한다.
+// 구현할 기능: Biome 2.x, 두 칸 공백·큰따옴표·세미콜론 생략 등 팀 기본 스타일.
+// 완료 기준: npm run lint가 이 설정을 읽고 진단한다. 기존 소스 전체 포맷/CI 강제는 담당자 승인 후.
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "asNeeded"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  }
+}

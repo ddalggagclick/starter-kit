@@ -1,0 +1,32 @@
+# 담당: [D] | 책임: [D] 독립 RAG 패키지 선언
+# 구현할 기능: Docling·EmbeddingGemma·PGVectorStore 연결; 벡터 인덱스/품질 테스트 의존성 관리
+# 코드 경계: 워크스페이스·의존성 선언만 관리한다. 실제 패키지 소스는 rag/starter_rag/ 아래 둔다.
+# 완료 기준: 정상·빈 결과·게시 전·차원 불일치 경계 테스트 통과.
+# 상태: Contract-first — 구현은 소유 담당자 PR에서 진행
+[project]
+name = "starter-rag"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "docling>=2.139,<3",  # PDF/문서 파싱·구조 추출 (ingestion/parser.py)
+    "typer>=0.12,<1",  # 명시적 문서 적재·검수 CLI (cli.py, ingestion/cli.py)
+    "langchain-core>=1,<2",  # LangChain Document/Embeddings 기본 경계
+    "langchain-docling>=2,<3",  # Docling -> Document 연결 (ingestion/service.py)
+    "langchain-postgres>=0.0.15,<1",  # PGVectorStore 저장·검색 (storage/vector_store.py)
+    "langchain-text-splitters>=1,<2",  # 문서 청킹 (ingestion/chunking.py)
+    "sentence-transformers>=6.1,<7",  # EmbeddingGemma 모델 임베딩 (embedding/model.py)
+    "transformers>=5.17,<6",  # 로컬 토크나이저/모델 로딩 (embedding/model.py)
+    "SQLAlchemy>=2,<3",  # RAG 문서 원장/게시 DB 모델 (storage/models.py)
+    "psycopg[binary]>=3.2,<4",  # PGVectorStore PostgreSQL 드라이버
+    "pydantic>=2,<3",  # 검색 요청/근거 DTO 검증 (contracts/models.py)
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["starter_rag"]
+
+[project.scripts]
+starter-rag = "starter_rag.cli:main"

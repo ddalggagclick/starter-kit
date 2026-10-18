@@ -1,0 +1,16 @@
+// 책임: [A] Vite 설정 TypeScript 검사.
+// 구현할 기능: Node/Vite config 타입 참조.
+// 완료 기준: npm run build 에서 vite.config.ts 빌드 설정 검사.
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "ES2023", "lib": ["ES2023"], "module": "ESNext", "skipLibCheck": true,
+    "moduleResolution": "Bundler", "allowImportingTsExtensions": true,
+    "resolveJsonModule": true, "verbatimModuleSyntax": true,
+    "moduleDetection": "force", "noEmit": true,
+    "strict": true, "noUnusedLocals": true, "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts"]
+}

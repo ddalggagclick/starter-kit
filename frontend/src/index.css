@@ -1,0 +1,40 @@
+/* 책임: [A] Tailwind v4 및 shadcn/ui 색상 토큰.
+ * 구현할 기능: 기본 배경/텍스트/카드/포커스 색상과 Tailwind 매핑.
+ * 완료 기준: Vite에서 Tailwind 클래스와 shadcn Button/Card 스타일 적용.
+ */
+@import "tailwindcss";
+:root {
+  --background: #fafaf9;
+  --foreground: #1c1917;
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --primary: #1c3933;
+  --primary-foreground: #ffffff;
+  --secondary: #eaeae6;
+  --secondary-foreground: #292524;
+  --muted-foreground: #78716c;
+  --accent: #e5e7eb;
+  --accent-foreground: #292524;
+  --input: #d6d3d1;
+  --ring: #64748b;
+}
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  font-family: Inter, Pretendard, ui-sans-serif, system-ui, sans-serif;
+}

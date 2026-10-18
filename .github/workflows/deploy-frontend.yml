@@ -1,0 +1,14 @@
+# 책임: [통합] GitHub Actions 프론트엔드 CD 워크플로 경계
+# 구현할 기능: CI 통과 확인; Render Frontend Render Static Site 대상 배포; 배포 오류 시 중단·재실행/롤백 증빙
+# 코드 경계: Render 자격증명은 GitHub Secrets/Environment로만 전달. 호스팅 플랫폼 자체 자동배포 중복 금지.
+# 완료 기준: Render 서비스 ID/환경 보호 규칙/배포 실패 처리까지 API 담당 외 통합 관리자가 리뷰 후 활성화.
+# 상태: Contract-first 템플릿 — 실제 배포 job은 아직 비활성
+name: Render 프론트엔드 deployment placeholder
+on:
+  workflow_dispatch:
+jobs:
+  deployment-contract-only:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: "echo Contract-first Render CD disabled until credentials and target are configured"

@@ -1,0 +1,8 @@
+// 책임: [A] Vite/shadcn CLI용 공통 TS 타입 연결.
+// 구현할 기능: src alias 및 앱/설정 프로젝트 참조.
+// 완료 기준: npm run build 의 tsc -b 성공.
+{
+  "files": [],
+  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }],
+  "compilerOptions": { "paths": { "@/*": ["./src/*"] } }
+}
