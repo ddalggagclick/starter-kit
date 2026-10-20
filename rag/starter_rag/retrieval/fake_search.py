@@ -8,7 +8,7 @@ from typing import Literal
 from starter_rag.contracts.models import Evidence, SearchRequest, SearchResult, SourceRef
 from starter_rag.contracts.ports import SearchPort
 
-SearchScenario = Literal["evidence"]
+SearchScenario = Literal["evidence", "empty"]
 
 
 def make_fixed_evidence() -> Evidence:
@@ -30,10 +30,13 @@ def make_fixed_evidence() -> Evidence:
 
 class FakeSearchPort(SearchPort):
     def __init__(self, *, scenario: SearchScenario) -> None:
-        if scenario != "evidence":
-            raise ValueError("scenario must be 'evidence'")
+        if scenario not in ("evidence", "empty"):
+            raise ValueError("scenario must be 'evidence' or 'empty'")
         self._scenario = scenario
 
     async def search(self, request: SearchRequest) -> SearchResult:
+        if self._scenario == "empty":
+            return SearchResult(evidence=())
+
         evidence = (make_fixed_evidence(),)
         return SearchResult(evidence=evidence[: request.top_k])
