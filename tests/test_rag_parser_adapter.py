@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "rag"))
 
-from docling_core.types.doc import DoclingDocument
+from docling_core.types.doc.document import DoclingDocument
 
 from starter_rag.ingestion import parser
 from starter_rag.ingestion.parser import (

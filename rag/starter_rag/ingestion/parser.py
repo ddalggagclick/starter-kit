@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from docling_core.types.doc import DoclingDocument
+from docling_core.types.doc.document import DoclingDocument
 
 if TYPE_CHECKING:
     from docling.document_converter import DocumentConverter
@@ -71,7 +71,9 @@ def parse_document(path: str | Path) -> DoclingDocument:
     try:
         result = _get_converter().convert(source, raises_on_error=False)
     except Exception as error:
-        raise DocumentConversionError(f"Docling 변환에 실패했습니다: {source}") from error
+        raise DocumentConversionError(
+            f"Docling 변환에 실패했습니다: {source}"
+        ) from error
 
     status = getattr(result.status, "value", result.status)
     # 일부 페이지나 구조만 변환된 결과도 정상 문서로 넘기지 않는다.
