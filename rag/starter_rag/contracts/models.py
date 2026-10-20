@@ -20,14 +20,14 @@ PublicationState = Literal["staging", "indexed", "published", "failed", "retired
 class SourceRef:
     source_id: str
     title: str
-    url: str
+    url: str | None
     publisher: str
     version: str
 
     def __post_init__(self):
-        if not all((self.source_id, self.title, self.url, self.publisher, self.version)):
-            raise ValueError("source requires identity, URL, and version")
-        if not self.url.startswith("https://"):
+        if not all((self.source_id, self.title, self.publisher, self.version)):
+            raise ValueError("source requires identity, publisher, and version")
+        if self.url is not None and not self.url.startswith("https://"):
             raise ValueError("official source must use https")
 
 
@@ -42,6 +42,8 @@ class Evidence:
     def __post_init__(self):
         if not self.evidence_id or not self.text or not self.location:
             raise ValueError("evidence requires text and location")
+        if self.source.url is None:
+            raise ValueError("evidence requires an official HTTPS URL")
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,8 @@ class DocumentVersion:
     def __post_init__(self):
         if not self.content_sha256 or self.chunk_count < 0:
             raise ValueError("document version requires content hash and nonnegative chunk count")
+        if self.state == "published" and self.source.url is None:
+            raise ValueError("published document requires an official HTTPS URL")
         if self.state == "published" and self.chunk_count == 0:
             raise ValueError("empty document version cannot be published")
 
