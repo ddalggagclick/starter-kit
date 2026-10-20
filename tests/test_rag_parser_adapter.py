@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import builtins
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import get_type_hints
@@ -19,6 +22,7 @@ from docling_core.types.doc.items.table.table_data import TableCell, TableData
 from docling_core.types.doc.labels import DocItemLabel
 
 from starter_rag.ingestion import parser
+from starter_rag import cli as rag_cli
 from starter_rag.ingestion.parser import (
     DocumentConversionError,
     DocumentReadError,
@@ -45,7 +49,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertIs(document, expected_document)
         converter.convert.assert_called_once_with(source, raises_on_error=False)
 
-    def test_synthetic_html_is_converted_by_docling_and_repeats_stably(self) -> None:
+    def test_합성_HTML을_실제_Docling으로_반복_변환한다(self) -> None:
         html = """<!doctype html>
 <html><head><title>Synthetic guide</title></head>
 <body><h1>Parser adapter check</h1><p>Generated only for this test.</p></body></html>
@@ -203,20 +207,20 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
         self.assertEqual(first, second)
 
-    def test_pdf_path_is_sent_to_docling(self) -> None:
+    def test_PDF_경로를_Docling에_전달한다(self) -> None:
         self._assert_mocked_format(".pdf")
 
-    def test_docx_path_is_sent_to_docling(self) -> None:
+    def test_DOCX_경로를_Docling에_전달한다(self) -> None:
         self._assert_mocked_format(".docx")
 
-    def test_missing_file_has_a_distinct_error(self) -> None:
+    def test_없는_파일은_별도_오류로_처리한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "missing.html"
 
             with self.assertRaises(FileNotFoundError):
                 parse_document(source)
 
-    def test_unsupported_extension_has_a_distinct_error(self) -> None:
+    def test_미지원_확장자는_별도_오류로_처리한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "notes.txt"
             source.write_text("synthetic", encoding="utf-8")
@@ -224,7 +228,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             with self.assertRaises(UnsupportedDocumentFormatError):
                 parse_document(source)
 
-    def test_unreadable_file_has_a_distinct_error(self) -> None:
+    def test_읽을_수_없는_파일은_별도_오류로_처리한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "guide.html"
             source.write_text("synthetic", encoding="utf-8")
@@ -238,7 +242,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
             get_converter.assert_not_called()
 
-    def test_non_success_docling_status_is_an_error(self) -> None:
+    def test_실패_상태의_Docling_결과를_오류로_처리한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "guide.html"
             source.write_text("synthetic", encoding="utf-8")
@@ -251,7 +255,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
                 with self.assertRaises(DocumentConversionError):
                     parse_document(source)
 
-    def test_docling_exception_is_wrapped_as_conversion_error(self) -> None:
+    def test_Docling_예외를_변환_오류로_감싼다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "guide.html"
             source.write_text("synthetic", encoding="utf-8")
@@ -264,7 +268,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
         self.assertIsInstance(context.exception.__cause__, RuntimeError)
 
-    def test_converter_instance_is_reused(self) -> None:
+    def test_변환기_인스턴스를_재사용한다(self) -> None:
         converter = object()
         parser._get_converter.cache_clear()
         try:
@@ -279,7 +283,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         finally:
             parser._get_converter.cache_clear()
 
-    def test_module_import_does_not_load_docling_or_database(self) -> None:
+    def test_모듈_가져오기는_Docling_변환이나_DB를_초기화하지_않는다(self) -> None:
         spec = importlib.util.spec_from_file_location(
             "isolated_rag_parser_import", Path(parser.__file__)
         )
@@ -303,6 +307,159 @@ class DoclingParserAdapterTests(unittest.TestCase):
             sys.modules.pop(spec.name, None)
 
         self.assertEqual(isolated_parser._get_converter.cache_info().currsize, 0)
+
+    def test_CLI_파일_인자로_유효한_JSON을_출력한다(self) -> None:
+        html = """<!doctype html><html><body>
+<h1>CLI 구조 확인</h1><h2>제목</h2><p>본문</p>
+<table><tr><th>이름</th></tr><tr><td>홍길동</td></tr></table>
+</body></html>"""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "cli-guide.html"
+            source.write_text(html, encoding="utf-8")
+            stdout, stderr = StringIO(), StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = rag_cli.main(["--file", str(source)])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(len(stdout.getvalue().splitlines()), 1)
+        self.assertEqual(payload["input_file"], str(source))
+        self.assertTrue(payload["success"])
+        self.assertGreater(payload["element_count"], 0)
+        self.assertTrue(payload["elements"])
+        self.assertTrue(
+            all(
+                element["location"]["status"] == "not_applicable"
+                for element in payload["elements"]
+            )
+        )
+
+    def test_파일_경로가_없거나_비어_있으면_사용법_오류를_낸다(self) -> None:
+        for argv in ([], ["--file"]):
+            stderr = StringIO()
+            with redirect_stderr(stderr), self.assertRaises(SystemExit) as context:
+                rag_cli.main(argv)
+            self.assertEqual(context.exception.code, 2)
+            self.assertIn("usage:", stderr.getvalue())
+
+    def test_CLI에서_없는_파일은_종료_코드_2를_반환한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "missing.html"
+            stdout, stderr = StringIO(), StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = rag_cli.main(["--file", str(source)])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("문서 파일이 없습니다", stderr.getvalue())
+
+    def test_CLI에서_미지원_형식은_종료_코드_2를_반환한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "notes.txt"
+            source.write_text("synthetic", encoding="utf-8")
+            stdout, stderr = StringIO(), StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = rag_cli.main(["--file", str(source)])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("지원하지 않는 문서 형식", stderr.getvalue())
+
+    def test_CLI에서_변환_오류는_종료_코드_1을_반환한다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            patch.object(rag_cli, "parse_document", side_effect=DocumentConversionError("변환 실패")),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            result = rag_cli.main(["--file", "broken.pdf"])
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("문서 파싱에 실패했습니다", stderr.getvalue())
+
+    def test_CLI에서_읽기_오류는_종료_코드_2를_반환한다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            patch.object(rag_cli, "parse_document", side_effect=DocumentReadError("읽기 실패")),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            result = rag_cli.main(["--file", "unreadable.pdf"])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("읽기 실패", stderr.getvalue())
+
+    def test_CLI_파일_인자와_기존_서브커맨드를_함께_거부한다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as context,
+        ):
+            rag_cli.main(["--file", "guide.html", "status"])
+
+        self.assertEqual(context.exception.code, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("함께 사용할 수 없습니다", stderr.getvalue())
+
+    def test_기존_status_명령_출력을_유지한다(self) -> None:
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            result = rag_cli.main(["status"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            json.loads(stdout.getvalue()),
+            {
+                "package": "starter-rag",
+                "status": "contract-only",
+                "searchImplemented": False,
+                "ingestionImplemented": False,
+            },
+        )
+
+    def test_기존_validate_search_명령_출력을_유지한다(self) -> None:
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            result = rag_cli.main(["validate-search", "--query", "상속 포기"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            json.loads(stdout.getvalue()),
+            {"valid": True, "query": "상속 포기", "topK": 3},
+        )
+
+    def test_CLI_모듈_가져오기는_파싱이나_DB_초기화를_하지_않는다(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "isolated_rag_cli_import", Path(rag_cli.__file__)
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        isolated_cli = importlib.util.module_from_spec(spec)
+        original_import = builtins.__import__
+
+        def guarded_import(name, *args, **kwargs):
+            if name == "docling" or name.startswith("docling."):
+                raise AssertionError("CLI import must not load Docling")
+            if name == "sqlalchemy" or name.startswith("sqlalchemy."):
+                raise AssertionError("CLI import must not load database code")
+            return original_import(name, *args, **kwargs)
+
+        sys.modules[spec.name] = isolated_cli
+        try:
+            with (
+                patch.object(builtins, "__import__", side_effect=guarded_import),
+                patch.object(parser, "_get_converter") as get_converter,
+            ):
+                spec.loader.exec_module(isolated_cli)
+                get_converter.assert_not_called()
+        finally:
+            sys.modules.pop(spec.name, None)
 
 
 if __name__ == "__main__":
