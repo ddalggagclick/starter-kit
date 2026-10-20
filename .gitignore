@@ -92,3 +92,10 @@ $RECYCLE.BIN/
 
 # Linux 파일 관리자 메타데이터
 .directory
+
+# GitHub Taskflow 로컬 런타임 (사용자 전역 Skill의 설치 파일)
+scripts/taskflow.py
+scripts/taskflow.config.json
+scripts/start-task
+scripts/finish-task
+.github/ISSUE_TEMPLATE/taskflow.md
