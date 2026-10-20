@@ -44,7 +44,7 @@ src/
 ├── components/ui/        # shadcn 스타일 공통 UI
 ├── features/
 │   ├── auth/             # 가입·로그인 화면
-│   ├── checklist/        # 초기·위험 질문, 절차 추천
+│   ├── checklist/        # 초기·위험 질문, 공통 8개 절차 안내
 │   ├── chat/             # 채팅, POST SSE
 │   ├── kakao/            # 웹 Handoff 수신
 │   ├── law/              # 법령 안내
@@ -77,7 +77,7 @@ inheritance/
 ├── core/                 [통합] 설정, DB 세션, DI, 오류, 보안, health
 ├── auth/                 [통합] 회원가입·로그인·JWT·Refresh
 ├── contracts/            [통합] 팀 간 공통 DTO·Protocol
-├── checklist/            [B] 절차 추천·질문 규칙
+├── checklist/            [B] 공통 8개 절차 안내·질문 규칙
 ├── chat/                 [B] 채팅 답변 조립·문맥·출처 검증
 │   └── services/         answer, context, prompt_builder,
 │                        citation_validation
@@ -95,7 +95,7 @@ inheritance/
 | `<domain>/schemas.py` | 요청·응답 스키마 |
 | `<domain>/service.py` | 도메인 유스케이스 |
 | `<domain>/repository.py` | DB 접근. ERD 승인 전 테이블 확정 금지 |
-| `checklist/{rules,service}.py` | 8개 절차 중 최대 5개 추천 |
+| `checklist/{rules,service}.py` | 입력 기반 안내·위험 정보를 반영한 공통 8개 절차 안내 |
 | `chat/services/{answer,prompt_builder,citation_validation}.py` | 질문 처리, 프롬프트, 근거 검증 |
 | `law/{mcp_client,open_api,service}.py` | 조문·연혁·부칙 전문 조회 |
 | `kakao/adapter.py`, `kakao/handoff/` | 외부 JSON 변환, 10분·1회 토큰 |
@@ -132,7 +132,7 @@ inheritance/
 | 담당 | 직접 수정할 경로 | 주된 책임 |
 |---|---|---|
 | **A · Frontend** | `frontend/**` | UI, Axios, SSE, Zustand, Dexie |
-| **B · Backend 도메인** | `backend/src/inheritance/checklist/**`, `chat/**`, `law/**` | 절차 추천·채팅·법령 조회 |
+| **B · Backend 도메인** | `backend/src/inheritance/checklist/**`, `chat/**`, `law/**` | 절차 안내·채팅·법령 조회 |
 | **C · 카카오/LLM** | `backend/src/inheritance/kakao/**`, `llm/**` | 카카오 Handoff, Gemini/Ollama |
 | **D · RAG** | `rag/**` | Docling, 임베딩, 검색, 게시 |
 | **통합 관리자** | 루트 설정, `backend/src/inheritance/{auth,core,contracts}/**`, `main.py`, `backend/migrations/**`, `tests/**`, `scripts/**`, `.github/**`, `docs/**` | 인증·DB·DI·계약·CI·문서 |

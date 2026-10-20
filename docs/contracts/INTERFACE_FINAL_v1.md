@@ -5,7 +5,7 @@
 
 **문서 버전:** v1  
 **목적:** Frontend·Backend·LLM·RAG 담당자가 **같은 호출 경계**로 구현한다.  
-**기준일:** 2026-10-18. 최소 실행 진입점과 후속 승인 사항 반영.  
+**기준일:** 2026-10-20. 공통 8개 절차 안내 계약 반영.
 **상태:** 내부 설계 기준선 완료. **HTTP 상세 전송 계약·ERD·전체 아키텍처 최종 승인·실연동 검증은 별개**다.
 
 ## 1. 인터페이스 지도
@@ -26,8 +26,8 @@ flowchart TD
 | ID | 연결점 | 유지할 계약 | 담당 |
 |---|---|---|---|
 | **I01** | Python ↔ TS | HTTP JSON 필드 `camelCase`; OpenAPI→TS 타입 생성. Python 내부 `snake_case` 허용 | API 담당 |
-| **I02** | 체크리스트 | `ChecklistService.recommend(RecommendationInput) -> RecommendationResult`; 카드 8개 중 최대 5개 | B |
-| **I03** | 카카오 입력 | `KakaoInputAdapter.parse(skill_request)` → 공통 DTO; 카카오 원문을 B 서비스에 넘기지 않음 | C |
+| **I02** | 체크리스트 | `ChecklistService.build_guidance(GuidanceInput) -> GuidanceResult`; 공통 p01~p08 전체와 안내·위험 정보·콘텐츠 버전 | B |
+| **I03** | 카카오 입력 | `KakaoInputAdapter.parse(skill_request) -> GuidanceInput`; 카카오 원문을 B 서비스에 넘기지 않음 | C |
 | **I04** | 카카오→웹 | Handoff 발급·교환, **10분/원자적 1회**, 최소 데이터만 인계 | C/통합 |
 | **I05** | 브라우저 인증 | Access 메모리; HttpOnly Refresh 쿠키; CSRF·정확한 CORS Origin | A/통합 |
 | **I06** | 오류 | 공통 오류 코드↔HTTP 매핑; S6 기술 실패, S7 근거 부족, S9 제한 | 통합/API |
@@ -49,8 +49,8 @@ flowchart TD
 
 ```python
 # 서비스 간 계약의 모양. 실제 시그니처는 각 contracts/ports.py를 정본으로 사용.
-ChecklistService.recommend(RecommendationInput)  # -> RecommendationResult
-KakaoInputAdapter.parse(skill_request)            # -> RecommendationInput
+ChecklistService.build_guidance(GuidanceInput)   # -> GuidanceResult
+KakaoInputAdapter.parse(skill_request)            # -> GuidanceInput
 ModelPort.generate(GenerationRequest)              # -> GenerationResult (async)
 ModelPort.stream(GenerationRequest)                # -> AsyncIterator[GenerationChunk]
 SearchPort.search(SearchRequest)                   # -> SearchResult (async)

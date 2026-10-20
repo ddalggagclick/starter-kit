@@ -3,7 +3,7 @@
 # 코드 경계: 외부 서비스 호출/HTTP wire 상세를 이 파일에 구현하지 않는다.
 # 완료 기준: Python 3.13 표준 라이브러리 계약 테스트 통과.
 """[통합] 내부 계약의 정의/경계 단위 테스트.
-구현할 기능: 8개 카드/최대5 추천, LLM DTO, RAG Evidence·문서 상태, 법령/인계 DTO 검증.
+구현할 기능: 공통 8개 절차 안내, LLM DTO, RAG Evidence·문서 상태, 법령/인계 DTO 검증.
 완료 기준: Python 3.13 표준 라이브러리로 10개 이상 독립 실행 통과.
 """
 
@@ -28,8 +28,8 @@ from inheritance.contracts.chat import (
 )
 from inheritance.contracts.domain import (
     InitialAnswers,
-    RecommendationResult,
-    RecommendedProcedure,
+    GuidanceResult,
+    ProcedureGuidance,
     RiskAnswer,
 )
 from inheritance.contracts.handoff import HandoffExchange, HandoffPayload
@@ -120,15 +120,36 @@ class ContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             SearchRequest("q", 0)
 
-    def test_recommendations_max_five(self):
-        rows = tuple(RecommendedProcedure(f"p{i:02d}", "reason", i) for i in range(1, 7))
-        with self.assertRaises(ValueError):
-            RecommendationResult(rows, "v1")
+    def test_guidance_result_requires_all_eight_procedures(self):
+        rows = tuple(ProcedureGuidance(f"p{i:02d}") for i in range(1, 9))
+        guidance = object()
+        risk_information = object()
+        result = GuidanceResult(rows, guidance, risk_information, "guidance-v1")
+        self.assertEqual(len(result.procedures), 8)
+        self.assertEqual(
+            {procedure.procedure_id for procedure in result.procedures},
+            {"p01", "p02", "p03", "p04", "p05", "p06", "p07", "p08"},
+        )
+        self.assertIs(result.guidance, guidance)
+        self.assertIs(result.risk_information, risk_information)
 
-    def test_recommendations_no_duplicates(self):
-        a = RecommendedProcedure("p01", "r", 1)
+    def test_guidance_result_rejects_duplicate_procedure_ids(self):
+        rows = [ProcedureGuidance(f"p{i:02d}") for i in range(1, 9)]
+        rows[-1] = ProcedureGuidance("p01")
         with self.assertRaises(ValueError):
-            RecommendationResult((a, a), "v1")
+            GuidanceResult(tuple(rows), None, None, "guidance-v1")
+
+    def test_guidance_result_rejects_missing_procedure_ids(self):
+        rows = tuple(ProcedureGuidance(f"p{i:02d}") for i in range(1, 8))
+        with self.assertRaises(ValueError):
+            GuidanceResult(rows, None, None, "guidance-v1")
+
+    def test_guidance_result_requires_nonempty_content_version(self):
+        rows = tuple(ProcedureGuidance(f"p{i:02d}") for i in range(1, 9))
+        for content_version in ("", "   ", None):
+            with self.subTest(content_version=content_version):
+                with self.assertRaises(ValueError):
+                    GuidanceResult(rows, None, None, content_version)
 
     def test_unknown_date_matches_null(self):
         InitialAnswers("spouse", None, True, "unknown")
@@ -165,7 +186,7 @@ class ContractTest(unittest.TestCase):
 
     def test_procedure_id_must_be_p01_to_p08(self):
         with self.assertRaises(ValueError):
-            RecommendedProcedure("p09", "reason", 1)
+            ProcedureGuidance("p09")
 
     def test_handoff_failure_cannot_include_data(self):
         payload = HandoffPayload(InitialAnswers("spouse", None, True, "yes"))
