@@ -94,7 +94,7 @@ paths:
               oneStopApplication: unknown
               risks:
               - riskId: property_disposal
-                answer: true
+                answer: 'yes'
       responses:
         '200':
           description: 발급 성공

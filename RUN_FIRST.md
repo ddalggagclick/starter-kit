@@ -23,6 +23,8 @@ uv run starter-llm status
 uv run starter-rag status
 ```
 
+카카오→웹 인계 토큰은 서버 메모리에만 저장되므로 Backend는 uvicorn 워커 1개로 실행합니다(`--workers` 옵션을 늘리지 않습니다).
+
 - **Backend**: 실행 상태로 유지됩니다. 브라우저에서 `http://127.0.0.1:8000/health` → `{"status":"ok","service":"inheritance-backend"}`.
 - **Frontend**: 실행 상태로 유지됩니다. `http://localhost:5173/` 열기 → 화면 확인 후 **서버 상태 확인** 버튼 클릭. (실제 Vite 출력 주소가 우선.)
 - **LLM**: `uv run starter-llm status` — JSON에 `"status": "implemented"`, 공급자·전환 설정, 키 설정 여부(값은 출력 안 함). 외부 호출 없음. 실제 생성은 `uv run starter-llm generate --prompt "안녕하세요"`(키 필요, 종료 코드 0/2/3/4/5/6/7).
