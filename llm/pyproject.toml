@@ -1,7 +1,7 @@
 # 담당: [C] | 책임: [C] 독립 LLM 패키지 선언
-# 구현할 기능: LangChain Core·Gemini·Ollama 어댑터 패키지; 백엔드 도메인 코드 의존 금지
+# 구현할 기능: LangChain Core·Gemini·Groq·Ollama(선택) 어댑터 패키지; 백엔드 도메인 코드 의존 금지
 # 코드 경계: 워크스페이스·의존성 선언만 관리한다. 실제 패키지 소스는 llm/starter_llm/ 아래 둔다.
-# 완료 기준: Gemini/Ollama/FakeModel과 공통 Port 호출 계약 통과.
+# 완료 기준: Gemini/Groq/Ollama/FakeModel과 공통 Port 호출 계약 통과.
 # 상태: Contract-first — 구현은 소유 담당자 PR에서 진행
 [project]
 name = "starter-llm"
@@ -10,7 +10,8 @@ requires-python = ">=3.13"
 dependencies = [
     "langchain-core>=1,<2",
     "langchain-google-genai>=4,<5",
-    "langchain-ollama>=1,<2",
+    "langchain-groq>=1,<2",  # 3-2-4: Gemini 제한·장애 시 자동 전환 대상
+    "langchain-ollama>=1,<2",  # 3-2-4: 전환 순서의 선택 항목(로컬 전용, LLM_FAILOVER_PROVIDERS에 ollama를 적을 때만 사용)
     "pydantic>=2,<3",
 ]
 
