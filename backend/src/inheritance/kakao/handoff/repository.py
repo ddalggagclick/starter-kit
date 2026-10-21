@@ -43,22 +43,31 @@ class InMemoryHandoffStore:
         # 원문 토큰은 보관하지 않고 해시만 키로 쓴다 (tokenHash).
         return hashlib.sha256(token.encode()).hexdigest()
 
+    # 잠금을 잡은 상태에서만 부른다. 만료된 답변을 지워 메모리에 남기지 않는다.
+    def _purge_expired(self, now: float) -> None:
+        for key in [k for k, e in self._items.items() if e.expires_at <= now]:
+            del self._items[key]
+
     def issue(self, payload: dict) -> str:
         token = secrets.token_urlsafe(32)
         with self._lock:
             now = self._clock()
-            for key in [k for k, e in self._items.items() if e.expires_at <= now]:
-                del self._items[key]
+            self._purge_expired(now)
             self._items[self._key(token)] = _Entry(payload, now + self._ttl)
         return token
 
     # 확인과 삭제를 잠금 안에서 한 번에 한다. 동시에 두 요청이 와도 하나만 꺼낸다.
     def consume(self, token: str) -> dict | None:
         with self._lock:
+            now = self._clock()
+            self._purge_expired(now)
             entry = self._items.pop(self._key(token), None)
-            if entry is None or entry.expires_at <= self._clock():
-                return None
-            return entry.payload
+            return entry.payload if entry is not None else None
+
+    # 발급·교환 요청이 없는 동안에도 만료 답변을 지울 수 있도록 주기 작업에서 부른다.
+    def purge_expired(self) -> None:
+        with self._lock:
+            self._purge_expired(self._clock())
 
     def __len__(self) -> int:
         return len(self._items)

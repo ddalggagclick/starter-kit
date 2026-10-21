@@ -44,6 +44,9 @@ class HandoffService:
             raise HandoffUnauthorized
         return self._store.issue(payload.model_dump(mode="json", by_alias=True))
 
+    def purge_expired(self) -> None:
+        self._store.purge_expired()
+
     # 만료·이미 사용·없는 토큰을 구분하지 않는다 (D1).
     def exchange(self, token: str) -> dict:
         payload = self._store.consume(token)
