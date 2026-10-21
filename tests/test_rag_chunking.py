@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import hashlib
+import importlib
+import io
 import json
+import logging
 import sys
+import traceback
 import unittest
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal
+from unittest.mock import Mock, patch
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "rag"))
@@ -15,6 +22,7 @@ sys.path.insert(0, str(ROOT / "rag"))
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from starter_rag.ingestion import chunking_model, service
 from starter_rag.ingestion.chunking import (
     ChunkIntegrityError,
     DocumentChunk,
@@ -36,6 +44,23 @@ from starter_rag.ingestion.parser import (
 
 class _RateLimitError(RuntimeError):
     status_code = 429
+
+
+class _RateLimitCause(RuntimeError):
+    code = 429
+
+
+class _GoogleRateLimitError(RuntimeError):
+    status = "RESOURCE_EXHAUSTED"
+
+    def __init__(self, secret: str) -> None:
+        encoded = quote(secret, safe="")
+        mixed_case = encoded.replace("%2F", "%2f")
+        super().__init__(
+            "Gemini request failed: "
+            f"https://example.test/?key={secret}&lower={encoded.lower()}&mixed={mixed_case}"
+        )
+        self.__cause__ = RuntimeError(f"wrapped provider error contains {secret} and {encoded}")
 
 
 class _MockChatModel(BaseChatModel):
@@ -75,6 +100,14 @@ class _MockChatModel(BaseChatModel):
         if isinstance(response, BaseException):
             raise response
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=str(response)))])
+
+
+def _configured_model_factory(*, ollama_factory: Any = None, gemini_factory: Any = None) -> Any:
+    return lambda environ: chunking_model.create_chunking_model_from_environment(
+        environ,
+        ollama_factory=ollama_factory,
+        gemini_factory=gemini_factory,
+    )
 
 
 def _location(
@@ -808,6 +841,354 @@ class XlsxRowChunkingTests(unittest.TestCase):
         self.assertEqual(chunk.locations, (location,))
         self.assertEqual(chunk.locations[0].provenance[0].charspan, (7, 19))
         self.assertEqual(chunk.table_row.completeness_status, "unverified")
+
+
+class ChunkingModelProviderTests(unittest.TestCase):
+    def test_ollama_설정으로_모델을_생성한다(self) -> None:
+        settings = chunking_model.load_chunking_model_settings(
+            {
+                "RAG_CHUNKING_PROVIDER": "ollama",
+                "RAG_CHUNKING_MODEL": "qwen3:4b-instruct",
+                "RAG_CHUNKING_OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+            }
+        )
+        model = _MockChatModel(())
+        ollama_factory = Mock(return_value=model)
+
+        result = chunking_model.create_chunking_model(settings, ollama_factory=ollama_factory)
+
+        self.assertIs(result, model)
+        ollama_factory.assert_called_once_with(
+            model="qwen3:4b-instruct", base_url="http://127.0.0.1:11434"
+        )
+
+    def test_gemini_설정은_RAG_인증값을_명시적으로_전달한다(self) -> None:
+        settings = chunking_model.load_chunking_model_settings(
+            {
+                "RAG_CHUNKING_PROVIDER": "gemini",
+                "RAG_CHUNKING_MODEL": "gemini-2.5-flash",
+                "RAG_CHUNKING_GEMINI_API_KEY": "rag-secret",
+            }
+        )
+        model = _MockChatModel(())
+        gemini_factory = Mock(return_value=model)
+
+        result = chunking_model.create_chunking_model(settings, gemini_factory=gemini_factory)
+
+        self.assertIsInstance(result, BaseChatModel)
+        self.assertIs(result.inner_model, model)
+        gemini_factory.assert_called_once_with(model="gemini-2.5-flash", api_key="rag-secret")
+
+    def test_선택하지_않은_공급자_생성자를_호출하지_않는다(self) -> None:
+        settings = chunking_model.load_chunking_model_settings(
+            {"RAG_CHUNKING_PROVIDER": "ollama", "RAG_CHUNKING_MODEL": "qwen3:4b-instruct"}
+        )
+        ollama_factory = Mock(return_value=_MockChatModel(()))
+        gemini_factory = Mock(return_value=_MockChatModel(()))
+
+        chunking_model.create_chunking_model(
+            settings, ollama_factory=ollama_factory, gemini_factory=gemini_factory
+        )
+
+        ollama_factory.assert_called_once()
+        gemini_factory.assert_not_called()
+
+    def test_누락되거나_호환되지_않는_공급자_설정을_거부한다(self) -> None:
+        invalid_settings = (
+            {},
+            {"RAG_CHUNKING_PROVIDER": "groq", "RAG_CHUNKING_MODEL": "some-model"},
+            {"RAG_CHUNKING_PROVIDER": "ollama"},
+            {"RAG_CHUNKING_PROVIDER": "gemini", "RAG_CHUNKING_MODEL": "qwen3:4b"},
+        )
+
+        for environment in invalid_settings:
+            with (
+                self.subTest(environment=environment),
+                self.assertRaises(chunking_model.ChunkingModelConfigurationError),
+            ):
+                chunking_model.load_chunking_model_settings(environment)
+
+    def test_기존_Gemini_변수로_RAG_인증을_대체하지_않는다(self) -> None:
+        with self.assertRaises(chunking_model.ChunkingModelConfigurationError) as raised:
+            chunking_model.load_chunking_model_settings(
+                {
+                    "RAG_CHUNKING_PROVIDER": "gemini",
+                    "RAG_CHUNKING_MODEL": "gemini-2.5-flash",
+                    "GEMINI_API_KEY": "legacy-secret",
+                    "LLM_PROVIDER": "gemini",
+                }
+            )
+
+        self.assertNotIn("legacy-secret", str(raised.exception))
+
+    def test_ollama는_Gemini_인증값이_없어도_생성한다(self) -> None:
+        settings = chunking_model.load_chunking_model_settings(
+            {"RAG_CHUNKING_PROVIDER": "ollama", "RAG_CHUNKING_MODEL": "qwen3:4b-instruct"}
+        )
+        factory = Mock(return_value=_MockChatModel(()))
+
+        chunking_model.create_chunking_model(settings, ollama_factory=factory)
+
+        factory.assert_called_once()
+
+    def test_설정된_모델을_기존_chunk_document에_주입한다(self) -> None:
+        model = _MockChatModel((_response(("e000001",)),))
+        structure = _structure(_element("본문"))
+
+        async def run() -> tuple[Any, ...]:
+            return await service.chunk_document_with_config(
+                structure,
+                source_id="guide-1",
+                version="v1",
+                count_tokens=_tokens,
+                environ={
+                    "RAG_CHUNKING_PROVIDER": "ollama",
+                    "RAG_CHUNKING_MODEL": "qwen3:4b-instruct",
+                },
+                model_factory=lambda _: model,
+            )
+
+        chunks = asyncio.run(run())
+
+        self.assertEqual(model.calls, 1)
+        self.assertEqual(chunks[0].generation_method, "agentic")
+
+    def test_HTTP_429에서_다른_공급자를_생성하거나_전환하지_않는다(self) -> None:
+        model = _MockChatModel((_RateLimitError("429 rate limited"),))
+        gemini_factory = Mock(return_value=_MockChatModel(()))
+
+        async def run() -> tuple[Any, ...]:
+            return await service.chunk_document_with_config(
+                _structure(_element("본문")),
+                source_id="guide-1",
+                version="v1",
+                count_tokens=_tokens,
+                environ={
+                    "RAG_CHUNKING_PROVIDER": "ollama",
+                    "RAG_CHUNKING_MODEL": "qwen3:4b-instruct",
+                },
+                model_factory=_configured_model_factory(
+                    ollama_factory=lambda **_: model,
+                    gemini_factory=gemini_factory,
+                ),
+            )
+
+        chunks = asyncio.run(run())
+
+        self.assertEqual(model.calls, 1)
+        gemini_factory.assert_not_called()
+        self.assertTrue(chunks[0].fallback_used)
+        self.assertIn("429", chunks[0].model_failure)
+
+    def test_표_행_청킹은_생성된_모델을_호출하지_않는다(self) -> None:
+        model = _MockChatModel(())
+
+        async def run() -> tuple[Any, ...]:
+            return await service.chunk_document_with_config(
+                _structure(_table_element(1, 1, (_cell("값", 0, 0),))),
+                source_id="guide-1",
+                version="v1",
+                count_tokens=_tokens,
+                environ={
+                    "RAG_CHUNKING_PROVIDER": "ollama",
+                    "RAG_CHUNKING_MODEL": "qwen3:4b-instruct",
+                },
+                model_factory=lambda _: model,
+            )
+
+        chunks = asyncio.run(run())
+
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].kind, "table_row")
+        self.assertEqual(chunks[0].model_status, "not_used")
+        self.assertEqual(model.calls, 0)
+
+    def test_초기화_오류에_인증값을_노출하지_않는다(self) -> None:
+        secret = "rag/a+b"
+        encoded = quote(secret, safe="")
+        mixed_case = encoded.replace("%2F", "%2f")
+        settings = chunking_model.load_chunking_model_settings(
+            {
+                "RAG_CHUNKING_PROVIDER": "gemini",
+                "RAG_CHUNKING_MODEL": "gemini-2.5-flash",
+                "RAG_CHUNKING_GEMINI_API_KEY": secret,
+            }
+        )
+        provider_error = RuntimeError(
+            f"bad key: {secret} | {encoded} | {encoded.lower()} | {mixed_case}"
+        )
+        provider_error.__cause__ = RuntimeError(f"wrapped constructor error contains {encoded}")
+        log_output = io.StringIO()
+        log_handler = logging.StreamHandler(log_output)
+        root_logger = logging.getLogger()
+        original_log_level = root_logger.level
+        root_logger.addHandler(log_handler)
+        root_logger.setLevel(logging.DEBUG)
+
+        try:
+            with self.assertRaises(chunking_model.ChunkingModelInitializationError) as raised:
+                chunking_model.create_chunking_model(
+                    settings,
+                    gemini_factory=Mock(side_effect=provider_error),
+                )
+        finally:
+            root_logger.removeHandler(log_handler)
+            root_logger.setLevel(original_log_level)
+            log_handler.close()
+
+        failure = raised.exception
+        exposed_text = (
+            str(failure) + "".join(traceback.format_exception(failure)) + log_output.getvalue()
+        )
+        for secret_form in (secret, encoded, encoded.lower(), mixed_case):
+            self.assertNotIn(secret_form, exposed_text)
+        self.assertIsNone(failure.__cause__)
+        self.assertIsNone(failure.__context__)
+        self.assertNotIn(secret, repr(settings))
+
+    def test_존재하지_않는_Gemini_모델의_API_오류를_fallback_결과에_남긴다(self) -> None:
+        model = _MockChatModel((RuntimeError("404 model not found"),) * 4)
+
+        async def run() -> tuple[Any, ...]:
+            return await service.chunk_document_with_config(
+                _structure(_element("본문")),
+                source_id="guide-1",
+                version="v1",
+                count_tokens=_tokens,
+                environ={
+                    "RAG_CHUNKING_PROVIDER": "gemini",
+                    "RAG_CHUNKING_MODEL": "gemini-not-real",
+                    "RAG_CHUNKING_GEMINI_API_KEY": "rag-secret",
+                },
+                model_factory=_configured_model_factory(gemini_factory=lambda **_: model),
+            )
+
+        chunks = asyncio.run(run())
+
+        self.assertEqual(model.calls, 4)
+        self.assertEqual(chunks[0].model_status, "failed")
+        self.assertIn("404 model not found", chunks[0].model_failure)
+
+    def test_Gemini_실행_오류의_인증값을_fallback_메타데이터에서_숨긴다(self) -> None:
+        secret = "rag/a+b"
+        encoded = quote(secret, safe="")
+        mixed_case = encoded.replace("%2F", "%2f")
+        provider_error = _GoogleRateLimitError(secret)
+        self.assertEqual(provider_error.status, "RESOURCE_EXHAUSTED")
+        self.assertIsNone(getattr(provider_error, "status_code", None))
+        self.assertIsNone(getattr(provider_error.__cause__, "code", None))
+        model = _MockChatModel((provider_error,))
+        ollama_factory = Mock(return_value=_MockChatModel(()))
+
+        async def run() -> tuple[Any, ...]:
+            return await service.chunk_document_with_config(
+                _structure(_element("본문")),
+                source_id="guide-1",
+                version="v1",
+                count_tokens=_tokens,
+                environ={
+                    "RAG_CHUNKING_PROVIDER": "gemini",
+                    "RAG_CHUNKING_MODEL": "gemini-2.5-flash",
+                    "RAG_CHUNKING_GEMINI_API_KEY": secret,
+                },
+                model_factory=_configured_model_factory(
+                    gemini_factory=lambda **_: model,
+                    ollama_factory=ollama_factory,
+                ),
+            )
+
+        chunks = asyncio.run(run())
+
+        self.assertEqual(chunks[0].model_status, "failed")
+        self.assertEqual(chunks[0].model_attempts, 1)
+        self.assertTrue(chunks[0].fallback_used)
+        self.assertEqual(chunks[0].generation_method, "deterministic")
+        for secret_form in (secret, encoded, encoded.lower(), mixed_case):
+            self.assertNotIn(secret_form, chunks[0].model_failure)
+        self.assertIn("[REDACTED]", chunks[0].model_failure)
+        self.assertIn("HTTP 429", chunks[0].model_failure)
+        self.assertEqual(model.calls, 1)
+        ollama_factory.assert_not_called()
+
+    def test_Gemini_중첩된_숫자_code_429도_정상화한다(self) -> None:
+        secret = "rag/a+b"
+        provider_error = RuntimeError(f"wrapped provider failure: {secret}")
+        provider_error.__cause__ = _RateLimitCause(f"HTTP 429: {secret}")
+        inner_model = _MockChatModel((provider_error,))
+        model = chunking_model.create_chunking_model(
+            chunking_model.ChunkingModelSettings(
+                provider="gemini",
+                model="gemini-2.5-flash",
+                gemini_api_key=secret,
+            ),
+            gemini_factory=lambda **_: inner_model,
+        )
+
+        with self.assertRaises(RuntimeError) as raised:
+            asyncio.run(model._agenerate(messages=[]))
+
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertNotIn(secret, str(raised.exception))
+        self.assertEqual(inner_model.calls, 1)
+
+    def test_Gemini_실행_예외_traceback에_원본_키와_예외_체인을_남기지_않는다(self) -> None:
+        secret = "rag/a+b"
+        encoded = quote(secret, safe="")
+        mixed_case = encoded.replace("%2F", "%2f")
+        inner_model = _MockChatModel((_GoogleRateLimitError(secret),))
+        model = chunking_model.create_chunking_model(
+            chunking_model.ChunkingModelSettings(
+                provider="gemini",
+                model="gemini-2.5-flash",
+                gemini_api_key=secret,
+            ),
+            gemini_factory=lambda **_: inner_model,
+        )
+        log_output = io.StringIO()
+        log_handler = logging.StreamHandler(log_output)
+        root_logger = logging.getLogger()
+        original_log_level = root_logger.level
+        root_logger.addHandler(log_handler)
+        root_logger.setLevel(logging.DEBUG)
+
+        try:
+            with self.assertRaises(RuntimeError) as raised:
+                asyncio.run(model._agenerate(messages=[]))
+        finally:
+            root_logger.removeHandler(log_handler)
+            root_logger.setLevel(original_log_level)
+            log_handler.close()
+
+        failure = raised.exception
+        exposed_text = (
+            str(failure) + "".join(traceback.format_exception(failure)) + log_output.getvalue()
+        )
+        for secret_form in (secret, encoded, encoded.lower(), mixed_case):
+            self.assertNotIn(secret_form, exposed_text)
+        self.assertEqual(failure.status_code, 429)
+        self.assertIsNone(failure.__cause__)
+        self.assertIsNone(failure.__context__)
+        self.assertEqual(inner_model.calls, 1)
+
+    def test_모듈_import은_공급자_또는_llm_패키지를_불러오지_않는다(self) -> None:
+        imported: list[str] = []
+        original_import = builtins.__import__
+
+        def track_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name.startswith(
+                ("langchain_google_genai", "langchain_ollama", "llm", "starter_llm")
+            ):
+                imported.append(name)
+            return original_import(name, *args, **kwargs)
+
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("builtins.__import__", side_effect=track_import),
+        ):
+            importlib.reload(chunking_model)
+            importlib.reload(service)
+
+        self.assertEqual(imported, [])
 
 
 if __name__ == "__main__":
