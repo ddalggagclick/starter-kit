@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Protocol
 
 from starter_rag.contracts.models import Evidence
@@ -15,9 +16,56 @@ from starter_rag.contracts.models import Evidence
 from inheritance.contracts.chat import AnswerReference
 from inheritance.contracts.law import LawEvidence
 
+# V1 임시 인용 형식 [[근거ID]] (prompt_builder.ANSWER_SYSTEM_PROMPT와 같은 형식).
+_CITATION = re.compile(r"\[\[([^\[\]\s]+)\]\]")
+
+
+class CitationMismatch(Exception):
+    pass
+
 
 class CitationValidatorPort(Protocol):
     # cited_ids를 검색 결과와 대조해 실제 근거의 공식 URL·위치·버전만 반환한다.
     def validate_and_resolve(
         self, cited_ids: tuple[str, ...], rag: tuple[Evidence, ...], laws: tuple[LawEvidence, ...]
     ) -> tuple[AnswerReference, ...]: ...
+
+
+# 답변 본문에서 인용 ID를 처음 나온 순서대로 한 번씩만 꺼낸다.
+def extract_cited_ids(text: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(_CITATION.findall(text)))
+
+
+def _from_rag(item: Evidence) -> AnswerReference:
+    source = item.source
+    return AnswerReference(
+        evidence_id=item.evidence_id,
+        kind="procedure",
+        title=source.title,
+        official_url=source.url or "",
+        location=item.location,
+        version=source.version,
+    )
+
+
+def _from_law(item: LawEvidence) -> AnswerReference:
+    return AnswerReference(
+        evidence_id=item.evidence_id,
+        kind="law_article" if item.kind == "article" else "law_addendum",
+        title=item.law_title,
+        official_url=item.official_url,
+        location=item.article_number,
+        version=item.effective_from,
+    )
+
+
+class CitationValidator:
+    # 규칙으로만 대조한다. 인용이 없거나 검색되지 않은 ID가 하나라도 있으면 CitationMismatch(S7).
+    def validate_and_resolve(
+        self, cited_ids: tuple[str, ...], rag: tuple[Evidence, ...], laws: tuple[LawEvidence, ...]
+    ) -> tuple[AnswerReference, ...]:
+        known = {item.evidence_id: _from_rag(item) for item in rag}
+        known.update({item.evidence_id: _from_law(item) for item in laws})
+        if not cited_ids or any(cited not in known for cited in cited_ids):
+            raise CitationMismatch
+        return tuple(known[cited] for cited in cited_ids)
