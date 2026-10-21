@@ -112,7 +112,7 @@ class ChecklistGuidanceRuleTest(unittest.TestCase):
         for notice in result.guidance:
             for link in notice.fallback.links if notice.fallback else ():
                 self.assertTrue(link.url.startswith("https://"))
-                self.assertFalse(link.browser_checked)
+                self.assertTrue(link.browser_checked)
 
     def test_unapproved_risk_exposure_returns_common_warning_only(self) -> None:
         risks = (
