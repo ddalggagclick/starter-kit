@@ -1,6 +1,6 @@
 # 담당: [D] | 책임: Docling 기반 공식 안내자료 문서 변환.
 # PRD: E6 / 스토리 6-1 / 태스크 6-1-1
-# 구현할 기능: 로컬 PDF/DOCX/HTML을 DoclingDocument로 변환하고 실패 유형을 구분한다.
+# 구현할 기능: 설치된 Docling 입력 형식을 DoclingDocument로 변환하고 실패 유형을 구분한다.
 # 완료 기준: Docling 성공 상태의 변환 결과를 반환하고, 입력·변환 실패를 각각 식별한다.
 # 제한사항: 명시적으로 호출한 파일만 변환하며 법령 원문을 벡터 색인하지 않는다.
 
@@ -16,7 +16,6 @@ from docling_core.types.doc.document import DoclingDocument
 if TYPE_CHECKING:
     from docling.document_converter import DocumentConverter
 
-SUPPORTED_EXTENSIONS = frozenset({".pdf", ".docx", ".html", ".htm"})
 LocationStatus = Literal["verified", "not_applicable", "unverified"]
 
 
@@ -323,9 +322,7 @@ def _create_converter() -> DocumentConverter:
     from docling.datamodel.base_models import InputFormat
     from docling.document_converter import DocumentConverter
 
-    return DocumentConverter(
-        allowed_formats=[InputFormat.PDF, InputFormat.DOCX, InputFormat.HTML]
-    )
+    return DocumentConverter(allowed_formats=list(InputFormat))
 
 
 @lru_cache(maxsize=1)
@@ -341,7 +338,15 @@ def _validate_source(source: Path) -> None:
     except OSError as error:
         raise DocumentReadError(f"문서 파일을 확인할 수 없습니다: {source}") from error
 
-    if source.suffix.lower() not in SUPPORTED_EXTENSIONS:
+    from docling.datamodel.base_models import FormatToExtensions
+
+    source_name = source.name.lower()
+    supported_suffixes = (
+        f".{extension.lower().lstrip('.')}"
+        for extensions in FormatToExtensions.values()
+        for extension in extensions
+    )
+    if not any(source_name.endswith(suffix) for suffix in supported_suffixes):
         raise UnsupportedDocumentFormatError(
             f"지원하지 않는 문서 형식입니다: {source.suffix or '(확장자 없음)'}"
         )

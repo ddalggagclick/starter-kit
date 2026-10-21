@@ -16,13 +16,13 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "rag"))
 
+from docling.datamodel.base_models import FormatToExtensions, InputFormat
 from docling_core.types.doc.base import BoundingBox
 from docling_core.types.doc.document import DoclingDocument, ProvenanceItem
 from docling_core.types.doc.items.table.table_data import TableCell, TableData
 from docling_core.types.doc.labels import DocItemLabel
-
-from starter_rag.ingestion import parser
 from starter_rag import cli as rag_cli
+from starter_rag.ingestion import parser
 from starter_rag.ingestion.parser import (
     DocumentConversionError,
     DocumentReadError,
@@ -33,6 +33,38 @@ from starter_rag.ingestion.parser import (
 
 
 class DoclingParserAdapterTests(unittest.TestCase):
+    @staticmethod
+    def _write_pdf(path: Path, text: str) -> None:
+        content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode("ascii")
+        objects = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            (
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"
+            ),
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n"
+            + content
+            + b"\nendstream",
+        ]
+        pdf = bytearray(b"%PDF-1.4\n")
+        offsets = [0]
+        for index, body in enumerate(objects, start=1):
+            offsets.append(len(pdf))
+            pdf.extend(f"{index} 0 obj\n".encode("ascii"))
+            pdf.extend(body + b"\nendobj\n")
+        xref_offset = len(pdf)
+        pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+        pdf.extend(b"0000000000 65535 f \n")
+        for offset in offsets[1:]:
+            pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+        pdf.extend(
+            f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+        )
+        path.write_bytes(pdf)
+
     def _assert_mocked_format(self, extension: str) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / f"synthetic{extension}"
@@ -48,6 +80,77 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
         self.assertIs(document, expected_document)
         converter.convert.assert_called_once_with(source, raises_on_error=False)
+
+    def test_설치된_Docling의_모든_확장자를_대소문자와_복합확장자까지_허용한다(self) -> None:
+        extensions = sorted(
+            {extension for values in FormatToExtensions.values() for extension in values}
+        )
+        self.assertEqual(set(FormatToExtensions), set(InputFormat))
+
+        for extension in extensions:
+            with self.subTest(extension=extension):
+                self._assert_mocked_format(f".{extension}")
+
+        for extension in (".XLSX", ".DCLG.XML", ".TAR.GZ"):
+            with self.subTest(extension=extension):
+                self._assert_mocked_format(extension)
+
+    def test_Docling_변환기가_설치된_InputFormat_전체를_지원한다(self) -> None:
+        converter = parser._create_converter()
+
+        self.assertEqual(set(converter.format_to_options), set(InputFormat))
+
+    def test_실제_XLSX를_DoclingDocument로_변환한다(self) -> None:
+        from openpyxl import Workbook
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "synthetic-guide.xlsx"
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet["A1"] = "Parser adapter check"
+            worksheet["B1"] = "XLSX cell"
+            workbook.save(source)
+
+            document = parse_document(source)
+
+        self.assertIsInstance(document, DoclingDocument)
+        self.assertIn("Parser adapter check", document.export_to_markdown())
+
+    def test_손상된_XLSX는_변환_오류로_구분한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "damaged.xlsx"
+            source.write_bytes(b"not an Excel workbook")
+
+            with self.assertRaises(DocumentConversionError):
+                parse_document(source)
+
+    def test_실제_PDF를_DoclingDocument로_변환한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "synthetic-guide.pdf"
+            self._write_pdf(source, "PDF parser check")
+
+            document = parse_document(source)
+
+        self.assertIsInstance(document, DoclingDocument)
+        self.assertIn("PDF parser check", document.export_to_markdown())
+
+    def test_손상된_PDF는_변환_오류로_구분한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "damaged.pdf"
+            source.write_bytes(b"%PDF-1.4\nthis is not a document")
+
+            with self.assertRaises(DocumentConversionError):
+                parse_document(source)
+
+    def test_잘린_HTML은_Docling의_오류없이_복구되는_동작을_유지한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "truncated.html"
+            source.write_text("<html><body><h1>Truncated HTML", encoding="utf-8")
+
+            document = parse_document(source)
+
+        self.assertIsInstance(document, DoclingDocument)
+        self.assertIn("Truncated HTML", document.export_to_markdown())
 
     def test_합성_HTML을_실제_Docling으로_반복_변환한다(self) -> None:
         html = """<!doctype html>
@@ -222,7 +325,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
     def test_미지원_확장자는_별도_오류로_처리한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "notes.txt"
+            source = Path(directory) / "notes.exe"
             source.write_text("synthetic", encoding="utf-8")
 
             with self.assertRaises(UnsupportedDocumentFormatError):
@@ -357,7 +460,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
     def test_CLI에서_미지원_형식은_종료_코드_2를_반환한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "notes.txt"
+            source = Path(directory) / "notes.exe"
             source.write_text("synthetic", encoding="utf-8")
             stdout, stderr = StringIO(), StringIO()
 
