@@ -15,9 +15,60 @@ from starter_rag.contracts.models import Evidence
 
 from inheritance.contracts.law import LawEvidence
 
+# V1 임시 지시문(검수 전). 근거 인용 형식 [[근거ID]]는 citation_validation.py와 맞춰야 한다.
+ANSWER_SYSTEM_PROMPT = (
+    "아래에 주어진 근거만 사용해 답하세요. 근거에 없는 내용은 말하지 마세요.\n"
+    "문장마다 사용한 근거의 ID를 [[근거ID]] 형식으로 붙이세요.\n"
+    "개인별 법률 결론이나 판정을 내리지 마세요."
+)
+
 
 class AnswerPromptBuilderPort(Protocol):
     # 질문과 RAG·법령 근거를 ModelMessage로 만들고 근거별 출처 정보를 유지한다.
     def build(
-        self, question: str, rag: tuple[Evidence, ...], laws: tuple[LawEvidence, ...]
+        self,
+        question: str,
+        rag: tuple[Evidence, ...],
+        laws: tuple[LawEvidence, ...],
+        previous_questions: tuple[str, ...] = (),
     ) -> tuple[ModelMessage, ...]: ...
+
+
+def _rag_block(item: Evidence) -> str:
+    source = item.source
+    return (
+        f"[[{item.evidence_id}]] {source.title} | 기관: {source.publisher} | "
+        f"위치: {item.location} | 버전: {source.version} | {source.url}\n{item.text}"
+    )
+
+
+def _law_block(item: LawEvidence) -> str:
+    return (
+        f"[[{item.evidence_id}]] {item.law_title} {item.article_number} | "
+        f"시행일: {item.effective_from} | {item.official_url}\n{item.article_text}"
+    )
+
+
+class AnswerPromptBuilder:
+    # RAG 안내자료와 법령 조문·부칙을 서로 다른 구역에 넣는다. 비어 있는 구역은 넣지 않는다.
+    def build(
+        self,
+        question: str,
+        rag: tuple[Evidence, ...],
+        laws: tuple[LawEvidence, ...],
+        previous_questions: tuple[str, ...] = (),
+    ) -> tuple[ModelMessage, ...]:
+        sections: list[str] = []
+        if previous_questions:
+            sections.append("[이전 질문]\n" + "\n".join(f"- {q}" for q in previous_questions))
+        groups = (
+            ("[안내자료]", [_rag_block(item) for item in rag]),
+            ("[법령 조문]", [_law_block(item) for item in laws if item.kind == "article"]),
+            ("[법령 부칙]", [_law_block(item) for item in laws if item.kind == "addendum"]),
+        )
+        sections.extend(f"{title}\n" + "\n\n".join(blocks) for title, blocks in groups if blocks)
+        sections.append(f"[질문]\n{question}")
+        return (
+            ModelMessage("system", ANSWER_SYSTEM_PROMPT),
+            ModelMessage("user", "\n\n".join(sections)),
+        )
