@@ -111,10 +111,12 @@ class FallbackNotice:
     caution: str | None = None
 
 
-_GOV24 = SourceLink("정부24", "https://www.gov.kr/")
+# 아래 링크 7개는 2026-10-21 브라우저 확인 완료(PRD 1-3-2). 새 링크는 확인 전까지 기본값 False로 둔다.
+_GOV24 = SourceLink("정부24", "https://www.gov.kr/", browser_checked=True)
 _ONE_STOP = SourceLink(
     "정부24 안심상속",
     "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=17400000001",
+    browser_checked=True,
 )
 FALLBACKS: MappingProxyType[str, FallbackNotice] = MappingProxyType(
     {
@@ -126,6 +128,7 @@ FALLBACKS: MappingProxyType[str, FallbackNotice] = MappingProxyType(
                     "정부24 사망신고",
                     "https://www.gov.kr/mw/AA020InfoCappView.do"
                     "?CappBizCD=12700000059&HighCtgCD=A09006",
+                    browser_checked=True,
                 ),
                 _GOV24,
             ),
@@ -142,9 +145,10 @@ FALLBACKS: MappingProxyType[str, FallbackNotice] = MappingProxyType(
                 SourceLink(
                     "국세청 상속재산의 확인",
                     "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7725&mi=2332",
+                    browser_checked=True,
                 ),
                 _ONE_STOP,
-                SourceLink("국세청", "https://www.nts.go.kr/"),
+                SourceLink("국세청", "https://www.nts.go.kr/", browser_checked=True),
             ),
             caution=(
                 "공식 조회에 포함되지 않는 재산·채무가 있을 수 있습니다. 조회 결과만으로 모든 "
@@ -155,8 +159,12 @@ FALLBACKS: MappingProxyType[str, FallbackNotice] = MappingProxyType(
             "F04",
             "상속포기·한정승인 신고 절차와 서류는 법원 공식 안내에서 확인하세요.",
             (
-                SourceLink("법원 전자민원센터", "https://www.scourt.go.kr/nm/main/index.html"),
-                SourceLink("대한법률구조공단", "https://www.klac.or.kr/"),
+                SourceLink(
+                    "법원 전자민원센터",
+                    "https://www.scourt.go.kr/nm/main/index.html",
+                    browser_checked=True,
+                ),
+                SourceLink("대한법률구조공단", "https://www.klac.or.kr/", browser_checked=True),
             ),
             caution="본인에게 적용되는 법적 기한이나 효력은 대한법률구조공단에서 상담하세요.",
         ),
