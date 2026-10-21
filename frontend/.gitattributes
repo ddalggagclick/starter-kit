@@ -1,0 +1,5 @@
+# 책임: [A] frontend 파일 줄바꿈을 LF로 고정한다(biome.jsonc lineEnding: lf와 일치).
+# 이유: Git for Windows 기본값 core.autocrlf=true가 작업 파일을 CRLF로 꺼내 Biome 포맷 검사와 어긋난다.
+# 범위: 이 폴더(frontend/) 아래만 적용한다. 루트 .gitattributes는 통합 관리자 소유라 건드리지 않는다.
+# 근거: GitHub 이슈 #29
+* text=auto eol=lf
