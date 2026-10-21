@@ -21,10 +21,12 @@ class ModelSelection:
     auto_fallback: bool = False
 
     def __post_init__(self) -> None:
-        if self.classification_provider not in ("gemini", "ollama") or self.answer_provider not in (
+        allowed = (
             "gemini",
+            "groq",
             "ollama",
-        ):
+        )  # groq 추가(3-2-4): LLMSettings.selection이 groq를 만들 수 있음
+        if self.classification_provider not in allowed or self.answer_provider not in allowed:
             raise ValueError("unsupported provider")
         if self.auto_fallback:
             raise ValueError("automatic provider fallback is prohibited")
