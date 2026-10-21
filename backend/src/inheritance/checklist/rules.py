@@ -8,6 +8,8 @@
 
 문구 원문은 '체크리스트 조건별 안내문구 공식자료 검증 Q98' 8장(information 저장소 커밋 f1c0959)을 그대로 옮긴다.
 이 파일에서 새 문장을 만들지 않는다. 문구를 바꿀 때는 원문 문서를 먼저 고치고 CONTENT_VERSION을 올린다.
+F05~F08의 링크·답변 문구 원문은 'RAG Source Unit·공식자료 명세서 v0.5'(김수빈, 10/19) 6·7절을
+정리한 SourceUnit 표(김선, 10/21)다. URL이 없는 Unit은 표의 답변 문구를 그대로 쓴다.
 """
 
 from __future__ import annotations
@@ -24,7 +26,8 @@ from inheritance.contracts.domain import (
 )
 
 # 2026-10-21: 03번 문구 갱신, 06번 수정안 승인·공식 근거 재검증(P2-02) 반영.
-CONTENT_VERSION = "q98-f1c0959"
+# 2026-10-21: p02·p06·p07·p08 대체 안내 F05~F08 추가(SourceUnit 명세서 v0.5).
+CONTENT_VERSION = "q98-f1c0959+su-v0.5"
 
 # 결정 문서 2.2절의 고정 순서(Q86·Q87). 정보 탐색용 순서이며 법적 우선순위가 아니다.
 PROCEDURE_ORDER: tuple[ProcedureId, ...] = (
@@ -169,10 +172,71 @@ FALLBACKS: MappingProxyType[str, FallbackNotice] = MappingProxyType(
             ),
             caution="본인에게 적용되는 법적 기한이나 효력은 대한법률구조공단에서 상담하세요.",
         ),
+        # F05~F08: SourceUnit 표 그대로. 모든 Unit이 조건부라 "공식 링크에서 직접 확인"을 붙인다.
+        # 아래 링크 6개는 2026-10-21 Windows 브라우저 확인 완료. K-Geo 주소는 김선 님 회신(정식 주소),
+        # 대법원 등기예규 제1871호(U-07-REG-LEGAL·AGREED·COMMON)는 사법정보공개포털 첫 화면으로 통일한다.
+        "F05": FallbackNotice("F05", "공식 링크에서 직접 확인", ()),
+        "F06": FallbackNotice(
+            "F06",
+            "해당 은행에 직접 확인. 공식 링크에서 직접 확인",
+            (
+                SourceLink(
+                    "사망자 명의 금융거래 신속차단 (금융위원회)",
+                    "https://fsc.go.kr/no010101/87657",
+                    browser_checked=True,
+                ),
+                SourceLink(
+                    "상속인 금융거래조회 제도안내 (금융감독원 FINE)",
+                    "https://fine.fss.or.kr/fine/main/contents.do?menuNo=900209",
+                    browser_checked=True,
+                ),
+            ),
+        ),
+        "F07": FallbackNotice(
+            "F07",
+            "공식 링크에서 직접 확인",
+            (
+                SourceLink(
+                    "조상땅 찾기 안내 (서울특별시)",
+                    "https://land.seoul.go.kr/land/rtms/findYourLand.do",
+                    browser_checked=True,
+                ),
+                SourceLink(
+                    "조상땅 찾기 (국토교통부 K-Geo)",
+                    "https://kgeop.go.kr/myland/laf/getAncLadFind.do",
+                    browser_checked=True,
+                ),
+                SourceLink(
+                    "대법원 사법정보공개포털",
+                    "https://portal.scourt.go.kr",
+                    browser_checked=True,
+                ),
+            ),
+        ),
+        "F08": FallbackNotice(
+            "F08",
+            "해당 통신사에 직접 확인. 공식 링크에서 직접 확인",
+            (
+                SourceLink(
+                    "필요서류 안내 (SKT T world)",
+                    "https://m.tworld.co.kr/customer/document",
+                    browser_checked=True,
+                ),
+            ),
+        ),
     }
 )
 PROCEDURE_FALLBACK_IDS: MappingProxyType[ProcedureId, str] = MappingProxyType(
-    {"p01": "F01", "p03": "F02", "p04": "F03", "p05": "F04"}
+    {
+        "p01": "F01",
+        "p02": "F05",
+        "p03": "F02",
+        "p04": "F03",
+        "p05": "F04",
+        "p06": "F06",
+        "p07": "F07",
+        "p08": "F08",
+    }
 )
 
 
