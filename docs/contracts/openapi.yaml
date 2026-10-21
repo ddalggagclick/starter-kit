@@ -2,41 +2,43 @@ openapi: 3.0.3
 info:
   title: 상속 길잡이 API 명세서
   version: 0.2.0-draft (2026-10-21)
-  description: "PRD 7-1-5 (Swagger 기준 API 상세 입력·응답·오류 명세). 작성: 김선(B2/C), 공동: 김현주(B1/API), 이정민(F1).\n- 값 이름(relationship, riskId\
+  description:
+    "PRD 7-1-5 (Swagger 기준 API 상세 입력·응답·오류 명세). 작성: 김선(B2/C), 공동: 김현주(B1/API), 이정민(F1).\n- 값 이름(relationship, riskId\
     \ 등)은 팀 코드 `backend/src/inheritance/contracts/domain.py`, 오류 코드는 `core/errors.py` 기준입니다.\n- `x-status`: 협의완료 / 일부 / 제안\
     \ / 보류. 제안·보류 항목은 확정이 아닙니다. 확정은 API 담당(김현주) 승인 후 표시합니다.\n- 경로가 \"제안\"인 항목은 팀 코드에 아직 라우터가 없습니다.\n- 로그에 사용자 질문 원문, 토큰, 카카오\
     \ 사용자 ID를 남기지 않습니다.\n\n    - 카카오 스킬 서버는 우선 별도 서버로 운영하고, 백엔드와 합칠지는 최종 단계에서 결정합니다(10/21 김선). 합치기 전까지 `/skill`은 이 문서에 있어도\
     \ 백엔드 OpenAPI(`/openapi.json`)에는 나타나지 않습니다.\n    - `x-confirmed`: true는 10/20 협의 완료, false는 제안·보류. `x-path-proposed`:\
     \ true는 경로 이름이 제안(팀 코드에 라우터 없음)."
 servers:
-- url: http://127.0.0.1:8000
-  description: 백엔드(로컬)
-- url: https://kakaogil.onrender.com
-  description: 카카오 스킬 서버(별도 Render). 최종 단계에서 백엔드와 합칠지 결정
+  - url: http://127.0.0.1:8000
+    description: 백엔드(로컬)
+  - url: https://kakaogil.onrender.com
+    description: 카카오 스킬 서버(별도 Render). 최종 단계에서 백엔드와 합칠지 결정
 tags:
-- name: kakao
-  description: 카카오 스킬 (김선)
-- name: handoff
-  description: 카카오→웹 인계 (구현 김현주 / 호출 김선·이정민)
-- name: procedures
-  description: 절차 안내
-- name: ai
-  description: AI 질문 (SSE)
-- name: auth
-  description: 인증
-- name: account
-  description: 계정 데이터
-- name: common
-  description: 공통
+  - name: kakao
+    description: 카카오 스킬 (김선)
+  - name: handoff
+    description: 카카오→웹 인계 (구현 김현주 / 호출 김선·이정민)
+  - name: procedures
+    description: 절차 안내
+  - name: ai
+    description: AI 질문 (SSE)
+  - name: auth
+    description: 인증
+  - name: account
+    description: 계정 데이터
+  - name: common
+    description: 공통
 paths:
   /skill:
     post:
       tags:
-      - kakao
+        - kakao
       operationId: A01_A02_A03_kakaoSkill
       summary: A01~A03 카카오 스킬 (초기 3문항, 위험 질문 3종, 절차 카드)
       x-status: 협의완료 (10/20)
-      description: '카카오 오픈빌더가 호출합니다. 호출자: 카카오. 서버: `kakao/**` (김선).
+      description:
+        '카카오 오픈빌더가 호출합니다. 호출자: 카카오. 서버: `kakao/**` (김선).
 
         한 사용자의 진행 상태(질문 단계)는 서버 메모리의 세션에만 두며 저장하지 않습니다.
 
@@ -50,61 +52,62 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/KakaoSkillRequest'
+              $ref: "#/components/schemas/KakaoSkillRequest"
       responses:
-        '200':
+        "200":
           description: 카카오 스킬 응답 v2.0 (오류가 나도 200과 안전한 안내 말풍선을 돌려줌)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/KakaoSkillResponse'
+                $ref: "#/components/schemas/KakaoSkillResponse"
       x-confirmed: true
       x-path-proposed: false
   /api/handoff:
     post:
       tags:
-      - handoff
+        - handoff
       operationId: A04_issueHandoff
       summary: A04 인계 토큰 발급 (카카오 서버 → 백엔드, 서버 간 호출)
       x-status: 협의완료 · 구현(김현주 로컬 시험, 저장소 미반영) · 비밀 헤더 이름은 제안
-      description: '웹 공개 API가 아닙니다. 사용자가 카카오에서 [웹 체크리스트에서 보기]를 누른 시점에 호출합니다.
+      description:
+        "웹 공개 API가 아닙니다. 사용자가 카카오에서 [웹 체크리스트에서 보기]를 누른 시점에 호출합니다.
 
         토큰은 의미 없는 임의 문자열이며 서버 메모리에 10분, 1회만 보관합니다(재시작 시 유실될 수 있음).
 
         웹 링크: `{FRONTEND_ORIGIN}/checklist?handoff=<token>` (J1).
 
-        '
+        "
       parameters:
-      - name: X-Handoff-Secret
-        in: header
-        required: true
-        description: 서버 간 비밀값(HANDOFF_SERVER_SECRET). 헤더 이름은 제안. 로그 금지.
-        schema:
-          type: string
+        - name: X-Handoff-Secret
+          in: header
+          required: true
+          description: 서버 간 비밀값(HANDOFF_SERVER_SECRET). 헤더 이름은 제안. 로그 금지.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/HandoffPayload'
+              $ref: "#/components/schemas/HandoffPayload"
             example:
               relationship: descendant
-              deathDate: '2026-09-30'
+              deathDate: "2026-09-30"
               deathDateUnknown: false
               oneStopApplication: unknown
               risks:
-              - riskId: property_disposal
-                answer: 'yes'
+                - riskId: property_disposal
+                  answer: "yes"
       responses:
-        '200':
+        "200":
           description: 발급 성공
           content:
             application/json:
               schema:
                 type: object
                 required:
-                - token
-                - expiresInSeconds
+                  - token
+                  - expiresInSeconds
                 properties:
                   token:
                     type: string
@@ -112,26 +115,27 @@ paths:
                   expiresInSeconds:
                     type: integer
                     example: 600
-        '401':
-          $ref: '#/components/responses/HandoffUnauthorized'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        "401":
+          $ref: "#/components/responses/HandoffUnauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
       x-confirmed: true
       x-path-proposed: false
   /api/handoff/exchange:
     post:
       tags:
-      - handoff
+        - handoff
       operationId: A05_exchangeHandoff
       summary: A05 인계 토큰 교환 (웹 진입 시 1회)
       x-status: 협의완료 · 경로는 제안 · 오류 400 확정(D1)
-      description: '웹(이정민)이 링크의 `handoff` 값을 읽어 본문으로 보내고, 주소에서 토큰을 지웁니다(J3).
+      description:
+        "웹(이정민)이 링크의 `handoff` 값을 읽어 본문으로 보내고, 주소에서 토큰을 지웁니다(J3).
 
         성공 즉시 토큰이 무효가 되며, 동시에 2번 보내면 1번만 성공합니다.
 
         만료·이미 사용·없는 토큰은 모두 같은 코드·같은 응답입니다.
 
-        '
+        "
       requestBody:
         required: true
         content:
@@ -139,23 +143,23 @@ paths:
             schema:
               type: object
               required:
-              - token
+                - token
               properties:
                 token:
                   type: string
       responses:
-        '200':
+        "200":
           description: 카카오에서 답한 내용
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HandoffPayload'
-        '400':
+                $ref: "#/components/schemas/HandoffPayload"
+        "400":
           description: HANDOFF_INVALID (core/errors.py)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
               example:
                 code: HANDOFF_INVALID
                 message: 연결이 만료되었거나 이미 사용되었습니다.
@@ -164,12 +168,12 @@ paths:
   /api/procedures:
     get:
       tags:
-      - procedures
+        - procedures
       operationId: A07_listProcedures
       summary: A07 절차 8개 목록
       x-status: 협의 일부 완료 (경로는 ERD 3.2 제안, 절차 ID 표기 D6 보류)
       responses:
-        '200':
+        "200":
           description: 고정 8개 절차
           content:
             application/json:
@@ -184,7 +188,7 @@ paths:
                       type: object
                       properties:
                         procedureId:
-                          $ref: '#/components/schemas/ProcedureId'
+                          $ref: "#/components/schemas/ProcedureId"
                         name:
                           type: string
                         summary:
@@ -194,39 +198,40 @@ paths:
   /api/procedures/{procedureId}:
     get:
       tags:
-      - procedures
+        - procedures
       operationId: A07_getProcedure
       summary: A07 절차 상세
       x-status: 협의 일부 완료
       parameters:
-      - name: procedureId
-        in: path
-        required: true
-        schema:
-          $ref: '#/components/schemas/ProcedureId'
+        - name: procedureId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ProcedureId"
       responses:
-        '200':
+        "200":
           description: 항상 표시 4개 + 접는 항목(4건 이상이면 접음)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProcedureDetail'
-        '404':
+                $ref: "#/components/schemas/ProcedureDetail"
+        "404":
           description: 없는 절차 ID (팀 코드 오류 목록에 없음 → 제안)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
       x-confirmed: false
       x-path-proposed: true
   /api/ai/ask:
     post:
       tags:
-      - ai
+        - ai
       operationId: A08_askAi
       summary: A08 AI 질문 (분류→검색→답변, SSE 수신)
       x-status: 협의완료 (10/20) · 경로 제안
-      description: '응답은 `text/event-stream`. 이벤트는 status → result 또는 error.
+      description:
+        "응답은 `text/event-stream`. 이벤트는 status → result 또는 error.
 
         연결을 끊으면 해당 요청이 취소됩니다(A09는 별도 API 없음). 남은 횟수(A10)는 result에 포함됩니다.
 
@@ -234,7 +239,7 @@ paths:
 
         Gemini 429는 자동 모델 전환·무한 재시도 없이 사용 제한 상태(S9)로 전환합니다.
 
-        '
+        "
       requestBody:
         required: true
         content:
@@ -242,8 +247,8 @@ paths:
             schema:
               type: object
               required:
-              - question
-              - requestId
+                - question
+                - requestId
               properties:
                 question:
                   type: string
@@ -259,38 +264,38 @@ paths:
                     type: string
                   description: 같은 채팅의 이전 사용자 질문 0~3개 (협의 7)
       responses:
-        '200':
+        "200":
           description: SSE 스트림
           content:
             text/event-stream:
               schema:
-                $ref: '#/components/schemas/SseEvents'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
+                $ref: "#/components/schemas/SseEvents"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
           description: RATE_LIMITED(비로그인 하루 10회) 또는 PROVIDER_RATE_LIMIT(공급자 한도). 스트림 시작 전이면 HTTP 상태, 시작 후면 error 이벤트
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
+                $ref: "#/components/schemas/Error"
+        "503":
           description: PROVIDER_UNAVAILABLE (D2 확정)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '504':
-          description: PROVIDER_TIMEOUT
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: PROVIDER_TIMEOUT (D2 확정)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
       x-confirmed: true
       x-path-proposed: true
   /api/auth/signup:
     post:
       tags:
-      - auth
+        - auth
       operationId: A11_signup
       summary: A11 회원가입
       x-status: 협의완료 · 경로 제안
@@ -301,8 +306,8 @@ paths:
             schema:
               type: object
               required:
-              - email
-              - password
+                - email
+                - password
               properties:
                 email:
                   type: string
@@ -313,18 +318,18 @@ paths:
                   maxLength: 64
                   description: 영문·숫자 조합 (H5)
       responses:
-        '201':
+        "201":
           description: 가입 완료. 이메일 인증 전에는 로그인 불가
-        '409':
+        "409":
           description: 이미 가입된 이메일 (팀 코드 오류 목록에 없음 → 제안)
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        "422":
+          $ref: "#/components/responses/ValidationError"
       x-confirmed: true
       x-path-proposed: true
   /api/auth/email/verify:
     post:
       tags:
-      - auth
+        - auth
       operationId: A12_verifyEmail
       summary: A12 이메일 인증 확인
       x-status: 협의완료 · 경로 제안
@@ -336,21 +341,21 @@ paths:
             schema:
               type: object
               required:
-              - verificationToken
+                - verificationToken
               properties:
                 verificationToken:
                   type: string
       responses:
-        '200':
+        "200":
           description: 인증 완료
-        '400':
+        "400":
           description: 만료·이미 사용 (제안)
       x-confirmed: true
       x-path-proposed: true
   /api/auth/email/resend:
     post:
       tags:
-      - auth
+        - auth
       operationId: A12_resendEmail
       summary: A12 인증 메일 재전송
       x-status: 협의완료 · 경로 제안
@@ -362,22 +367,22 @@ paths:
             schema:
               type: object
               required:
-              - email
+                - email
               properties:
                 email:
                   type: string
                   format: email
       responses:
-        '202':
+        "202":
           description: 접수(가입 여부를 알리지 않음)
-        '429':
+        "429":
           description: RATE_LIMITED
       x-confirmed: true
       x-path-proposed: true
   /api/auth/login:
     post:
       tags:
-      - auth
+        - auth
       operationId: A13_login
       summary: A13 로그인
       x-status: 협의완료 · 경로 제안
@@ -388,8 +393,8 @@ paths:
             schema:
               type: object
               required:
-              - email
-              - password
+                - email
+                - password
               properties:
                 email:
                   type: string
@@ -397,7 +402,7 @@ paths:
                 password:
                   type: string
       responses:
-        '200':
+        "200":
           description: Access 15분. Refresh는 HttpOnly 쿠키(7일, 회전)로 별도 전달
           content:
             application/json:
@@ -409,22 +414,22 @@ paths:
                   expiresIn:
                     type: integer
                     example: 900
-        '401':
+        "401":
           description: UNAUTHENTICATED (이메일·비밀번호 불일치)
-        '429':
+        "429":
           description: RATE_LIMITED (15분 안에 5번 실패)
       x-confirmed: true
       x-path-proposed: true
   /api/auth/refresh:
     post:
       tags:
-      - auth
+        - auth
       operationId: A14_refresh
       summary: A14 토큰 재발급
       x-status: 협의완료 · 경로 제안
       description: 본문 없음. Refresh 쿠키 + 출처 확인·지정 헤더로 CSRF 방어
       responses:
-        '200':
+        "200":
           description: 재발급
           content:
             application/json:
@@ -433,28 +438,28 @@ paths:
                 properties:
                   accessToken:
                     type: string
-        '401':
+        "401":
           description: REFRESH_INVALID (재사용 탐지·만료)
-        '403':
+        "403":
           description: CSRF_INVALID / ORIGIN_FORBIDDEN
       x-confirmed: true
       x-path-proposed: true
   /api/auth/logout:
     post:
       tags:
-      - auth
+        - auth
       operationId: A14_logout
       summary: A14 로그아웃
       x-status: 협의완료 · 경로 제안
       responses:
-        '204':
+        "204":
           description: 로그아웃
       x-confirmed: true
       x-path-proposed: true
   /api/auth/password/reset-request:
     post:
       tags:
-      - auth
+        - auth
       operationId: A15_resetRequest
       summary: A15 비밀번호 재설정 메일 요청
       x-status: 협의완료 · 경로 제안
@@ -466,20 +471,20 @@ paths:
             schema:
               type: object
               required:
-              - email
+                - email
               properties:
                 email:
                   type: string
                   format: email
       responses:
-        '202':
+        "202":
           description: 접수
       x-confirmed: true
       x-path-proposed: true
   /api/auth/password/reset:
     post:
       tags:
-      - auth
+        - auth
       operationId: A15_resetPassword
       summary: A15 새 비밀번호 설정
       x-status: 협의완료 · 경로 제안
@@ -491,8 +496,8 @@ paths:
             schema:
               type: object
               required:
-              - resetToken
-              - newPassword
+                - resetToken
+                - newPassword
               properties:
                 resetToken:
                   type: string
@@ -501,24 +506,24 @@ paths:
                   minLength: 8
                   maxLength: 64
       responses:
-        '200':
+        "200":
           description: 변경 완료
-        '400':
+        "400":
           description: 만료·이미 사용 (제안)
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        "422":
+          $ref: "#/components/responses/ValidationError"
       x-confirmed: true
       x-path-proposed: true
   /api/account:
     delete:
       tags:
-      - account
+        - account
       operationId: A16_deleteAccount
       summary: A16 회원 탈퇴
       x-status: 협의완료 · 경로 제안
       description: 비밀번호를 한 번 더 입력. 실제 삭제 확인 전에 "완료"라고 하지 않고, 부분 실패는 알림
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -526,80 +531,80 @@ paths:
             schema:
               type: object
               required:
-              - password
+                - password
               properties:
                 password:
                   type: string
       responses:
-        '200':
+        "200":
           description: 계정·세션·서버 체크리스트 삭제 결과
-        '401':
+        "401":
           description: UNAUTHENTICATED
-        '403':
+        "403":
           description: FORBIDDEN
       x-confirmed: true
       x-path-proposed: true
   /api/me/checklist:
     get:
       tags:
-      - account
+        - account
       operationId: A17_getChecklist
       summary: A17 서버 저장 체크리스트 조회
       x-status: 제안 (구현 시 확정)
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: 저장된 체크리스트 + 서버 저장 동의 상태
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChecklistSaved'
-        '401':
+                $ref: "#/components/schemas/ChecklistSaved"
+        "401":
           description: UNAUTHENTICATED
-        '403':
+        "403":
           description: FORBIDDEN (서버 저장 동의 없음)
       x-confirmed: false
       x-path-proposed: true
     put:
       tags:
-      - account
+        - account
       operationId: A17_putChecklist
       summary: A17 서버 체크리스트 저장 (전체 덮어쓰기는 제안)
       x-status: 제안 (구현 시 확정)
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ChecklistSave'
+              $ref: "#/components/schemas/ChecklistSave"
       responses:
-        '200':
+        "200":
           description: 저장된 체크리스트 + 서버 저장 동의 상태
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChecklistSaved'
-        '401':
+                $ref: "#/components/schemas/ChecklistSaved"
+        "401":
           description: UNAUTHENTICATED
-        '403':
+        "403":
           description: FORBIDDEN (서버 저장 동의 없음)
       x-confirmed: false
       x-path-proposed: true
     delete:
       tags:
-      - account
+        - account
       operationId: A17_deleteChecklist
       summary: A17 동의 철회 + 서버 체크리스트 삭제
       x-status: 제안 (구현 시 확정)
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
-        '204':
+        "204":
           description: 삭제됨
-        '401':
+        "401":
           description: UNAUTHENTICATED
       x-confirmed: false
       x-path-proposed: true
@@ -607,13 +612,13 @@ paths:
   /health:
     get:
       tags:
-      - common
+        - common
       operationId: A18_health
       summary: A18 서버 상태 확인
       x-status: 협의완료 · 10분마다 cron 호출(협의 10)
       description: 백엔드 `GET /health`. 카카오 서버는 `GET /` (`{"status":"ok"}`)
       responses:
-        '200':
+        "200":
           description: 정상
           content:
             application/json:
@@ -631,56 +636,56 @@ paths:
   /api/checklist/guidance:
     post:
       tags:
-      - procedures
+        - procedures
       operationId: A19_guidance
       summary: A19 체크리스트 안내·위험 문구 계산
       x-status: 보류 (D3~D7 개발 보류) · 신규 제안(김현주)
       description: 입력·응답·오류 미정. 팀 코드의 ChecklistService.build_guidance(I02)를 HTTP로 여는 제안입니다. 카카오와 백엔드가 한 서버가 되면 불필요할 수 있습니다.
       responses:
-        '200':
+        "200":
           description: 미정
       x-confirmed: false
       x-path-proposed: false
   /api/me/consents:
     get:
       tags:
-      - account
+        - account
       operationId: A20_getConsents
       summary: A20 서버 저장 동의 조회
       x-status: 보류 · 신규 제안(김현주)
       description: 미정. A17 요청에 동의를 넣는 방식과 비교 필요
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: 미정
       x-confirmed: false
       x-path-proposed: false
     put:
       tags:
-      - account
+        - account
       operationId: A20_putConsents
       summary: A20 서버 저장 동의 변경
       x-status: 보류 · 신규 제안(김현주)
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: 미정
       x-confirmed: false
       x-path-proposed: false
   /api/me:
     get:
       tags:
-      - account
+        - account
       operationId: A21_me
       summary: A21 내 계정 정보
       x-status: 보류 · 신규 제안(김현주)
       description: 이메일, 이메일 확인 여부, 서버 저장 동의 여부(제안). 필요 여부 미정
       security:
-      - bearerAuth: []
+        - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: 미정
       x-confirmed: false
       x-path-proposed: false
@@ -696,19 +701,19 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     HandoffUnauthorized:
       description: 비밀값 불일치 (코드 이름은 제안)
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
   schemas:
     Error:
       type: object
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
@@ -720,78 +725,78 @@ components:
     Relationship:
       type: string
       enum:
-      - spouse
-      - descendant
-      - ascendant
-      - sibling
-      - other
-      - unknown
+        - spouse
+        - descendant
+        - ascendant
+        - sibling
+        - other
+        - unknown
     AnswerChoice:
       type: string
       enum:
-      - 'yes'
-      - 'no'
-      - unknown
+        - "yes"
+        - "no"
+        - unknown
     RiskId:
       type: string
       enum:
-      - debt
-      - property_disposal
-      - self_application
+        - debt
+        - property_disposal
+        - self_application
     ProcedureId:
       type: string
       enum:
-      - p01
-      - p02
-      - p03
-      - p04
-      - p05
-      - p06
-      - p07
-      - p08
+        - p01
+        - p02
+        - p03
+        - p04
+        - p05
+        - p06
+        - p07
+        - p08
       description: 코드 기준. 협의 H4의 영문 이름과의 대응은 D6 보류
     HandoffPayload:
       type: object
       required:
-      - relationship
-      - deathDate
-      - deathDateUnknown
-      - oneStopApplication
-      description: 'JSON 이름은 camelCase(제안), 값은 contracts/domain.py 기준.
+        - relationship
+        - deathDate
+        - deathDateUnknown
+        - oneStopApplication
+      description: "JSON 이름은 camelCase(제안), 값은 contracts/domain.py 기준.
 
         deathDate가 null이면 deathDateUnknown은 true, 날짜가 있으면 false여야 합니다(불일치는 422).
 
-        '
+        "
       properties:
         relationship:
-          $ref: '#/components/schemas/Relationship'
+          $ref: "#/components/schemas/Relationship"
         deathDate:
           type: string
           format: date
           nullable: true
-          example: '2026-09-30'
+          example: "2026-09-30"
         deathDateUnknown:
           type: boolean
         oneStopApplication:
-          $ref: '#/components/schemas/AnswerChoice'
+          $ref: "#/components/schemas/AnswerChoice"
         risks:
           type: array
           description: 답한 위험 질문만 포함
           items:
             type: object
             required:
-            - riskId
-            - answer
+              - riskId
+              - answer
             properties:
               riskId:
-                $ref: '#/components/schemas/RiskId'
+                $ref: "#/components/schemas/RiskId"
               answer:
-                $ref: '#/components/schemas/AnswerChoice'
+                $ref: "#/components/schemas/AnswerChoice"
     ProcedureDetail:
       type: object
       properties:
         procedureId:
-          $ref: '#/components/schemas/ProcedureId'
+          $ref: "#/components/schemas/ProcedureId"
         action:
           type: string
           description: 바로 할 행동
@@ -834,14 +839,14 @@ components:
           type: array
           maxItems: 3
           items:
-            $ref: '#/components/schemas/ProcedureId'
+            $ref: "#/components/schemas/ProcedureId"
           description: 함께 보면 좋은 절차 0~3개 (필드 이름·저장 위치는 제안, D4 보류)
     SseEvents:
       description: text/event-stream 한 건의 data. 이벤트 이름(event:)에 따라 아래 중 하나입니다.
       oneOf:
-      - $ref: '#/components/schemas/SseStatusEvent'
-      - $ref: '#/components/schemas/SseResultEvent'
-      - $ref: '#/components/schemas/SseErrorEvent'
+        - $ref: "#/components/schemas/SseStatusEvent"
+        - $ref: "#/components/schemas/SseResultEvent"
+        - $ref: "#/components/schemas/SseErrorEvent"
     KakaoSkillRequest:
       type: object
       description: 카카오 오픈빌더 스킬 요청 중 이 서버가 읽는 필드만 적었습니다.
@@ -867,12 +872,12 @@ components:
     KakaoSkillResponse:
       type: object
       required:
-      - version
-      - template
+        - version
+        - template
       properties:
         version:
           type: string
-          example: '2.0'
+          example: "2.0"
         template:
           type: object
           properties:
@@ -897,8 +902,8 @@ components:
     ChecklistSave:
       type: object
       required:
-      - itemStates
-      - serverSaveConsent
+        - itemStates
+        - serverSaveConsent
       properties:
         itemStates:
           type: array
@@ -920,16 +925,16 @@ components:
           description: 서버 저장 동의 상태
     SseStatusEvent:
       type: object
-      description: 'event: status (여러 번)'
+      description: "event: status (여러 번)"
       required:
-      - stage
+        - stage
       properties:
         stage:
           type: string
           enum:
-          - searching
-          - lawChecking
-          - writing
+            - searching
+            - lawChecking
+            - writing
     SseSource:
       type: object
       properties:
@@ -941,22 +946,22 @@ components:
       description: 출처 필드는 제안(RAG 계약 확정 후 맞춤)
     SseResultEvent:
       type: object
-      description: 'event: result (1번). 출처 0개면 state=withheld'
+      description: "event: result (1번). 출처 0개면 state=withheld"
       required:
-      - state
+        - state
       properties:
         state:
           type: string
           enum:
-          - answered
-          - withheld
+            - answered
+            - withheld
         answer:
           type: string
           nullable: true
         sources:
           type: array
           items:
-            $ref: '#/components/schemas/SseSource'
+            $ref: "#/components/schemas/SseSource"
         remainingToday:
           type: integer
           nullable: true
@@ -965,24 +970,24 @@ components:
           type: string
           nullable: true
           enum:
-          - SOURCE_NOT_VERIFIED
-          - CITATION_MISMATCH
-          - null
+            - SOURCE_NOT_VERIFIED
+            - CITATION_MISMATCH
+            - null
           description: withheld일 때 사유 (S7). 필드 이름은 제안
     SseErrorEvent:
       type: object
-      description: 'event: error (1번)'
+      description: "event: error (1번)"
       required:
-      - code
-      - message
+        - code
+        - message
       properties:
         code:
           type: string
           enum:
-          - RATE_LIMITED
-          - PROVIDER_RATE_LIMIT
-          - PROVIDER_UNAVAILABLE
-          - PROVIDER_TIMEOUT
+            - RATE_LIMITED
+            - PROVIDER_RATE_LIMIT
+            - PROVIDER_UNAVAILABLE
+            - PROVIDER_TIMEOUT
         message:
           type: string
         requestId:
