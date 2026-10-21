@@ -13,7 +13,7 @@
 starter-kit/
 ├── frontend/                 [A] React·Vite 브라우저 앱
 ├── backend/src/inheritance/ [B·C·통합] FastAPI 앱
-├── llm/starter_llm/          [C] Gemini·Ollama 공통 모델 패키지
+├── llm/starter_llm/          [C] Gemini·Groq·Ollama 공통 모델 패키지
 ├── rag/starter_rag/          [D] Docling·임베딩·검색 패키지
 ├── tests/                    [통합] 계약·진입점 테스트
 ├── scripts/                  [통합] 계약 검사
@@ -105,7 +105,7 @@ inheritance/
 | 위치 | 책임 |
 |---|---|
 | `contracts/{ports,models,errors,profiles}.py` | `ModelPort.generate/stream`, DTO·오류 |
-| `providers/{gemini,ollama,factory}.py` | 공급자 구현과 수동 선택 |
+| `providers/{gemini,groq,ollama,failover,factory}.py` | 공급자 구현과 자동 전환 |
 | `runtime/{client,lifecycle,settings,prompts}.py` | 요청·취소·5분 유휴 자원 정리 |
 | `cli.py` | 독립 CLI 진입점, `starter-llm status` |
 
@@ -133,7 +133,7 @@ inheritance/
 |---|---|---|
 | **A · Frontend** | `frontend/**` | UI, Axios, SSE, Zustand, Dexie |
 | **B · Backend 도메인** | `backend/src/inheritance/checklist/**`, `chat/**`, `law/**` | 절차 안내·채팅·법령 조회 |
-| **C · 카카오/LLM** | `backend/src/inheritance/kakao/**`, `llm/**` | 카카오 Handoff, Gemini/Ollama |
+| **C · 카카오/LLM** | `backend/src/inheritance/kakao/**`, `llm/**` | 카카오 Handoff, Gemini/Groq/Ollama |
 | **D · RAG** | `rag/**` | Docling, 임베딩, 검색, 게시 |
 | **통합 관리자** | 루트 설정, `backend/src/inheritance/{auth,core,contracts}/**`, `main.py`, `backend/migrations/**`, `tests/**`, `scripts/**`, `.github/**`, `docs/**` | 인증·DB·DI·계약·CI·문서 |
 | **API 담당자** | HTTP 공개 규격의 **정의·승인** | URL·Method·JSON·SSE 이벤트. 실제 수정은 파일 소유자와 협의 |

@@ -25,7 +25,7 @@ uv run starter-rag status
 
 - **Backend**: 실행 상태로 유지됩니다. 브라우저에서 `http://127.0.0.1:8000/health` → `{"status":"ok","service":"inheritance-backend"}`.
 - **Frontend**: 실행 상태로 유지됩니다. `http://localhost:5173/` 열기 → 화면 확인 후 **서버 상태 확인** 버튼 클릭. (실제 Vite 출력 주소가 우선.)
-- **LLM**: JSON에 `"status": "contract-only"`, `"generationImplemented": false` 출력 후 종료(정상). 실제 Gemini/Ollama 호출 아님.
+- **LLM**: `uv run starter-llm status` — JSON에 `"status": "implemented"`, 공급자·전환 설정, 키 설정 여부(값은 출력 안 함). 외부 호출 없음. 실제 생성은 `uv run starter-llm generate --prompt "안녕하세요"`(키 필요, 종료 코드 0/2/3/4/5/6/7).
 - **RAG**: JSON에 `"status": "contract-only"`, `"searchImplemented": false` 출력 후 종료(정상). Docling/pgvector 실연동 아님.
 
 **참고**: Windows의 PowerShell에서도 네 명령은 같은 형태로 사용합니다. 포트 8000/5173을 이미 다른 프로세스가 사용하면 충돌할 수 있습니다. `uv`와 `npm` 명령을 실행할 수 없는 상태라면 먼저 프로그램 설치/PATH를 점검합니다.
@@ -38,4 +38,4 @@ uv run python -m unittest discover -s tests -v
 python scripts/verify_contracts.py
 ```
 
-이 단계는 **개발 환경 부팅 확인**일 뿐입니다. 회원가입, 로그인, Supabase 연결, Gemini/Ollama 호출, RAG 적재/검색은 아직 구현되지 않았습니다. 전체 아키텍처 및 ERD 최종 승인을 임의로 선언하지 않습니다.
+이 단계는 **개발 환경 부팅 확인**일 뿐입니다. 회원가입, 로그인, Supabase 연결, Gemini/Groq 호출, RAG 적재/검색은 아직 구현되지 않았습니다. 전체 아키텍처 및 ERD 최종 승인을 임의로 선언하지 않습니다.
