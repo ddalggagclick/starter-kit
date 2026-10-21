@@ -100,18 +100,54 @@ class ChecklistGuidanceRuleTest(unittest.TestCase):
             fallbacks,
             {
                 "p01": "F01",
-                "p02": None,
+                "p02": "F05",
                 "p03": "F02",
                 "p04": "F03",
                 "p05": "F04",
-                "p06": None,
-                "p07": None,
-                "p08": None,
+                "p06": "F06",
+                "p07": "F07",
+                "p08": "F08",
             },
         )
         for notice in result.guidance:
             for link in notice.fallback.links if notice.fallback else ():
                 self.assertTrue(link.url.startswith("https://"))
+
+    def test_source_unit_links_only_from_approved_table(self) -> None:
+        # SourceUnit 표(김선, 10/21)의 URL만 연결한다. 값은 브라우저 확인 여부.
+        expected = {
+            "p02": {},
+            "p06": {
+                "https://fsc.go.kr/no010101/87657": True,
+                "https://fine.fss.or.kr/fine/main/contents.do?menuNo=900209": True,
+            },
+            "p07": {
+                "https://land.seoul.go.kr/land/rtms/findYourLand.do": True,
+                "https://kgeop.go.kr/myland/laf/getAncLadFind.do": True,
+                "https://portal.scourt.go.kr": True,
+            },
+            "p08": {"https://m.tworld.co.kr/customer/document": True},
+        }
+        result = self.service.build_guidance(GuidanceInput(_initial(True, "yes")))
+        notices = {notice.procedure_id: notice for notice in result.guidance}
+        for procedure_id, links in expected.items():
+            with self.subTest(procedure_id=procedure_id):
+                got = {
+                    link.url: link.browser_checked for link in notices[procedure_id].fallback.links
+                }
+                self.assertEqual(got, links)
+                self.assertIn("공식 링크에서 직접 확인", notices[procedure_id].fallback.text)
+        all_urls = " ".join(
+            link.url for notice in result.guidance for link in notice.fallback.links
+        )
+        # 사용하지 않는 Unit(신한은행·위택스)과 K-Geo 공지 페이지는 연결하지 않는다.
+        for excluded in ("shinhan", "wetax", "nttId"):
+            self.assertNotIn(excluded, all_urls)
+
+    def test_all_links_are_browser_checked(self) -> None:
+        result = self.service.build_guidance(GuidanceInput(_initial(True, "yes")))
+        for notice in result.guidance:
+            for link in notice.fallback.links:
                 self.assertTrue(link.browser_checked)
 
     def test_unapproved_risk_exposure_returns_common_warning_only(self) -> None:
