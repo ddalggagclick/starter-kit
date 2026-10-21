@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import get_type_hints
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "rag"))
@@ -21,15 +22,78 @@ from docling_core.types.doc.base import BoundingBox
 from docling_core.types.doc.document import DoclingDocument, ProvenanceItem
 from docling_core.types.doc.items.table.table_data import TableCell, TableData
 from docling_core.types.doc.labels import DocItemLabel
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage
 from starter_rag import cli as rag_cli
 from starter_rag.ingestion import parser
 from starter_rag.ingestion.parser import (
     DocumentConversionError,
+    DocumentElement,
+    DocumentLocation,
     DocumentReadError,
+    DocumentStructure,
+    SourceProvenance,
+    TableCellStructure,
+    TableRowStructure,
+    TableStructure,
     UnsupportedDocumentFormatError,
     extract_document_structure,
     parse_document,
 )
+
+
+def _cli_chunking_structure() -> DocumentStructure:
+    table_location = DocumentLocation(
+        status="unverified",
+        page_numbers=(),
+        provenance=(SourceProvenance(page_no=None, bbox=None, charspan=(0, 2)),),
+    )
+    table = DocumentElement(
+        kind="table",
+        text=None,
+        original_text=None,
+        self_ref="#/tables/0",
+        level=None,
+        location=table_location,
+        table=TableStructure(
+            row_count=1,
+            column_count=1,
+            rows=(TableRowStructure(row_index=0, cell_indexes=(0,)),),
+            cells=(
+                TableCellStructure(
+                    text="안내",
+                    start_row=0,
+                    end_row=1,
+                    start_column=0,
+                    end_column=1,
+                    row_span=1,
+                    column_span=1,
+                    column_header=True,
+                    row_header=False,
+                    row_section=False,
+                    fillable=False,
+                    self_ref="#/tables/0/cells/0",
+                    bbox=None,
+                ),
+            ),
+        ),
+    )
+    paragraph_location = DocumentLocation(status="not_applicable", page_numbers=(), provenance=())
+    paragraphs = tuple(
+        DocumentElement(
+            kind="paragraph",
+            text=text,
+            original_text=text,
+            self_ref=f"#/texts/{index}",
+            level=None,
+            location=paragraph_location,
+            table=None,
+        )
+        for index, text in enumerate(("첫 문단", "둘째 문단"))
+    )
+    return DocumentStructure(
+        source_format="xlsx", elements=(table, *paragraphs), unverified_items=()
+    )
 
 
 class DoclingParserAdapterTests(unittest.TestCase):
@@ -44,7 +108,9 @@ class DoclingParserAdapterTests(unittest.TestCase):
                 b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"
             ),
             b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-            b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n"
+            b"<< /Length "
+            + str(len(content)).encode("ascii")
+            + b" >>\nstream\n"
             + content
             + b"\nendstream",
         ]
@@ -246,8 +312,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertTrue(table.cells[0].column_header)
         self.assertTrue(
             any(
-                finding.kind == "table_completeness"
-                and finding.self_ref == table_element.self_ref
+                finding.kind == "table_completeness" and finding.self_ref == table_element.self_ref
                 for finding in structure.unverified_items
             )
         )
@@ -339,9 +404,9 @@ class DoclingParserAdapterTests(unittest.TestCase):
             with (
                 patch.object(Path, "open", side_effect=PermissionError("denied")),
                 patch.object(parser, "_get_converter") as get_converter,
+                self.assertRaises(DocumentReadError),
             ):
-                with self.assertRaises(DocumentReadError):
-                    parse_document(source)
+                parse_document(source)
 
             get_converter.assert_not_called()
 
@@ -354,9 +419,11 @@ class DoclingParserAdapterTests(unittest.TestCase):
                 status=SimpleNamespace(value="failure"), document=object()
             )
 
-            with patch.object(parser, "_get_converter", return_value=converter):
-                with self.assertRaises(DocumentConversionError):
-                    parse_document(source)
+            with (
+                patch.object(parser, "_get_converter", return_value=converter),
+                self.assertRaises(DocumentConversionError),
+            ):
+                parse_document(source)
 
     def test_Docling_예외를_변환_오류로_감싼다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -365,9 +432,11 @@ class DoclingParserAdapterTests(unittest.TestCase):
             converter = Mock()
             converter.convert.side_effect = RuntimeError("synthetic conversion failure")
 
-            with patch.object(parser, "_get_converter", return_value=converter):
-                with self.assertRaises(DocumentConversionError) as context:
-                    parse_document(source)
+            with (
+                patch.object(parser, "_get_converter", return_value=converter),
+                self.assertRaises(DocumentConversionError) as context,
+            ):
+                parse_document(source)
 
         self.assertIsInstance(context.exception.__cause__, RuntimeError)
 
@@ -424,8 +493,8 @@ class DoclingParserAdapterTests(unittest.TestCase):
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 result = rag_cli.main(["--file", str(source)])
 
-        payload = json.loads(stdout.getvalue())
         self.assertEqual(result, 0)
+        payload = json.loads(stdout.getvalue())
         self.assertEqual(len(stdout.getvalue().splitlines()), 1)
         self.assertEqual(payload["input_file"], str(source))
         self.assertTrue(payload["success"])
@@ -433,8 +502,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertTrue(payload["elements"])
         self.assertTrue(
             all(
-                element["location"]["status"] == "not_applicable"
-                for element in payload["elements"]
+                element["location"]["status"] == "not_applicable" for element in payload["elements"]
             )
         )
 
@@ -474,7 +542,9 @@ class DoclingParserAdapterTests(unittest.TestCase):
     def test_CLI에서_변환_오류는_종료_코드_1을_반환한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
-            patch.object(rag_cli, "parse_document", side_effect=DocumentConversionError("변환 실패")),
+            patch.object(
+                rag_cli, "parse_document", side_effect=DocumentConversionError("변환 실패")
+            ),
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
@@ -536,6 +606,143 @@ class DoclingParserAdapterTests(unittest.TestCase):
             json.loads(stdout.getvalue()),
             {"valid": True, "query": "상속 포기", "topK": 3},
         )
+
+    def test_청킹_도움말과_기존_status_명령이_정상_작동한다(self) -> None:
+        help_stdout, help_stderr = StringIO(), StringIO()
+        with (
+            redirect_stdout(help_stdout),
+            redirect_stderr(help_stderr),
+            self.assertRaises(SystemExit) as context,
+        ):
+            rag_cli.main(["chunk", "--help"])
+
+        self.assertEqual(context.exception.code, 0)
+        self.assertIn("usage: starter-rag chunk", help_stdout.getvalue())
+        self.assertEqual(help_stderr.getvalue(), "")
+
+        status_stdout = StringIO()
+        with redirect_stdout(status_stdout):
+            result = rag_cli.main(["status"])
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(status_stdout.getvalue())["package"], "starter-rag")
+
+    def test_청킹_CLI가_모의_모델과_로컬_토크나이저로_검증용_JSON을_출력한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "chunk-guide.xlsx"
+            source.write_bytes(b"test input")
+            structure = _cli_chunking_structure()
+            model = Mock(spec=BaseChatModel)
+
+            async def generate(*_args, **_kwargs):
+                print("모의 모델 진단")
+                return AIMessage(content='{"groups":[["e000002","e000003"]]}')
+
+            model.ainvoke = AsyncMock(side_effect=generate)
+
+            def encode(text: str, *, add_special_tokens: bool) -> list[str]:
+                print("로컬 토크나이저 진단")
+                self.assertFalse(add_special_tokens)
+                return text.split()
+
+            def load_local_tokenizer(_path: str) -> SimpleNamespace:
+                print("토크나이저 로드 진단")
+                return SimpleNamespace(encode=encode)
+
+            stdout, stderr = StringIO(), StringIO()
+            with (
+                patch.object(rag_cli, "parse_document", return_value=object()),
+                patch.object(rag_cli, "extract_document_structure", return_value=structure),
+                patch.object(rag_cli, "_load_tokenizer", side_effect=load_local_tokenizer),
+                patch(
+                    "starter_rag.ingestion.service.create_chunking_model_from_environment",
+                    return_value=model,
+                ),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                result = rag_cli.main(
+                    [
+                        "chunk",
+                        "--file",
+                        str(source),
+                        "--tokenizer-path",
+                        "local-tokenizer",
+                    ]
+                )
+
+        self.assertEqual(result, 0, stderr.getvalue())
+        self.assertTrue(stdout.getvalue(), repr(stderr.getvalue()))
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(len(stdout.getvalue().splitlines()), 1)
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["chunk_count"], 2)
+        self.assertEqual(payload["tokenizer"], "local-tokenizer")
+        table_chunk = next(chunk for chunk in payload["chunks"] if chunk["kind"] == "table_row")
+        self.assertEqual(table_chunk["table_row"]["row_index"], 0)
+        self.assertEqual(table_chunk["table_row"]["cells"][0]["cell"]["text"], "안내")
+        self.assertEqual(
+            table_chunk["locations"][0]["provenance"][0]["charspan"],
+            [0, 2],
+        )
+        self.assertIn("모의 모델 진단", stderr.getvalue())
+        self.assertIn("로컬 토크나이저 진단", stderr.getvalue())
+        self.assertIn("토크나이저 로드 진단", stderr.getvalue())
+        model.ainvoke.assert_awaited_once()
+
+    def test_청킹_CLI_잘못된_토크나이저_경로는_비밀값_없이_종료_코드_2를_반환한다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            patch.object(rag_cli, "parse_document", return_value=object()),
+            patch.object(
+                rag_cli,
+                "extract_document_structure",
+                return_value=DocumentStructure(
+                    source_format="pdf", elements=(), unverified_items=()
+                ),
+            ),
+            patch.object(rag_cli, "_load_tokenizer", side_effect=ValueError("tokenizer-secret")),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            result = rag_cli.main(
+                ["chunk", "--file", "guide.pdf", "--tokenizer-path", "/missing/tokenizer"]
+            )
+
+        self.assertEqual(result, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("토크나이저", stderr.getvalue())
+        self.assertNotIn("tokenizer-secret", stderr.getvalue())
+
+    def test_청킹_CLI_잘못된_공급자_설정은_종료_코드_2를_반환한다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            patch.dict(os.environ, {"RAG_CHUNKING_PROVIDER": "invalid-secret"}, clear=True),
+            patch.object(rag_cli, "parse_document", return_value=object()),
+            patch.object(
+                rag_cli,
+                "extract_document_structure",
+                return_value=DocumentStructure(
+                    source_format="pdf", elements=(), unverified_items=()
+                ),
+            ),
+            patch.object(
+                rag_cli,
+                "_load_tokenizer",
+                return_value=SimpleNamespace(encode=lambda text, **_: text.split()),
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            result = rag_cli.main(
+                ["chunk", "--file", "guide.pdf", "--tokenizer-path", "local-tokenizer"]
+            )
+
+        self.assertEqual(result, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertTrue(
+            "공급자 설정" in stderr.getvalue() or "RAG_CHUNKING_PROVIDER" in stderr.getvalue()
+        )
+        self.assertNotIn("invalid-secret", stderr.getvalue())
 
     def test_CLI_모듈_가져오기는_파싱이나_DB_초기화를_하지_않는다(self) -> None:
         spec = importlib.util.spec_from_file_location(
