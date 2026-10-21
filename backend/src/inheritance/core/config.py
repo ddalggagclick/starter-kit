@@ -55,6 +55,7 @@ class Settings:
     jwt_signing_key: str
     csrf_secret: str
     handoff_hash_key: str
+    handoff_server_secret: str
     jwt_issuer: str
     jwt_audience: str
     access_token_ttl_seconds: int
@@ -97,6 +98,7 @@ class Settings:
             jwt_signing_key=environ.get("JWT_SIGNING_KEY", ""),
             csrf_secret=environ.get("CSRF_SECRET", ""),
             handoff_hash_key=environ.get("HANDOFF_HASH_KEY", ""),
+            handoff_server_secret=environ.get("HANDOFF_SERVER_SECRET", ""),
             jwt_issuer=environ.get("JWT_ISSUER", "inheritance-backend"),
             jwt_audience=environ.get("JWT_AUDIENCE", "inheritance-web"),
             access_token_ttl_seconds=_int_env("ACCESS_TOKEN_TTL_SECONDS", 900, min_value=1),
@@ -168,7 +170,12 @@ class Settings:
             raise ValueError("PASSWORD_HASH_SCHEME must be argon2id")
         if self.production and any(
             len(value) < 32
-            for value in (self.jwt_signing_key, self.csrf_secret, self.handoff_hash_key)
+            for value in (
+                self.jwt_signing_key,
+                self.csrf_secret,
+                self.handoff_hash_key,
+                self.handoff_server_secret,
+            )
         ):
             raise ValueError("production JWT/CSRF/Handoff secrets must be >=32 characters")
         if not self.refresh_rotation_enabled:
