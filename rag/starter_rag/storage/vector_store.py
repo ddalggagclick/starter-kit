@@ -231,13 +231,13 @@ class PGVectorStore(VectorPort):
                 raise DocumentVersionConflictError(
                     "same source/version already contains a different chunk set"
                 )
-            chunk_by_id = {str(getattr(chunk, "chunk_id")): chunk for chunk in chunks}
+            chunk_by_id = {str(chunk.chunk_id): chunk for chunk in chunks}
             for row in existing:
                 chunk = chunk_by_id[row["chunk_id"]]
                 location = _chunk_location(chunk)
                 if (
                     row["content_sha256"] != document.content_sha256
-                    or row["content"] != getattr(chunk, "text")
+                    or row["content"] != chunk.text
                     or row["embedding_model_id"] != EMBEDDING_MODEL_ID
                     or row["embedding_model_revision"] != EMBEDDING_MODEL_REVISION
                     or row["location"] != location
@@ -285,7 +285,7 @@ class PGVectorStore(VectorPort):
                     "chunk_id is already owned by another source, version, or collection"
                 )
 
-        texts = tuple(str(getattr(chunk, "text")) for chunk in chunks)
+        texts = tuple(str(chunk.text) for chunk in chunks)
         vectors = await self.embedding.embed_documents(texts)
         _validate_vectors(vectors, len(chunks))
         metadatas = [

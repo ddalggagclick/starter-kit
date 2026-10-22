@@ -8,8 +8,8 @@ import unittest
 from starter_rag.embedding.model import (
     EMBEDDING_MODEL_ID,
     EMBEDDING_MODEL_REVISION,
-    EmbeddingGenerationError,
     EmbeddingGemma,
+    EmbeddingGenerationError,
     EmbeddingInitializationError,
     EmbeddingOutputError,
 )
@@ -83,7 +83,9 @@ class EmbeddingGemmaUnitTests(unittest.TestCase):
 
         for output in invalid_outputs:
             with self.subTest(first_value=output[0][0] if output[0] else "empty"):
-                embedding = EmbeddingGemma(model_loader=lambda *_: _FakeEncoder(output))
+                embedding = EmbeddingGemma(
+                    model_loader=lambda *_, output=output: _FakeEncoder(output)
+                )
                 with self.assertRaises(EmbeddingOutputError):
                     asyncio.run(embedding.embed_query("질문"))
 

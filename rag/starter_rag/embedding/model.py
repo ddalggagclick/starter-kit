@@ -108,10 +108,7 @@ class EmbeddingGemma(EmbeddingPort):
         return self._encoder
 
     def _encode(self, texts: tuple[str, ...], prompt: str) -> tuple[tuple[float, ...], ...]:
-        try:
-            encoder = self._get_encoder()
-        except EmbeddingInitializationError:
-            raise
+        encoder = self._get_encoder()
         try:
             output = encoder.encode(
                 list(texts),

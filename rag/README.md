@@ -3,6 +3,27 @@
 완료 기준: 형식별 실행 조건과 청킹 모델 설정·오류 정책을 확인할 수 있다. -->
 # RAG Parser 및 Agentic Chunking 모델 설정
 
+## RAG 단독 설치·배포 경로
+
+RAG는 Backend 없이 `rag/pyproject.toml`만으로 설치할 수 있는 CLI 패키지이며, CLI 진입점은
+`starter-rag`입니다. macOS/Linux에서는 저장소의 `rag/` 디렉터리에서 별도 가상환경을 만들고
+설치합니다.
+
+```bash
+cd /path/to/starter-kit/rag
+uv venv .venv
+uv pip install --python .venv/bin/python .
+.venv/bin/starter-rag status
+```
+
+이 독립 설치 경로는 `rag/pyproject.toml`의 버전 범위를 사용하며 별도 RAG lockfile은 없습니다.
+저장소 개발 환경에서 루트 workspace lockfile을 재현하려면 저장소 루트에서 기존처럼
+`uv run --project rag --locked starter-rag ...`를 사용합니다.
+
+이 설치는 PostgreSQL 서버, pgvector 확장, 임베딩 모델 가중치를 설치하지 않습니다. DB와 모델은
+각각 별도로 준비해야 합니다. 현재 이슈 #62의 RAG DB 어댑터는 로컬 `starter_rag_integration`만
+허용하며, Supabase 운영 연결은 Backend의 SearchPort 통합 작업 범위입니다.
+
 ## 768차원 임베딩과 로컬 pgvector
 
 문서 임베딩과 질의 임베딩은 `google/embeddinggemma-2` revision

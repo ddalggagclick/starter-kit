@@ -14,6 +14,12 @@ from hashlib import sha256
 from pathlib import Path
 
 from starter_rag.contracts.models import DocumentVersion, SearchRequest, SourceRef
+from starter_rag.embedding.model import (
+    EMBEDDING_DIMENSION,
+    EMBEDDING_MODEL_ID,
+    EMBEDDING_MODEL_REVISION,
+    EmbeddingGemma,
+)
 from starter_rag.ingestion.chunking import DEFAULT_TARGET_TOKENS, DocumentChunk
 from starter_rag.ingestion.chunking_model import (
     ChunkingModelConfigurationError,
@@ -27,12 +33,6 @@ from starter_rag.ingestion.parser import (
     parse_document,
 )
 from starter_rag.ingestion.service import chunk_document_with_config
-from starter_rag.embedding.model import (
-    EMBEDDING_DIMENSION,
-    EMBEDDING_MODEL_ID,
-    EMBEDDING_MODEL_REVISION,
-    EmbeddingGemma,
-)
 from starter_rag.storage.database import (
     DatabaseConfigurationError,
     PostgresRagDatabase,
@@ -196,6 +196,14 @@ def _chunk_file(
 
 async def _database_for_command():
     return PostgresRagDatabase(database_url_from_environment())
+
+
+def _database_is_configured() -> bool:
+    try:
+        database_url_from_environment()
+    except DatabaseConfigurationError:
+        return False
+    return True
 
 
 def _database_init() -> int:
@@ -462,10 +470,11 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(
                 {
                     "package": "starter-rag",
-                    "status": "ready",
+                    "status": "implemented",
                     "searchImplemented": True,
                     "ingestionImplemented": True,
-                    "databaseConfigured": False,
+                    "databaseConfigured": _database_is_configured(),
+                    "runtimeReadiness": "not-checked",
                 },
                 ensure_ascii=False,
             )

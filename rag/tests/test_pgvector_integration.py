@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -19,9 +20,11 @@ import uuid
 from pathlib import Path
 
 from sqlalchemy import text
-
+from starter_rag.cli import _load_tokenizer
 from starter_rag.contracts.models import ChunkRecord, DocumentVersion, SearchRequest, SourceRef
 from starter_rag.embedding.model import EMBEDDING_MODEL_ID, EMBEDDING_MODEL_REVISION, EmbeddingGemma
+from starter_rag.ingestion.parser import extract_document_structure, parse_document
+from starter_rag.ingestion.service import chunk_document_with_config
 from starter_rag.retrieval.search import PGVectorSearch
 from starter_rag.storage.database import (
     DatabaseConfigurationError,
@@ -123,7 +126,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
         self.assertEqual(len(document_vectors[0]), 768)
         self.assertTrue(
             all(
-                value == value and abs(value) != float("inf")
+                math.isfinite(value)
                 for value in (*query_vector, *document_vectors[0])
             )
         )
@@ -364,56 +367,238 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
-    def test_t09_evidence_matches_original_row_and_similarity_score(self) -> None:
-        collection = f"{self.collection_id}-evidence"
-        source = self._source("evidence-consistency")
-        chunk = self._chunk(
-            source,
-            "Synthetic test guide: heirs may search for financial accounts through the account inquiry service.",
+    def test_t09_source_v1_row_produces_traceable_published_evidence(self) -> None:
+        workbook_path = self.repo_root / "rag" / "data" / "Source_V1.xlsx"
+        if not workbook_path.is_file():
+            raise unittest.SkipTest("Source_V1.xlsx is not present in this checkout")
+        try:
+            import openpyxl
+        except ImportError as exc:
+            self.fail(f"openpyxl must be available for the Source_V1 path: {exc}")
+
+        workbook = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+        try:
+            unit_sheet = workbook["SU_Unit목록"]
+            link_sheet = workbook["SU_링크기록(전체)"]
+            unit_rows = list(unit_sheet.iter_rows(values_only=True))
+            source_unit = next(
+                (row for row in unit_rows[1:] if row[0] == "U-03-SAFE-INHERIT"),
+                None,
+            )
+            self.assertIsNotNone(source_unit, "Source_V1 must contain the selected U-03 unit")
+            unit_group_id = "-".join(str(source_unit[0]).split("-")[:2])
+
+            link_rows = list(link_sheet.iter_rows(values_only=True))
+            matching_rows = [
+                (row_number, row)
+                for row_number, row in enumerate(link_rows, start=1)
+                if len(row) >= 8
+                and unit_group_id in str(row[7])
+                and "신청 링크" in str(row[7])
+            ]
+            self.assertEqual(len(matching_rows), 1)
+            source_row_number, source_row = matching_rows[0]
+            source_row = tuple(source_row[:8])
+            source_id = str(source_unit[0])
+
+            # The row explicitly identifies U-03 and has no excluded review marker.
+            self.assertEqual(source_unit[1], source_row[0])
+            self.assertTrue(all(source_row))
+            self.assertFalse(
+                any(term in str(value) for value in source_row for term in ("미검증", "보류"))
+            )
+            explicit_hold_locations = []
+            for sheet in workbook.worksheets:
+                for row_number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                    if any(
+                        isinstance(value, str) and ("미검증" in value or "보류" in value)
+                        for value in row
+                    ):
+                        explicit_hold_locations.append((sheet.title, row_number))
+            self.assertIn(("SU_Unit목록", 26), explicit_hold_locations)
+            self.assertIn(("SU_링크기록(전체)", 64), explicit_hold_locations)
+            self.assertIn(("SU_링크기록(전체)", 73), explicit_hold_locations)
+            self.assertNotIn((link_sheet.title, source_row_number), explicit_hold_locations)
+
+            source_title = str(source_row[2])
+            publisher = str(source_row[1])
+            recorded_url = str(source_row[3])
+            source_url = (
+                recorded_url if recorded_url.startswith("https://") else f"https://{recorded_url}"
+            )
+            self.assertEqual(source_url.removeprefix("https://"), recorded_url)
+            version = "internal:Source_V1"
+            location = (
+                f"{workbook_path.name}#{link_sheet.title}!A{source_row_number}:H{source_row_number}"
+                f"; summary=H{source_row_number}"
+            )
+        finally:
+            workbook.close()
+
+        document = parse_document(workbook_path)
+        structure = extract_document_structure(document, workbook_path)
+        tokenizer = _load_tokenizer("google/embeddinggemma-2")
+        chunks = asyncio.run(
+            chunk_document_with_config(
+                structure,
+                source_id=source_id,
+                version=version,
+                count_tokens=lambda value: len(
+                    tokenizer.encode(value, add_special_tokens=False)
+                ),
+                environ={
+                    "RAG_CHUNKING_PROVIDER": "ollama",
+                    "RAG_CHUNKING_MODEL": "qwen3:4b-instruct",
+                    "RAG_CHUNKING_OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+                },
+            )
+        )
+        source_text = str(source_row[7])
+        selected_chunks = [
+            chunk
+            for chunk in chunks
+            if chunk.table_row is not None
+            and chunk.table_row.row_index == source_row_number - 1
+            and source_title in chunk.text
+            and source_text in chunk.text
+        ]
+        self.assertEqual(len(selected_chunks), 1)
+        source_chunk = selected_chunks[0]
+        self.assertEqual(source_chunk.kind, "table_row")
+        self.assertEqual(source_chunk.generation_method, "deterministic")
+        self.assertEqual(source_chunk.model_status, "not_used")
+        self.assertEqual(source_chunk.model_attempts, 0)
+        self.assertFalse(source_chunk.fallback_used)
+        for value in source_row:
+            self.assertIn(str(value), source_chunk.text)
+        self.assertIn(
+            f"[원본 표 행 {source_row_number} / 인덱스 {source_row_number - 1}]",
+            source_chunk.text,
+        )
+        self.assertNotIn("미검증", source_chunk.text)
+        self.assertNotIn("보류", source_chunk.text)
+
+        collection = "rag-test-source-v1-t09"
+        source = SourceRef(
+            source_id=source_id,
+            title=source_title,
+            url=source_url,
+            publisher=publisher,
+            version=version,
+        )
+        chunk_record = ChunkRecord(
+            chunk_id=source_chunk.chunk_id,
+            source_id=source_id,
+            version=version,
+            text=source_chunk.text,
+            location=location,
+        )
+        document_version = DocumentVersion(
+            source=source,
+            content_sha256=hashlib.sha256(source_chunk.text.encode("utf-8")).hexdigest(),
+            state="staging",
+            chunk_count=1,
         )
 
         async def operation(database):
             store = PGVectorStore(database, self.embedding, collection_id=collection)
-            await store.index_document(self._document(source, chunk), (chunk,), is_synthetic=True)
-            await PostgresPublicationStore(database, collection_id=collection).publish(
-                source.source_id, source.version
+            async with database.sql_engine.connect() as connection:
+                existing_result = await connection.execute(
+                    text(
+                        """SELECT publication_state FROM rag_test.chunks
+                        WHERE collection_id=:collection_id"""
+                    ),
+                    {"collection_id": collection},
+                )
+                existing_states = {row.publication_state for row in existing_result}
+            self.assertLessEqual(len(existing_states), 1)
+            first = await store.index_document(document_version, (chunk_record,))
+            second = await store.index_document(document_version, (chunk_record,))
+            self.assertIn(first.state, {"indexed", "published"})
+            if existing_states in ({"indexed"}, {"published"}):
+                self.assertEqual(first.state, next(iter(existing_states)))
+                self.assertTrue(first.skipped)
+            else:
+                self.assertEqual(first.state, "indexed")
+                self.assertFalse(first.skipped)
+            self.assertEqual(second.state, first.state)
+            self.assertTrue(second.skipped)
+            published = await PostgresPublicationStore(
+                database, collection_id=collection
+            ).publish(source_id, version)
+            self.assertEqual(published.state, "published")
+
+            request = SearchRequest(
+                "안심상속 신청자격 신청시기 제출서류 조회 안내"
             )
-            search = PGVectorSearch(store, self.embedding, allow_synthetic=True)
-            request = SearchRequest("financial account inquiry for heirs")
-            result = await search.search(request)
+            result = await PGVectorSearch(store, self.embedding).search(request)
             self.assertEqual(len(result.evidence), 1)
-            item = result.evidence[0]
+            evidence = result.evidence[0]
+            query_vector = await self.embedding.embed_query(request.query)
+            hits = await store.search_vectors(query_vector, top_k=request.top_k)
+            self.assertEqual(len(hits), 1)
+
             async with database.sql_engine.connect() as connection:
                 row_result = await connection.execute(
                     text(
                         """SELECT chunk_id, source_id, source_title, source_url, publisher,
-                        version, location, content, publication_state
-                        FROM rag_test.chunks WHERE chunk_id=:chunk_id"""
+                        version, location, content, publication_state, is_synthetic,
+                        vector_dims(embedding) AS dimensions
+                        FROM rag_test.chunks
+                        WHERE collection_id=:collection_id"""
                     ),
-                    {"chunk_id": item.evidence_id},
+                    {"collection_id": collection},
                 )
                 row = row_result.mappings().one()
-            self.assertEqual(item.evidence_id, row["chunk_id"])
-            self.assertEqual(item.source.source_id, row["source_id"])
-            self.assertEqual(item.source.title, row["source_title"])
-            self.assertEqual(item.source.url, row["source_url"])
-            self.assertEqual(item.source.publisher, row["publisher"])
-            self.assertEqual(item.source.version, row["version"])
-            self.assertEqual(item.location, row["location"])
-            self.assertEqual(item.text, row["content"])
+
+            self.assertEqual(evidence.evidence_id, source_chunk.chunk_id)
+            self.assertEqual(evidence.evidence_id, row["chunk_id"])
+            self.assertEqual(evidence.source.source_id, source_id)
+            self.assertEqual(evidence.source.source_id, row["source_id"])
+            self.assertEqual(evidence.source.title, source_title)
+            self.assertEqual(evidence.source.title, row["source_title"])
+            self.assertEqual(evidence.source.url, source_url)
+            self.assertEqual(evidence.source.url, row["source_url"])
+            self.assertEqual(evidence.source.publisher, publisher)
+            self.assertEqual(evidence.source.publisher, row["publisher"])
+            self.assertEqual(evidence.source.version, version)
+            self.assertEqual(evidence.source.version, row["version"])
+            self.assertEqual(evidence.location, location)
+            self.assertEqual(evidence.location, row["location"])
+            self.assertEqual(evidence.text, source_chunk.text)
+            self.assertEqual(evidence.text, row["content"])
             self.assertEqual(row["publication_state"], "published")
-            self.assertTrue(item.source.url.startswith("https://"))
-            self.assertGreaterEqual(item.score, -1.0)
-            self.assertLessEqual(item.score, 1.0)
-            self.assertTrue(item.score == item.score)
-            self.assertEqual(
-                (await PGVectorSearch(store, self.embedding).search(request)).evidence,
-                (),
-                "synthetic material must remain excluded from ordinary SearchPort.search()",
+            self.assertFalse(row["is_synthetic"])
+            self.assertEqual(row["dimensions"], 768)
+            self.assertTrue(math.isfinite(evidence.score))
+            self.assertGreaterEqual(evidence.score, -1.0)
+            self.assertLessEqual(evidence.score, 1.0)
+            self.assertAlmostEqual(
+                evidence.score, 1.0 - hits[0].cosine_distance, places=6
             )
-            query_vector = await self.embedding.embed_query(request.query)
-            hit = (await store.search_vectors(query_vector, top_k=3, allow_synthetic=True))[0]
-            self.assertAlmostEqual(item.score, 1.0 - hit.cosine_distance, places=6)
+
+            published_rerun = await store.index_document(document_version, (chunk_record,))
+            self.assertEqual(published_rerun.state, "published")
+            self.assertTrue(published_rerun.skipped)
+            async with database.sql_engine.connect() as connection:
+                count = await connection.execute(
+                    text(
+                        """SELECT count(*) FROM rag_test.chunks
+                        WHERE collection_id=:collection_id"""
+                    ),
+                    {"collection_id": collection},
+                )
+                self.assertEqual(count.scalar_one(), 1)
+
+            print(
+                "T09 source=Source_V1.xlsx"
+                f" row={link_sheet.title}!A{source_row_number}:H{source_row_number}"
+                f" source_id={source_id} evidence_id={evidence.evidence_id}"
+                f" version={version} state=published score={evidence.score:.6f}"
+                f" chunk_kind={source_chunk.kind}"
+                f" generation={source_chunk.generation_method}"
+                f" chunking_model={source_chunk.model_status}"
+            )
 
         self._run(operation)
 
