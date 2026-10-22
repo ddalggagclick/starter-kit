@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 상속 길잡이 API 명세서
-  version: 0.2.0-draft (2026-10-21)
+  version: 0.2.1-draft (2026-10-22)
   description:
     "PRD 7-1-5 (Swagger 기준 API 상세 입력·응답·오류 명세). 작성: 김선(B2/C), 공동: 김현주(B1/API), 이정민(F1).\n- 값 이름(relationship, riskId\
     \ 등)은 팀 코드 `backend/src/inheritance/contracts/domain.py`, 오류 코드는 `core/errors.py` 기준입니다.\n- `x-status`: 협의완료 / 일부 / 제안\
@@ -171,7 +171,7 @@ paths:
         - procedures
       operationId: A07_listProcedures
       summary: A07 절차 8개 목록
-      x-status: 협의 일부 완료 (경로는 ERD 3.2 제안, 절차 ID 표기 D6 보류)
+      x-status: 협의완료 (10/22 김현주 확인 - 경로와 절차 ID p01~p08 확정, 백엔드·프론트 동일 경로 사용)
       responses:
         "200":
           description: 고정 8개 절차
@@ -193,15 +193,15 @@ paths:
                           type: string
                         summary:
                           type: string
-      x-confirmed: false
-      x-path-proposed: true
+      x-confirmed: true
+      x-path-proposed: false
   /api/procedures/{procedureId}:
     get:
       tags:
         - procedures
       operationId: A07_getProcedure
       summary: A07 절차 상세
-      x-status: 협의 일부 완료
+      x-status: 협의완료 (10/22 김현주 확인 - 경로와 절차 ID p01~p08 확정, 백엔드·프론트 동일 경로 사용)
       parameters:
         - name: procedureId
           in: path
@@ -215,14 +215,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProcedureDetail"
-        "404":
-          description: 없는 절차 ID (팀 코드 오류 목록에 없음 → 제안)
+        "422":
+          description: VALIDATION_ERROR (p01~p08이 아닌 절차 ID는 경로 검증 단계에서 거부. 팀 오류 코드에 없는 404는 만들지 않음, 김현주 10/22)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-      x-confirmed: false
-      x-path-proposed: true
+      x-confirmed: true
+      x-path-proposed: false
   /api/ai/ask:
     post:
       tags:
@@ -639,7 +639,7 @@ paths:
         - procedures
       operationId: A19_guidance
       summary: A19 체크리스트 안내·위험 문구 계산
-      x-status: 보류 (D3~D7 개발 보류) · 신규 제안(김현주)
+      x-status: 제외 (구현 대상 아님, 김현주 확인 10/22)
       description: 입력·응답·오류 미정. 팀 코드의 ChecklistService.build_guidance(I02)를 HTTP로 여는 제안입니다. 카카오와 백엔드가 한 서버가 되면 불필요할 수 있습니다.
       responses:
         "200":
@@ -652,7 +652,7 @@ paths:
         - account
       operationId: A20_getConsents
       summary: A20 서버 저장 동의 조회
-      x-status: 보류 · 신규 제안(김현주)
+      x-status: 제외 (구현 대상 아님, 김현주 확인 10/22)
       description: 미정. A17 요청에 동의를 넣는 방식과 비교 필요
       security:
         - bearerAuth: []
@@ -666,7 +666,7 @@ paths:
         - account
       operationId: A20_putConsents
       summary: A20 서버 저장 동의 변경
-      x-status: 보류 · 신규 제안(김현주)
+      x-status: 제외 (구현 대상 아님, 김현주 확인 10/22)
       security:
         - bearerAuth: []
       responses:
@@ -680,7 +680,7 @@ paths:
         - account
       operationId: A21_me
       summary: A21 내 계정 정보
-      x-status: 보류 · 신규 제안(김현주)
+      x-status: 제외 (구현 대상 아님, 김현주 확인 10/22)
       description: 이메일, 이메일 확인 여부, 서버 저장 동의 여부(제안). 필요 여부 미정
       security:
         - bearerAuth: []
