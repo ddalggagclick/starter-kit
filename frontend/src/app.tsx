@@ -1,108 +1,158 @@
 /**
- * 책임: [A] Vite/shadcn 스타일 최소 앱의 실행 확인 화면.
- * 구현할 기능: 프론트 단독 표시 및 Backend /health REST(Axios) 연결 진단.
- * 코드 경계: 체크리스트·로그인·LLM·RAG 실제 기능을 구현하지 않는다.
- * 완료 기준: npm run dev/build, API가 켜졌을 때 health 표시.
+ * 책임: [A] 앱 화면·라우팅 조립과 공통 레이아웃(전역 헤더·바닥글).
+ * PRD: 간트 1구간 V1(04·05·06·10·13), 태스크 2-1-4(W-00~W-08 흐름 연결), 5-6-1(헤더 로그인 진입).
+ * 구현할 기능: W-00 / W-01 / W-02 / W-03 / W-04 / W-05 / W-06 / W-07 / W-09(로그인) 경로와
+ *   TanStack Query·React Router 제공자. 모든 화면 헤더에 로그인 버튼을 둔다.
+ * 코드 경계: 화면 내용은 features/*에 둔다. 법적 판단·추천 규칙은 서버 책임이다.
+ * 완료 기준: npm run dev/build, 각 경로가 화면을 렌더링한다.
+ * 제한사항: 데이터는 V1 Mock이 기본이다(shared/api/data-source.ts). 실구현 시연으로 표기하지 않는다.
  */
-
-import { Activity, ArrowUpRight, CheckCircle2, Code2, HeartPulse, Layers3 } from "lucide-react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { Compass, LogIn, LogOut } from "lucide-react"
 import { useState } from "react"
+import {
+  createBrowserRouter,
+  Link,
+  NavLink,
+  Outlet,
+  type RouteObject,
+  RouterProvider,
+} from "react-router"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { api } from "@/shared/api/client"
+import { useAuthStore } from "@/features/auth/auth-store"
+import { LoginPage } from "@/features/auth/login-page"
+import { ChatPage } from "@/features/chat/chat-page"
+import { ChecklistPage } from "@/features/checklist/checklist-page"
+import { InitialQuestionsPage } from "@/features/checklist/initial-questions-page"
+import { LandingPage } from "@/features/checklist/landing-page"
+import { RelationshipGuidePage, TaxGuidePage } from "@/features/law/guide-page"
+import { ProcedureDetailPage } from "@/features/procedures/procedure-detail"
+import { ProceduresPage } from "@/features/procedures/procedures-page"
+import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
+import { cn } from "@/lib/utils"
+import { LEGAL_DISCLAIMER } from "@/mocks/checklist"
+import { USE_MOCK_API } from "@/shared/api/data-source"
 
-type Health = { status: string; service: string }
+const NAV_ITEMS = [
+  { to: "/checklist", label: "체크리스트" },
+  { to: "/procedures", label: "전체 절차" },
+  { to: "/ai", label: "AI 질문" },
+  { to: "/guide/relationship", label: "상속 관계" },
+  { to: "/guide/tax", label: "상속세" },
+] as const
+
+function SiteHeader() {
+  const email = useAuthStore((s) => s.email)
+  const signOut = useAuthStore((s) => s.signOut)
+  return (
+    <header className="border-b bg-card/80">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
+        <Link to="/" className="flex items-center gap-2 font-bold">
+          <span className="rounded-lg bg-primary p-1.5 text-primary-foreground">
+            <Compass className="size-4" aria-hidden />
+          </span>
+          상속길잡이
+        </Link>
+        <div className="flex items-center gap-2">
+          {email ? (
+            <>
+              <span className="hidden text-sm text-muted-foreground sm:inline">{email}</span>
+              <Button variant="outline" size="sm" onClick={signOut}>
+                <LogOut className="size-4" />
+                로그아웃
+              </Button>
+            </>
+          ) : (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/login">
+                <LogIn className="size-4" />
+                로그인
+              </Link>
+            </Button>
+          )}
+        </div>
+        <nav
+          aria-label="주요 메뉴"
+          className="-mx-1 flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto"
+        >
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                cn(
+                  "whitespace-nowrap rounded-md px-3 py-1.5 text-sm hover:bg-muted",
+                  isActive && "bg-secondary font-semibold",
+                )
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+    </header>
+  )
+}
+
+function AppLayout() {
+  return (
+    <div className="flex min-h-svh flex-col">
+      <SiteHeader />
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
+        <Outlet />
+      </main>
+      <footer className="border-t">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4 text-xs text-muted-foreground sm:px-6">
+          <p>
+            {LEGAL_DISCLAIMER}. 안내 문구·기한은 검수 전 예시입니다.
+            {USE_MOCK_API && " · V1 Mock 데이터 사용 중 (실제 Backend 연동 아님)"}
+          </p>
+          <FeedbackMockButton context="공통" />
+        </div>
+      </footer>
+    </div>
+  )
+}
+
+function NotFoundPage() {
+  return (
+    <div className="space-y-3">
+      <h1 className="text-2xl font-bold">페이지를 찾을 수 없습니다</h1>
+      <Link to="/" className="underline underline-offset-4">
+        첫 화면으로
+      </Link>
+    </div>
+  )
+}
+
+export const appRoutes: RouteObject[] = [
+  {
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <LandingPage /> },
+      { path: "start", element: <InitialQuestionsPage /> },
+      { path: "checklist", element: <ChecklistPage /> },
+      { path: "procedures", element: <ProceduresPage /> },
+      { path: "procedures/:procedureId", element: <ProcedureDetailPage /> },
+      { path: "guide/relationship", element: <RelationshipGuidePage /> },
+      { path: "guide/tax", element: <TaxGuidePage /> },
+      { path: "ai", element: <ChatPage /> },
+      { path: "login", element: <LoginPage /> },
+      { path: "*", element: <NotFoundPage /> },
+    ],
+  },
+]
+
+export const createQueryClient = () =>
+  new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false } } })
 
 export default function App() {
-  const [health, setHealth] = useState<string>("아직 확인하지 않음")
-  const [checking, setChecking] = useState(false)
-  // /health 성공은 Backend 프로세스 응답만 뜻하며 DB·모델 연결 준비를 보장하지 않는다.
-  async function checkBackend() {
-    setChecking(true)
-    try {
-      const response = await api.get<Health>("/health")
-      setHealth(`${response.data.service}: ${response.data.status}`)
-    } catch {
-      setHealth("연결 실패 — Backend 실행 상태 및 VITE_API_BASE_URL 확인")
-    } finally {
-      setChecking(false)
-    }
-  }
+  const [router] = useState(() => createBrowserRouter(appRoutes))
+  const [queryClient] = useState(createQueryClient)
   return (
-    <div className="min-h-svh bg-background text-foreground">
-      <header className="border-b bg-card/70">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-primary p-2 text-primary-foreground">
-              <Layers3 className="size-5" />
-            </div>
-            <span className="text-lg font-bold">상속길잡이</span>
-          </div>
-          <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
-            실행 준비용 화면
-          </span>
-        </div>
-      </header>
-      <main className="mx-auto max-w-5xl space-y-8 px-6 py-12">
-        <section className="max-w-2xl space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            STARTER KIT · RUNTIME CHECK
-          </p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            개발 환경이 준비되었습니다.
-          </h1>
-          <p className="leading-7 text-muted-foreground">
-            React 19 · Vite 8 · Tailwind CSS v4 · shadcn/ui 호환 구성입니다. 실제 상속 서비스 화면,
-            로그인, AI 기능은 담당자 구현 전입니다.
-          </p>
-        </section>
-        <div className="grid gap-5 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <div className="mb-2 flex size-10 items-center justify-center rounded-xl bg-secondary">
-                <HeartPulse className="size-5" />
-              </div>
-              <CardTitle>Backend 연결 상태</CardTitle>
-              <CardDescription>FastAPI /health 엔드포인트 테스트</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg bg-secondary p-3 text-sm" role="status">
-                {health}
-              </div>
-              <Button onClick={checkBackend} disabled={checking}>
-                <Activity className="size-4" />
-                {checking ? "확인 중…" : "서버 상태 확인"}
-              </Button>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <div className="mb-2 flex size-10 items-center justify-center rounded-xl bg-secondary">
-                <Code2 className="size-5" />
-              </div>
-              <CardTitle>개발자 다음 작업</CardTitle>
-              <CardDescription>기능별 인터페이스부터 연결하세요</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <p className="flex items-center gap-2">
-                <CheckCircle2 className="size-4" />
-                프론트 실행·빌드·타입 검사
-              </p>
-              <p className="flex items-center gap-2">
-                <ArrowUpRight className="size-4" />
-                인증·체크리스트·챗봇: 구현 전
-              </p>
-              <p className="flex items-center gap-2">
-                <ArrowUpRight className="size-4" />
-                LLM·RAG: CLI 계약 검증만 가능
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          이 화면은 진입점 테스트 전용입니다. 실제 서비스 UI 또는 승인된 ERD를 구현한 것이 아닙니다.
-        </p>
-      </main>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   )
 }

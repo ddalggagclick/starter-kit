@@ -10,7 +10,8 @@
     "typecheck": "tsc -b",
     "lint": "biome check src",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "api:types": "openapi-typescript ../docs/contracts/openapi.yaml -o src/shared/api/schema.d.ts"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",
