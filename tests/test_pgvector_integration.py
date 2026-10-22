@@ -60,7 +60,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
         cls.run_id = uuid.uuid4().hex[:12]
         cls.embedding = EmbeddingGemma()
         cls.collection_id = f"rag-test-{cls.run_id}"
-        cls.repo_root = Path(__file__).resolve().parents[2]
+        cls.repo_root = Path(__file__).resolve().parents[1]
 
     def _run(self, operation):
         async def run():
