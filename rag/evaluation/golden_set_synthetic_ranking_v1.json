@@ -1,0 +1,53 @@
+{
+  "dataset_version": "synthetic-ranking-05b16cbf43c4-v1",
+  "dataset_type": "synthetic_test",
+  "label_level": "chunk",
+  "collection_id": "rag-test-05b16cbf43c4-ranking",
+  "scope": "테스트 컬렉션 rag-test-05b16cbf43c4-ranking의 게시된 합성 청크에 대한 검색 동작 검증. 운영 published-guides 컬렉션 또는 공식 문서 검색 품질을 의미하지 않음. 두 청크는 같은 구조화 location JSON을 공유하므로 청크 ID로 구분함. 기계 매칭 시 evidence_id, source_id, URL, version을 필수로 대조하고 location_match_key는 보조 검증값으로만 사용한다.",
+  "rag_publication_status": "confirmed_published",
+  "search_snapshot_version": "20119a84c5d7185649946920c0b9526ade010852e885fca1c092ac6286467542",
+  "queries": [
+    {
+      "query_id": "synthetic-ranking-finance-001",
+      "question": "How can heirs find the deceased person’s bank, insurance, and securities accounts?",
+      "question_type": "direct",
+      "verification_status": "verified",
+      "verification_note": "제공된 DB 조회에서 관련 합성 청크를 확인함. 정답 내용: Heirs can search for a deceased family member's bank, insurance, and securities accounts using a financial account inquiry service.",
+      "relevant_evidence": [
+        {
+          "source_id": "05b16cbf43c4-ranking-relevant",
+          "source_title": "[합성 시험 자료] ranking-relevant 안내",
+          "publisher": "합성 통합 시험 자료",
+          "version": "v1",
+          "evidence_id": "05b16cbf43c4-ranking-relevant:v1:chunk-001",
+          "location": "합성 안내 자료 1페이지 · 상속 금융계좌 조회 안내",
+          "location_mapping_status": "mapped",
+          "supporting_text": "Heirs can search for a deceased family member's bank, insurance, and securities accounts using a financial account inquiry service.",
+          "location_match_key": "{\"status\": \"verified\", \"page_numbers\": [1], \"provenance\": [{\"page_no\": 1}]}",
+          "official_url": "https://example.invalid/rag-test/05b16cbf43c4/ranking-relevant/v1"
+        }
+      ]
+    },
+    {
+      "query_id": "synthetic-ranking-basketball-001",
+      "question": "In which sport do two teams play on a court with a ball, hoop, and score?",
+      "question_type": "contrastive",
+      "verification_status": "verified",
+      "verification_note": "제공된 DB 조회에서 무관한 합성 청크를 대조용으로 확인함. 정답 내용: A basketball game is played by two teams on a court with a ball, hoop, and score.",
+      "relevant_evidence": [
+        {
+          "source_id": "05b16cbf43c4-ranking-unrelated",
+          "source_title": "[합성 시험 자료] ranking-unrelated 안내",
+          "publisher": "합성 통합 시험 자료",
+          "version": "v1",
+          "evidence_id": "05b16cbf43c4-ranking-unrelated:v1:chunk-001",
+          "location": "합성 안내 자료 1페이지 · 농구 규칙 설명",
+          "location_mapping_status": "mapped",
+          "supporting_text": "A basketball game is played by two teams on a court with a ball, hoop, and score.",
+          "location_match_key": "{\"status\": \"verified\", \"page_numbers\": [1], \"provenance\": [{\"page_no\": 1}]}",
+          "official_url": "https://example.invalid/rag-test/05b16cbf43c4/ranking-unrelated/v1"
+        }
+      ]
+    }
+  ]
+}
