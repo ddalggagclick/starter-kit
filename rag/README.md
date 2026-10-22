@@ -3,6 +3,85 @@
 완료 기준: 형식별 실행 조건과 청킹 모델 설정·오류 정책을 확인할 수 있다. -->
 # RAG Parser 및 Agentic Chunking 모델 설정
 
+## RAG 단독 설치·배포 경로
+
+RAG는 Backend 없이 `rag/pyproject.toml`만으로 설치할 수 있는 CLI 패키지이며, CLI 진입점은
+`starter-rag`입니다. macOS/Linux에서는 저장소의 `rag/` 디렉터리에서 별도 가상환경을 만들고
+설치합니다.
+
+```bash
+cd /path/to/starter-kit/rag
+uv venv .venv
+uv pip install --python .venv/bin/python .
+.venv/bin/starter-rag status
+```
+
+이 독립 설치 경로는 `rag/pyproject.toml`의 버전 범위를 사용하며 별도 RAG lockfile은 없습니다.
+저장소 개발 환경에서 루트 workspace lockfile을 재현하려면 저장소 루트에서 기존처럼
+`uv run --project rag --locked starter-rag ...`를 사용합니다.
+
+이 설치는 PostgreSQL 서버, pgvector 확장, 임베딩 모델 가중치를 설치하지 않습니다. DB와 모델은
+각각 별도로 준비해야 합니다. 현재 이슈 #62의 RAG DB 어댑터는 로컬 `starter_rag_integration`만
+허용하며, Supabase 운영 연결은 Backend의 SearchPort 통합 작업 범위입니다.
+
+## 768차원 임베딩과 로컬 pgvector
+
+문서 임베딩과 질의 임베딩은 `google/embeddinggemma-2` revision
+`914f7f89142e33e77833254d9c9b90c3cef7303b`를 함께 사용하며 결과는 768차원입니다.
+모델은 이미 로컬 Hugging Face 캐시에 있어야 하며, 실행 중 원격 다운로드는 하지 않습니다.
+
+DB 연결은 `RAG_DATABASE_URL` 환경 변수로 전달합니다. 안전을 위해 URL은 로컬 호스트/Unix
+소켓의 `starter_rag_integration` DB만 허용합니다. 기존 `postgres` DB와 Supabase URL은 거부됩니다.
+예를 들어 로컬 Unix 소켓 연결은 다음 형태입니다.
+
+```bash
+export RAG_DATABASE_URL='postgresql+asyncpg://<local-user>@/starter_rag_integration?host=%2Ftmp'
+```
+
+별도 로컬 데이터베이스를 먼저 준비한 뒤, 아래 명령을 명시적으로 실행해 `vector` 확장과
+`rag_test.chunks` 테이블을 생성합니다. 이 테이블은 `chunk_id TEXT PRIMARY KEY`와
+`vector(768)`을 사용합니다. 앱/CLI 시작 때 자동 생성되거나 적재되지 않습니다.
+
+```bash
+createdb starter_rag_integration
+uv run --project rag --locked starter-rag db-init
+```
+
+`index`는 입력 파일을 기존 Parser와 Agentic Chunker에 전달합니다. 따라서 기존 청킹 설정과
+로컬 토크나이저가 필요합니다. 같은 `source-id`·`version`·파일 내용으로 다시 실행하면 기존
+indexed/published 행을 그대로 유지합니다. 같은 버전의 내용 변경은 거부되므로 새 버전 ID를
+사용하세요. `publish`는 완전한 indexed 버전만 게시하고, 새 버전 게시 시 이전 게시 버전을
+같은 트랜잭션에서 `retired`로 전환합니다.
+
+```bash
+export RAG_CHUNKING_PROVIDER=ollama
+export RAG_CHUNKING_MODEL=qwen3:4b-instruct
+export RAG_CHUNKING_OLLAMA_BASE_URL=http://127.0.0.1:11434
+
+uv run --project rag --locked starter-rag index \
+  --file ./path/to/official-guide.xlsx \
+  --tokenizer-path /path/to/local/tokenizer \
+  --source-id official-guide \
+  --version 2026-10 \
+  --source-title '공식 안내자료 제목' \
+  --source-url 'https://official.example.org/guide' \
+  --publisher '발행기관' \
+  --collection-id published-guides
+
+uv run --project rag --locked starter-rag publish \
+  --source-id official-guide --version 2026-10
+uv run --project rag --locked starter-rag search \
+  --query '상속 금융계좌 조회 방법' --top-k 3
+```
+
+`search` 기본 collection은 `published-guides`이고 합성 자료를 제외합니다. 테스트 자료에는
+`--synthetic`을 주고 별도 collection ID를 사용하세요. 합성 자료는 `--allow-synthetic`을 명시한
+로컬 테스트 검색에서만 노출됩니다. 합성 자료를 기본 `published-guides` collection에 게시할 수
+없습니다. 법령 원문은 인덱싱하지 마세요.
+
+`RAG_DATABASE_URL` 누락/허용되지 않은 DB, 잘못된 CLI 입력은 종료 코드 2입니다. DB·모델 연결,
+임베딩 또는 저장 실패는 종료 코드 1이며, 상세 DB URL이나 비밀값은 출력하지 않습니다.
+
 ## Agentic Chunking 모델
 
 RAG 청킹은 `RAG_CHUNKING_PROVIDER`로 공급자를 명시한다. 로컬 개발은 Ollama, 배포는 승인된 Gemini 모델을 사용한다. `APP_ENV`, `LLM_*`, `GEMINI_API_KEY`, `GROQ_API_KEY`로 공급자나 인증값을 선택하지 않으며 공급자 자동 전환도 하지 않는다.

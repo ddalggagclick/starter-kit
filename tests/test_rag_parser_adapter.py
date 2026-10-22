@@ -580,21 +580,91 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("함께 사용할 수 없습니다", stderr.getvalue())
 
-    def test_기존_status_명령_출력을_유지한다(self) -> None:
-        stdout = StringIO()
-        with redirect_stdout(stdout):
+    def test_status가_구현과_환경설정_실행준비를_구분한다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(
+                rag_cli,
+                "_database_for_command",
+                side_effect=AssertionError("status must not connect to the database"),
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
             result = rag_cli.main(["status"])
 
         self.assertEqual(result, 0)
+        self.assertEqual(stderr.getvalue(), "")
         self.assertEqual(
             json.loads(stdout.getvalue()),
             {
                 "package": "starter-rag",
-                "status": "contract-only",
-                "searchImplemented": False,
-                "ingestionImplemented": False,
+                "status": "implemented",
+                "searchImplemented": True,
+                "ingestionImplemented": True,
+                "databaseConfigured": False,
+                "runtimeReadiness": "not-checked",
             },
         )
+
+    def test_status는_유효한_로컬_DB_설정을_연결없이_확인한다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "RAG_DATABASE_URL": (
+                        "postgresql+asyncpg://rag@/starter_rag_integration?host=%2Ftmp"
+                    )
+                },
+                clear=True,
+            ),
+            patch.object(
+                rag_cli,
+                "_database_for_command",
+                side_effect=AssertionError("status must not connect to the database"),
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            result = rag_cli.main(["status"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["databaseConfigured"])
+        self.assertEqual(payload["runtimeReadiness"], "not-checked")
+        self.assertNotEqual(payload["status"], "ready")
+
+    def test_status는_원격_DB_URL과_비밀번호를_출력하지_않는다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "RAG_DATABASE_URL": (
+                        "postgresql+asyncpg://user:status-secret@db.supabase.co:5432/postgres"
+                    )
+                },
+                clear=True,
+            ),
+            patch.object(
+                rag_cli,
+                "_database_for_command",
+                side_effect=AssertionError("status must not connect to the database"),
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            result = rag_cli.main(["status"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["databaseConfigured"])
+        self.assertEqual(payload["runtimeReadiness"], "not-checked")
+        self.assertNotIn("status-secret", stdout.getvalue())
 
     def test_기존_validate_search_명령_출력을_유지한다(self) -> None:
         stdout = StringIO()
