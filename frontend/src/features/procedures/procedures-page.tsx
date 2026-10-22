@@ -49,7 +49,7 @@ export function ProceduresPage() {
                     {procedure.name}
                     {MOCK_DEADLINE_TAGS[procedure.procedureId] && (
                       <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                        {MOCK_DEADLINE_TAGS[procedure.procedureId]} (예시)
+                        {MOCK_DEADLINE_TAGS[procedure.procedureId]} (일반 기준)
                       </span>
                     )}
                     <RecheckBadge procedureId={procedure.procedureId} />

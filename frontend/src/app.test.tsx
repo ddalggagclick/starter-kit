@@ -45,7 +45,7 @@ describe("W-01 → W-02", () => {
     fireEvent.click(screen.getByLabelText("신청 안 함"))
     fireEvent.click(screen.getByRole("button", { name: "체크리스트 확인" }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/checklist"))
-    await screen.findByText("부동산 상속등기", {}, { timeout: 2000 })
+    await screen.findByText("부동산 상속", {}, { timeout: 2000 })
     expect(screen.getAllByRole("link", { name: /상세 보기/ })).toHaveLength(8)
     expect(screen.getAllByText(/기한 · 채무는 공식 자료로 확인하세요/).length).toBeGreaterThan(0)
     expect(screen.getByText("배우자")).toBeTruthy()
@@ -62,7 +62,7 @@ describe("W-01 → W-02", () => {
       "direct",
     )
     renderAt("/checklist")
-    await screen.findByText("부동산 상속등기", {}, { timeout: 2000 })
+    await screen.findByText("부동산 상속", {}, { timeout: 2000 })
     const before = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
     fireEvent.click(screen.getAllByLabelText("안내 확인")[0])
     expect(screen.getByText(/안내 확인/, { selector: "p[aria-live]" }).textContent).toContain("1")
@@ -102,7 +102,18 @@ describe("W-04 상세", () => {
     }
     expect(core.querySelector("details")).toBeNull()
     const optional = screen.getByRole("region", { name: "자세한 안내" })
-    expect(optional.querySelectorAll("details").length).toBe(4)
+    const sections = Array.from(optional.querySelectorAll("details"))
+    expect(sections.length).toBe(4)
+    // 4건 이상이면 접고(서류 4건), 3건 이하면 펼친다(방법 3건) — 원고 1장, 명세서 8-4절
+    expect(sections.map((d) => d.open)).toEqual([false, true, true, true])
+  })
+
+  it("공식 링크가 없는 p02는 '공식 링크에서 직접 확인'과 이유를 보인다", async () => {
+    renderAt("/procedures/p02")
+    const sources = await screen.findByRole("region", { name: "공식 출처" })
+    expect(within(sources).queryAllByRole("link")).toHaveLength(0)
+    expect(within(sources).getByText("공식 링크에서 직접 확인하세요.")).toBeTruthy()
+    expect(within(sources).getByText(/연결할 공식 안내 페이지가 없습니다/)).toBeTruthy()
   })
 
   it("오류 제보 Mock 모달은 열고 닫히며 전송 기능이 없다", async () => {

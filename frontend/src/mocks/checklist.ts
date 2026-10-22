@@ -59,6 +59,7 @@ export type RiskQuestion = {
   // 문구가 승인된 답만 값이 있다. 없는 답은 공통 위험 경고만 표시한다.
   approvedGuidance: Partial<Record<AnswerChoice, string>>
   // 관련 절차 연결표는 검증 필요(Q126 C). Mock 배정이다.
+  // 2026-10-22 W-04 원고 번호(D6)에 맞춤: p04 재산·채무 확인, p05 상속포기·한정승인.
   relatedProcedureIds: ProcedureId[]
 }
 
@@ -73,7 +74,7 @@ export const RISK_QUESTIONS: RiskQuestion[] = [
     approvedGuidance: {
       yes: "공식 조회 방법을 살펴보고, 채무 부담은 대한법률구조공단에 상담하세요.",
     },
-    relatedProcedureIds: ["p03", "p04"],
+    relatedProcedureIds: ["p04", "p05"],
   },
   {
     riskId: "property_disposal",
@@ -81,7 +82,7 @@ export const RISK_QUESTIONS: RiskQuestion[] = [
     question: "사망 후 고인의 재산을 처분 · 사용한 적이 있나요?",
     answerLabels: PRESENCE_LABELS,
     approvedGuidance: { yes: "법적 영향은 대한법률구조공단에 상담하세요." },
-    relatedProcedureIds: ["p04"],
+    relatedProcedureIds: ["p05"],
   },
   {
     riskId: "self_application",
@@ -89,7 +90,7 @@ export const RISK_QUESTIONS: RiskQuestion[] = [
     question: "상속포기 · 한정승인을 본인이 신청했거나 신청할 예정인가요?",
     answerLabels: { yes: "예", no: "아니요", unknown: "모름" },
     approvedGuidance: { yes: "신청 가능 여부 · 기한은 상황에 따라 다릅니다." },
-    relatedProcedureIds: ["p04"],
+    relatedProcedureIds: ["p05"],
   },
 ]
 

@@ -27,9 +27,10 @@ export const MOCK_ANSWER_IMPACT: Record<
   keyof Pick<InitialAnswers, "relationship" | "deathDate" | "oneStopApplication">,
   { procedureIds: ProcedureId[]; riskIds: RiskId[] }
 > = {
-  relationship: { procedureIds: ["p02", "p05"], riskIds: [] },
-  deathDate: { procedureIds: ["p01", "p04", "p08"], riskIds: ["self_application"] },
-  oneStopApplication: { procedureIds: ["p01", "p03"], riskIds: ["debt"] },
+  // 번호는 2026-10-22 W-04 원고(D6) 기준. 기한 칸이 사망일과 관련된 절차를 사망일에 연결했다.
+  relationship: { procedureIds: ["p02", "p03"], riskIds: [] },
+  deathDate: { procedureIds: ["p01", "p03", "p05", "p07"], riskIds: ["self_application"] },
+  oneStopApplication: { procedureIds: ["p03", "p04"], riskIds: ["debt"] },
 }
 
 const RISK_PROCEDURES: Record<RiskId, ProcedureId[]> = Object.fromEntries(

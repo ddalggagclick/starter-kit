@@ -2,22 +2,31 @@
  * 담당: [A] | 책임: W-04 절차 상세 화면.
  * PRD: E2 / 스토리 2-3 / 태스크 2-3-1, 2-3-2.
  * 구현: 바로 할 행동·기한·위험·담당 기관은 접을 수 없게 항상 펼친다. 서류·방법·예외·문의는
- *   <details> 접기형(키보드 Enter/Space로 열고 닫음). 공식 출처 링크는 항상 보인다.
+ *   <details> 접기형(키보드 Enter/Space로 열고 닫음). 4건 이상이면 처음에 접는다(원고 1장, 명세서 8-4절).
+ *   공식 출처 링크와 "공식 링크에서 직접 확인" 문구는 항상 보인다.
+ * 근거 콘텐츠: W-04 공식 안내 원고 p01~p08 (김현주, 2026-10-22) → mocks/procedures.ts.
  * 완료 기준: 접기 상태와 관계없이 행동·기한·위험·기관이 보인다.
- * 제한사항: 출처 없는 사실을 추가하지 않는다. 선택 섹션의 처음·재방문 접힘 정책은 M-10 미결정이다.
+ * 제한사항: 출처 없는 사실을 추가하지 않는다. 재방문 접힘 상태(M-10)는 미결정이다.
  */
 import { ArrowLeft, ExternalLink } from "lucide-react"
 import { Link, useParams } from "react-router"
 import { Notice } from "@/components/ui/notice"
 import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
 import { COMMON_RISK_WARNING } from "@/mocks/checklist"
-import { findProcedureName } from "@/mocks/procedures"
+import {
+  CHECK_OFFICIAL_SOURCE,
+  findProcedureName,
+  OFFICIAL_LINK_GAP_NOTES,
+  PROCEDURE_CONTENT_STATUS,
+} from "@/mocks/procedures"
 import type { ProcedureDetailWire } from "@/shared/api/types"
 import { useProcedureDetail } from "./api"
 import { GuidanceReadToggle, RecheckBadge } from "./guidance-read-toggle"
 
-// M-10 결정 전 잠정값이다. 확정이 아니며, 결정되면 이 값과 재방문 처리만 바꾼다.
-export const OPTIONAL_SECTION_DEFAULT_OPEN = false
+// 원고 1장·명세서 8-4절: 서류·방법·예외·문의처는 4건 이상이면 접는다(화면 시험 뒤 팀이 바꿀 수 있음).
+// 재방문 때 접힘 상태 유지 여부(M-10)는 미결정이라 정하지 않는다.
+export const COLLAPSE_MIN_ITEMS = 4
+export const isCollapsedByDefault = (itemCount: number) => itemCount >= COLLAPSE_MIN_ITEMS
 
 const ALWAYS_OPEN: { key: "action" | "deadline" | "risk" | "agency"; label: string }[] = [
   { key: "action", label: "바로 할 행동" },
@@ -59,7 +68,7 @@ function ProcedureBody({ detail }: { detail: ProcedureDetailWire }) {
           return (
             <details
               key={key}
-              open={OPTIONAL_SECTION_DEFAULT_OPEN}
+              open={!isCollapsedByDefault(items.length)}
               className="group rounded-xl border bg-card"
             >
               <summary className="cursor-pointer list-none px-4 py-3 font-medium focus-visible:ring-2 focus-visible:ring-ring">
@@ -80,6 +89,7 @@ function ProcedureBody({ detail }: { detail: ProcedureDetailWire }) {
 
       <section aria-label="공식 출처" className="space-y-2 rounded-xl border bg-card p-4">
         <h2 className="font-semibold">공식 출처에서 직접 확인</h2>
+        <p className="text-sm">{CHECK_OFFICIAL_SOURCE}</p>
         <ul className="space-y-1">
           {(detail.officialLinks ?? []).map((link) => (
             <li key={link.url}>
@@ -96,8 +106,13 @@ function ProcedureBody({ detail }: { detail: ProcedureDetailWire }) {
             </li>
           ))}
         </ul>
+        {detail.procedureId && OFFICIAL_LINK_GAP_NOTES[detail.procedureId] && (
+          <p className="text-sm text-muted-foreground">
+            {OFFICIAL_LINK_GAP_NOTES[detail.procedureId]}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
-          기관 대표 주소입니다. 세부 페이지와 문구는 검수 전 예시(Mock)입니다.
+          {PROCEDURE_CONTENT_STATUS}. 개인의 기한·자격·법적 효과를 판단하지 않습니다.
         </p>
       </section>
 
