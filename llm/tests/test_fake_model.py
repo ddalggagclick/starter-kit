@@ -109,6 +109,24 @@ def test_stream_cites_first_evidence_id_in_request():
     assert "[[E-2]]" not in text
 
 
+def test_stream_ignores_citation_example_in_system_message():
+    request = GenerationRequest(
+        messages=(
+            ModelMessage(role="system", content="근거 ID는 [[근거ID]] 형식으로 붙이십시오."),
+            ModelMessage(role="user", content="근거: [[rag-1]]\n질문: 상속 절차"),
+        ),
+        model_profile="answer",
+        request_id="t2",
+    )
+
+    async def run():
+        return [c async for c in FakeModel().stream(request)]
+
+    text = "".join(c.text_delta for c in asyncio.run(run()))
+    assert text.endswith(" [[rag-1]]")
+    assert "[[근거ID]]" not in text
+
+
 def test_stream_has_no_citation_without_evidence_id():
     text = "".join(c.text_delta for c in _stream("상속 절차"))
     assert "[[" not in text

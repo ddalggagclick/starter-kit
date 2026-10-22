@@ -5,7 +5,7 @@
 
 - generate(): 분류용 JSON 텍스트를 반환한다. (model_profile="classifier"에 쓰는 형태)
 - stream(): 모의 답변 조각을 반환한다. (model_profile="answer"에 쓰는 형태)
-- 요청에 [[근거ID]]가 있으면 모의 답변 끝에 첫 번째 ID를 그대로 인용한다. 없으면 인용하지 않는다.
+- 요청의 user 메시지에 [[근거ID]]가 있으면 모의 답변 끝에 첫 번째 ID를 그대로 인용한다. 없으면 인용하지 않는다.
 - 질문 안에 FAKE_* 표시가 있으면 해당 ModelError를 재현한다.
 
 분류 JSON 모양(backend와의 약속):
@@ -55,8 +55,12 @@ def _question(request: GenerationRequest) -> str:
 
 
 def _first_citation(request: GenerationRequest) -> str | None:
-    """요청 메시지에 들어 있는 첫 [[근거ID]]를 찾는다. 없으면 None."""
-    found = _CITATION.search(_all_text(request))
+    """사용자(user) 메시지에 들어 있는 첫 [[근거ID]]를 찾는다. 없으면 None.
+
+    시스템 지시문에는 "[[근거ID]]" 형식 예시가 들어 있으므로 system 메시지는 보지 않는다.
+    """
+    text = "\n".join(m.content for m in request.messages if m.role == "user")
+    found = _CITATION.search(text)
     return found.group(0) if found else None
 
 
