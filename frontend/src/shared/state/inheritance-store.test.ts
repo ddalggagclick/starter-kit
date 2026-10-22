@@ -23,7 +23,7 @@ describe("inheritance-store", () => {
 
   it("사망일을 바꾸면 이미 확인한 영향 절차만 재확인, 확인 안 한 절차는 그대로", () => {
     store().setInitialAnswers(BASE, "direct")
-    store().setGuidanceRead("p04", true) // 영향 받음 + 확인함
+    store().setGuidanceRead("p05", true) // 영향 받음 + 확인함
     store().setGuidanceRead("p02", true) // 영향 없음
     store().answerRisk("self_application", "yes")
     store().answerRisk("debt", "no")
@@ -31,7 +31,7 @@ describe("inheritance-store", () => {
     store().setInitialAnswers({ ...BASE, deathDate: null, deathDateUnknown: true }, "direct")
 
     const states = store().procedureStates
-    expect(states.p04).toEqual({ guidanceRead: true, needsRecheck: true })
+    expect(states.p05).toEqual({ guidanceRead: true, needsRecheck: true })
     expect(states.p01).toEqual({ guidanceRead: false, needsRecheck: false })
     expect(states.p02).toEqual({ guidanceRead: true, needsRecheck: false })
     // 사망일과 연결된 위험 질문만 미확인, 답 자체는 유지
@@ -56,10 +56,10 @@ describe("inheritance-store", () => {
   it("위험 답을 바꾸면 그 위험과 관련된 확인 절차만 재확인한다", () => {
     store().setInitialAnswers(BASE, "direct")
     store().answerRisk("debt", "no")
-    store().setGuidanceRead("p03", true)
+    store().setGuidanceRead("p04", true)
     store().setGuidanceRead("p08", true)
     store().answerRisk("debt", "yes")
-    expect(store().procedureStates.p03.needsRecheck).toBe(true)
+    expect(store().procedureStates.p04.needsRecheck).toBe(true)
     expect(store().procedureStates.p08.needsRecheck).toBe(false)
   })
 
