@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
+from inheritance.checklist import router as checklist_router
 from inheritance.core.errors import install_error_handlers
 from inheritance.core.health import router as health_router
 from inheritance.core.origin import DEFAULT_FRONTEND_ORIGIN
@@ -40,18 +41,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await task
 
 
-# Health·인계 라우터와 CORS를 구성한다. 인증·DB Settings는 업무 라우터 조립 전까지 읽지 않는다.
+# Health·인계·절차 라우터와 CORS를 구성한다. 인증·DB Settings는 업무 라우터 조립 전까지 읽지 않는다.
 def create_app() -> FastAPI:
     app = FastAPI(
         title="상속길잡이 Backend",
         version="0.1.0",
-        description="최소 실행 앱: health·카카오 인계 연결됨",
+        description="최소 실행 앱: health·카카오 인계·절차 목록 연결됨",
         lifespan=lifespan,
     )
     install_cors_origins(app, (os.environ.get("FRONTEND_ORIGIN", DEFAULT_FRONTEND_ORIGIN),))
     install_error_handlers(app)
     app.include_router(health_router)
     app.include_router(handoff_router.router)
+    app.include_router(checklist_router.router)
     # TODO [통합/API 담당]: 업무 router 및 lifespan 의존성 구성은 ERD/API 승인 후 연결한다.
     return app
 
