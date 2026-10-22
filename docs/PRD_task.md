@@ -10,7 +10,7 @@
 
 > **2026-10-20 변경:** 자동 추천·선정 순위 기능은 MVP에서 제외한다. 초기 3문항과 위험 질문은 유지하며, 전체 8개 절차의 공통 안내·사용자 확인 기능을 제공한다.
 
-> **커밋 기준 진행 상태(2026-10-22 · `dev` 브랜치):** 완료 **10개** · 진행 중 **55개** · 미시작 **79개**. 완료는 해당 태스크의 구현 코드와 관련 검증 코드가 커밋된 상태로 판정한다. 실제 운영 환경의 연동·배포·테스트 실행이 통과했다고 주장하는 표시는 아니다. Mock 전용 태스크만 Mock 구현으로 완료 판정하며, 정식 구현 태스크는 Mock 작업만 있으면 진행 중으로 둔다.
+> **커밋·PR 기준 진행 상태(2026-10-23 확인, 2026-10-22 KST 변경분 · `dev` 브랜치):** 완료 **29개** · 진행 중 **51개** · 미시작 **64개**. 완료 판정은 태스크별 커밋된 구현·테스트와 완료 조건을 근거로 한다. Mock 기반 화면 작업과 실제 API·법령·RAG 서비스 통합 완료를 구분한다. 10/22 PR #64의 Source_V1 실측은 승인 Source_V2 전체 적재 검증을 의미하지 않는다. 외부 API 실연동, B3 SourceUnit 검수, 운영 배포 결과는 별도 검증한다.
 
 ## 담당 표기
 
@@ -91,6 +91,8 @@
 
 **구분**  ② API 계약 / 회의 선행단계 / 진행 중
 
+**2026-10-22 근거**  [PR #81](https://github.com/ddalggagclick/starter-kit/pull/81) · [f09a7fa5](https://github.com/ddalggagclick/starter-kit/commit/f09a7fa5914cc4eb418252e67d1b44acca8bf461)
+
 **커밋 근거**  [c8bf93e5](https://github.com/ddalggagclick/starter-kit/commit/c8bf93e59c75ca42c097e82fd1ad5488754b6721) · [b76fcb5e](https://github.com/ddalggagclick/starter-kit/commit/b76fcb5e2ee965960812cd6f0b509cd7ace41fae)
 
 ### 7-1-3. HTTP JSON 필드를 camelCase로 통일하고 OpenAPI에서 TypeScript 타입을 생성한다
@@ -106,6 +108,8 @@
 - 주의: 문서 도구(md/sheet/Notion), HTTP 경로/메소드는 협의 당일 확정; 기존 승인되지 않은 값 임의 지정 금지.
 
 **구분**  ② API 계약 / 회의 선행단계 / 진행 중
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [97334987](https://github.com/ddalggagclick/starter-kit/commit/9733498718c6a595616dd0e891294967a3e20743) · [c8bf93e5](https://github.com/ddalggagclick/starter-kit/commit/c8bf93e59c75ca42c097e82fd1ad5488754b6721)
 
@@ -124,9 +128,11 @@
 
 **구분**  ② API 계약 / 회의 선행단계 / 진행 중
 
+**2026-10-22 근거**  [PR #81](https://github.com/ddalggagclick/starter-kit/pull/81) · [f09a7fa5](https://github.com/ddalggagclick/starter-kit/commit/f09a7fa5914cc4eb418252e67d1b44acca8bf461)
+
 **커밋 근거**  [c8bf93e5](https://github.com/ddalggagclick/starter-kit/commit/c8bf93e59c75ca42c097e82fd1ad5488754b6721) · [b76fcb5e](https://github.com/ddalggagclick/starter-kit/commit/b76fcb5e2ee965960812cd6f0b509cd7ace41fae)
 
-### 2-1-1. W-00(웹 첫 화면) 진입, 웹 초기 3문항(W-01) 폼·검증과 W-02(웹 체크리스트) 전환을 구현한다
+### 2-1-1. ~~W-00(웹 첫 화면) 진입, 웹 초기 3문항(W-01) 폼·검증과 W-02(웹 체크리스트) 전환을 구현한다~~
 
 **담당**  F1 · 이정민
 
@@ -138,11 +144,13 @@
 - 빈 필수 응답은 오류를 보여주고 이동하지 않는다.
 - 주의: 입력 오류는 즉시 수정 안내; 초기 답변을 법률 판정으로 해석하지 않는다.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e) · [4c0a9125](https://github.com/ddalggagclick/starter-kit/commit/4c0a912504a187a1f6dd7634ee9f93ce53cad2e9)
 
-### 2-1-2. 선택하지 않은 필드·사망일 '모름'을 구별하고 오류를 인라인 표시한다
+### 2-1-2. ~~선택하지 않은 필드·사망일 '모름'을 구별하고 오류를 인라인 표시한다~~
 
 **담당**  F1 · 이정민
 
@@ -154,7 +162,9 @@
 - 선택지 오류는 해당 필드에 표시되고 사용자 선택을 임의 변경하지 않는다.
 - 주의: 입력 오류는 즉시 수정 안내; 초기 답변을 법률 판정으로 해석하지 않는다.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e) · [4c0a9125](https://github.com/ddalggagclick/starter-kit/commit/4c0a912504a187a1f6dd7634ee9f93ce53cad2e9)
 
@@ -172,7 +182,7 @@
 
 **커밋 근거**  [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e) · [4c0a9125](https://github.com/ddalggagclick/starter-kit/commit/4c0a912504a187a1f6dd7634ee9f93ce53cad2e9)
 
-### 2-2-1. W-02에서 공통 8개 절차 카드 UI를 표시한다
+### 2-2-1. ~~W-02에서 공통 8개 절차 카드 UI를 표시한다~~
 
 **담당**  F1 · 이정민
 
@@ -184,11 +194,13 @@
 - 표시 순서를 법적 의무나 자격 확정으로 표현하지 않는다.
 - 주의: 공통 목록의 순서를 법적 의무의 우선순위로 설명하지 않는다.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0) · [PR #74](https://github.com/ddalggagclick/starter-kit/pull/74) · [28a207cc](https://github.com/ddalggagclick/starter-kit/commit/28a207cc4aa639d296f61eb760185c960c3d577d) · [PR #80](https://github.com/ddalggagclick/starter-kit/pull/80) · [b8f943da](https://github.com/ddalggagclick/starter-kit/commit/b8f943da5377816bb769b83625c9367fc62287f4)
 
 **커밋 근거**  [d12ab81e](https://github.com/ddalggagclick/starter-kit/commit/d12ab81e793b9213be6ac10fac5d7f80888e0e92) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
-### 2-2-3. W-03에서 8개 전체 절차 탐색과 W-04(웹 절차 상세) 상세 이동을 지원한다
+### 2-2-3. ~~W-03에서 8개 전체 절차 탐색과 W-04(웹 절차 상세) 상세 이동을 지원한다~~
 
 **담당**  F1 · 이정민
 
@@ -200,11 +212,13 @@
 - 안내에서 제외된 절차도 숨겨지지 않는다.
 - 주의: 공통 목록의 순서를 법적 의무의 우선순위로 설명하지 않는다.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0) · [PR #74](https://github.com/ddalggagclick/starter-kit/pull/74) · [28a207cc](https://github.com/ddalggagclick/starter-kit/commit/28a207cc4aa639d296f61eb760185c960c3d577d) · [PR #80](https://github.com/ddalggagclick/starter-kit/pull/80) · [b8f943da](https://github.com/ddalggagclick/starter-kit/commit/b8f943da5377816bb769b83625c9367fc62287f4)
 
 **커밋 근거**  [d12ab81e](https://github.com/ddalggagclick/starter-kit/commit/d12ab81e793b9213be6ac10fac5d7f80888e0e92) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
-### 2-3-1. W-04의 접기형 상세 화면(선택한 화면 배치)을 구현한다
+### 2-3-1. ~~W-04의 접기형 상세 화면(선택한 화면 배치)을 구현한다~~
 
 **담당**  F1 · 이정민
 
@@ -216,11 +230,13 @@
 - 접힘 여부와 무관하게 필수 안내를 접근할 수 있다.
 - 주의: 기한·위험을 접힌 영역에만 두지 않는다. M-10 초기 접힘/문의 링크 정의는 협의 전 임의 확정 금지.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0) · [PR #74](https://github.com/ddalggagclick/starter-kit/pull/74) · [28a207cc](https://github.com/ddalggagclick/starter-kit/commit/28a207cc4aa639d296f61eb760185c960c3d577d) · [PR #80](https://github.com/ddalggagclick/starter-kit/pull/80) · [b8f943da](https://github.com/ddalggagclick/starter-kit/commit/b8f943da5377816bb769b83625c9367fc62287f4)
 
 **커밋 근거**  [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
-### 2-3-2. W-04에서 바로 할 행동·기한/위험·담당 기관은 항상 펼친다
+### 2-3-2. ~~W-04에서 바로 할 행동·기한/위험·담당 기관은 항상 펼친다~~
 
 **담당**  F1 · 이정민
 
@@ -232,11 +248,13 @@
 - 나머지의 최초/재방문 접힘 정책은 M-10 결정 전 구현으로 확정하지 않는다.
 - [협의 대기] M-10 접힘 초기/재방문 상태 결정 전 미정 수치·방식을 임의로 확정하지 않는다.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0) · [PR #74](https://github.com/ddalggagclick/starter-kit/pull/74) · [28a207cc](https://github.com/ddalggagclick/starter-kit/commit/28a207cc4aa639d296f61eb760185c960c3d577d) · [PR #80](https://github.com/ddalggagclick/starter-kit/pull/80) · [b8f943da](https://github.com/ddalggagclick/starter-kit/commit/b8f943da5377816bb769b83625c9367fc62287f4)
 
 **커밋 근거**  [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1) · [4c0a9125](https://github.com/ddalggagclick/starter-kit/commit/4c0a912504a187a1f6dd7634ee9f93ce53cad2e9)
 
-### 2-6-1. W-05(상속 관계 설명) 관계/순위 일반 설명과 W-06(상속세 안내) 상속세 기본 안내를 공식 링크와 함께 구현한다
+### 2-6-1. ~~W-05(상속 관계 설명) 관계/순위 일반 설명과 W-06(상속세 안내) 상속세 기본 안내를 공식 링크와 함께 구현한다~~
 
 **담당**  F1 · 이정민
 
@@ -248,11 +266,13 @@
 - 개인별 상속인 판정·세액 계산은 제공하지 않는다.
 - 주의: 피드백 등록/메일 발송은 MVP 이후. Mock가 실제 접수된 것처럼 보이면 안 된다.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0) · [PR #74](https://github.com/ddalggagclick/starter-kit/pull/74) · [28a207cc](https://github.com/ddalggagclick/starter-kit/commit/28a207cc4aa639d296f61eb760185c960c3d577d)
 
 **커밋 근거**  [2256fbc8](https://github.com/ddalggagclick/starter-kit/commit/2256fbc8b3277950c640e1e420a7af56934ca06e) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
-### 2-6-3. W-08(피드백 Mock) 피드백 Mock 버튼 표시
+### 2-6-3. ~~W-08(피드백 Mock) 피드백 Mock 버튼 표시~~
 
 **담당**  F1 · 이정민
 
@@ -264,11 +284,13 @@
 - 실제 전송·저장 API 요청이 발생하지 않으며 준비 중임이 표시된다.
 - [중복 검토] 2-6-4와 Mock 피드백 구현 범위 통합 여부 확인; 업무 중복 범위를 담당자끼리 확인.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [2256fbc8](https://github.com/ddalggagclick/starter-kit/commit/2256fbc8b3277950c640e1e420a7af56934ca06e) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
-### 2-6-4. W-08(피드백 Mock) 피드백 Mock 모달 동작
+### 2-6-4. ~~W-08(피드백 Mock) 피드백 Mock 모달 동작~~
 
 **담당**  F1 · 이정민
 
@@ -280,7 +302,9 @@
 - 모달 입력이 영구 저장되거나 외부로 전송되지 않는다.
 - [중복 검토] 2-6-3과 동일 Mock 버튼/모달 범위 검토; 업무 중복 범위를 담당자끼리 확인.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [2256fbc8](https://github.com/ddalggagclick/starter-kit/commit/2256fbc8b3277950c640e1e420a7af56934ca06e) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
@@ -298,9 +322,11 @@
 
 **구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
 
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
+
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
-### 3-1-2. 입력창 위에 개인정보를 입력하지 말라는 안내와 최초 AI 사용 시 외부 전송 안내를 표시한다
+### 3-1-2. ~~입력창 위에 개인정보를 입력하지 말라는 안내와 최초 AI 사용 시 외부 전송 안내를 표시한다~~
 
 **담당**  F1 · 이정민
 
@@ -312,7 +338,9 @@
 - 고지가 가려지거나 자동 개인정보 탐지를 구현했다고 오해시키지 않는다.
 - 주의: 이미지/파일 제출 없음. 개인 정보 자동 검사는 미도입, 입력 금지 고지는 항상 표시.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [e5296eb7](https://github.com/ddalggagclick/starter-kit/commit/e5296eb76883747552a8ec492ce56adeaef844a1) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
@@ -330,7 +358,7 @@
 
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
-### 5-2-1. 로그인 폼·오류 표시 및 로그인 상태 전환을 구현한다
+### 5-2-1. ~~로그인 폼·오류 표시 및 로그인 상태 전환을 구현한다~~
 
 **담당**  F1 · 이정민
 
@@ -342,11 +370,13 @@
 - 401 실패 시 기존 계정 상태로 성공한 것으로 표시되지 않는다.
 - 주의: 비밀번호 원문·Refresh 원문 DB 저장 금지; 가입·로그인 API는 FastAPI 자체 구현.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [59407667](https://github.com/ddalggagclick/starter-kit/commit/594076679f84d15c8f6a8dcb2a32aec674048c1e) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
-### 5-6-1. 전역 헤더에 로그인 진입 버튼을 제공한다
+### 5-6-1. ~~전역 헤더에 로그인 진입 버튼을 제공한다~~
 
 **담당**  F1 · 이정민
 
@@ -358,11 +388,13 @@
 - 헤더 로그인 버튼이 모든 주요 화면에서 찾기 쉽게 보인다.
 - 주의: 소진 전 회원가입을 강제하지 않는다.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
-### 5-6-2. 비로그인 AI 일 10회 소진 시 로그인/회원가입 진입점을 표시한다
+### 5-6-2. ~~비로그인 AI 일 10회 소진 시 로그인/회원가입 진입점을 표시한다~~
 
 **담당**  F1 · 이정민
 
@@ -374,7 +406,9 @@
 - 소진 전에는 회원가입이 필수라는 안내를 하지 않는다.
 - 주의: 소진 전 회원가입을 강제하지 않는다.
 
-**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 진행 중
+**구분**  ③ Mock 프론트엔드 / 10/23 Mock 우선 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
@@ -626,6 +660,8 @@
 
 **구분**  ④ 카카오 챗봇 / API 계약 뒤 착수 / 진행 중
 
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
+
 **커밋 근거**  [59407667](https://github.com/ddalggagclick/starter-kit/commit/594076679f84d15c8f6a8dcb2a32aec674048c1e) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
 ### 1-4-4. 만료·재사용·검증 실패에는 구분되지 않는 안내를 표시하고 저장된 로컬 기록 이어가기 또는 W-01(웹 초기 3문항) 재시작을 제안한다
@@ -642,6 +678,8 @@
 
 **구분**  ④ 카카오 챗봇 / API 계약 뒤 착수 / 진행 중
 
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
+
 **커밋 근거**  [59407667](https://github.com/ddalggagclick/starter-kit/commit/594076679f84d15c8f6a8dcb2a32aec674048c1e) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
 ### 3-2-5. ~~LLM 품질 검증 이전 V1의 모의 분류·답변 경계 연결~~
@@ -655,6 +693,8 @@
 - Mock 질문에 정해진 경로와 응답·실패 분기가 재현되고 실제 LLM 검증 완료 표시가 없다.
 
 **구분**  ⑤ 검증 이전 V1 / 1주차 순서상 V1 착수 / 완료
+
+**2026-10-22 근거**  [PR #63](https://github.com/ddalggagclick/starter-kit/pull/63) · [544edea1](https://github.com/ddalggagclick/starter-kit/commit/544edea1ff7233d6f589c07edf33c2359b5bb3cd) · [PR #66](https://github.com/ddalggagclick/starter-kit/pull/66) · [ade821f9](https://github.com/ddalggagclick/starter-kit/commit/ade821f9b2bdf4d3805d7813d46a30dd0fc02328) · [PR #68](https://github.com/ddalggagclick/starter-kit/pull/68) · [0fb2ce31](https://github.com/ddalggagclick/starter-kit/commit/0fb2ce31d87681a5d9122408d00b276d964d4861) · [PR #69](https://github.com/ddalggagclick/starter-kit/pull/69) · [af19ae4d](https://github.com/ddalggagclick/starter-kit/commit/af19ae4ddd91fd960374326aae471a5afc817673) · [PR #75](https://github.com/ddalggagclick/starter-kit/pull/75) · [d83fbc59](https://github.com/ddalggagclick/starter-kit/commit/d83fbc5916442433d7ce39bb9df5cbcd76a1d2a2)
 
 **커밋 근거**  [0c1a5901](https://github.com/ddalggagclick/starter-kit/commit/0c1a5901a8f5e5750160eeda57391a1bc1b4f211)
 
@@ -671,6 +711,8 @@
 - 주의: MCP가 조문을 내지 않았다면 관련 개정법률을 추가로 자동 탐색하지 않는다. 원문 불명확 시 S7(근거 부족·판단 유보).
 
 **구분**  ⑤ 검증 이전 V1 / 검증 이전 V1 착수 / 진행 중
+
+**2026-10-22 근거**  [PR #78](https://github.com/ddalggagclick/starter-kit/pull/78) · [c648acad](https://github.com/ddalggagclick/starter-kit/commit/c648acaddbd3490109b5376576c2ba9de3b63c0d)
 
 **커밋 근거**  [0c1a5901](https://github.com/ddalggagclick/starter-kit/commit/0c1a5901a8f5e5750160eeda57391a1bc1b4f211)
 
@@ -704,6 +746,8 @@
 
 **구분**  ⑤ 검증 이전 V1 / 검증 이전 V1 착수 / 완료
 
+**2026-10-22 근거**  [PR #68](https://github.com/ddalggagclick/starter-kit/pull/68) · [0fb2ce31](https://github.com/ddalggagclick/starter-kit/commit/0fb2ce31d87681a5d9122408d00b276d964d4861) · [PR #69](https://github.com/ddalggagclick/starter-kit/pull/69) · [af19ae4d](https://github.com/ddalggagclick/starter-kit/commit/af19ae4ddd91fd960374326aae471a5afc817673) · [PR #75](https://github.com/ddalggagclick/starter-kit/pull/75) · [d83fbc59](https://github.com/ddalggagclick/starter-kit/commit/d83fbc5916442433d7ce39bb9df5cbcd76a1d2a2)
+
 **커밋 근거**  [0c1a5901](https://github.com/ddalggagclick/starter-kit/commit/0c1a5901a8f5e5750160eeda57391a1bc1b4f211)
 
 ### 3-5-1. 검색 중·법령 확인 중·답변 작성/검증 중의 실제 이벤트 기반 진행 상태를 표시한다
@@ -719,6 +763,8 @@
 - 주의: 실패한 AI 답변을 사용자에게 부분 노출하지 않는다. Gemini 한도면 AI 작업 중단, 정적 절차 안내 유지.
 
 **구분**  ⑤ 검증 이전 V1 / 검증 이전 V1 착수 / 진행 중
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
@@ -782,6 +828,8 @@
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
+**2026-10-22 근거**  [PR #80](https://github.com/ddalggagclick/starter-kit/pull/80) · [b8f943da](https://github.com/ddalggagclick/starter-kit/commit/b8f943da5377816bb769b83625c9367fc62287f4)
+
 **커밋 근거**  [2ffb07f7](https://github.com/ddalggagclick/starter-kit/commit/2ffb07f70ae236e329d954582263271210144ee2) · [f8e4256f](https://github.com/ddalggagclick/starter-kit/commit/f8e4256fef0d569a25cf8d6453b56efd12cd1111)
 
 ### 2-3-3. W-04(웹 절차 상세) 공식 안내 원고 및 RAG 출처 사전 검수
@@ -796,9 +844,11 @@
 - 검토되지 않은 안내는 화면에 확정 사실로 배포하지 않는다.
 - 주의: 기한·위험을 접힌 영역에만 두지 않는다. M-10 초기 접힘/문의 링크 정의는 협의 전 임의 확정 금지.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
-### 2-4-1. 기존 초기 3문항·선택 위험 질문을 수정할 수 있게 한다
+**2026-10-22 근거**  [PR #74](https://github.com/ddalggagclick/starter-kit/pull/74) · [28a207cc](https://github.com/ddalggagclick/starter-kit/commit/28a207cc4aa639d296f61eb760185c960c3d577d)
+
+### 2-4-1. ~~기존 초기 3문항·선택 위험 질문을 수정할 수 있게 한다~~
 
 **담당**  F1 · 이정민
 
@@ -810,7 +860,9 @@
 - 수정값은 즉시 다음 안내·주의 안내에 사용된다.
 - 주의: 위험 답변 무관 시 재확인 강제하지 않는다; 판단 불명확 시 미확인 처리.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
@@ -844,6 +896,8 @@
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0) · [PR #74](https://github.com/ddalggagclick/starter-kit/pull/74) · [28a207cc](https://github.com/ddalggagclick/starter-kit/commit/28a207cc4aa639d296f61eb760185c960c3d577d)
+
 **커밋 근거**  [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1) · [6ab9a326](https://github.com/ddalggagclick/starter-kit/commit/6ab9a3268738a642709e2e18b015dc0331c87022)
 
 ### 2-4-4. 저장된 위험 답변도 사용자가 '[그대로 맞음]'을 누르기 전에는 미확인 상태로 표시한다
@@ -860,9 +914,11 @@
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
+
 **커밋 근거**  [e5296eb7](https://github.com/ddalggagclick/starter-kit/commit/e5296eb76883747552a8ec492ce56adeaef844a1) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
-### 2-5-1. 절차별 수동 '안내 확인' 체크와 확인·재확인 개수를 분리해 보여준다
+### 2-5-1. ~~절차별 수동 '안내 확인' 체크와 확인·재확인 개수를 분리해 보여준다~~
 
 **담당**  F1 · 이정민
 
@@ -874,11 +930,13 @@
 - 확인 수치를 실제 신고·신청 완료율로 표현하지 않는다.
 - 주의: '안내 확인'은 법원·기관 신고/신청 완료가 아니다.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1) · [6ab9a326](https://github.com/ddalggagclick/starter-kit/commit/6ab9a3268738a642709e2e18b015dc0331c87022)
 
-### 2-5-2. 체크 상태는 화면 표시만 갱신하며 공통 표시 순서를 바꾸거나 카드를 숨기지 않는다
+### 2-5-2. ~~체크 상태는 화면 표시만 갱신하며 공통 표시 순서를 바꾸거나 카드를 숨기지 않는다~~
 
 **담당**  F1 · 이정민
 
@@ -890,7 +948,9 @@
 - 체크한 항목도 화면에서 계속 찾을 수 있다.
 - 주의: '안내 확인'은 법원·기관 신고/신청 완료가 아니다.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 완료
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1) · [6ab9a326](https://github.com/ddalggagclick/starter-kit/commit/6ab9a3268738a642709e2e18b015dc0331c87022)
 
@@ -968,6 +1028,8 @@
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
+**2026-10-22 근거**  [PR #66](https://github.com/ddalggagclick/starter-kit/pull/66) · [ade821f9](https://github.com/ddalggagclick/starter-kit/commit/ade821f9b2bdf4d3805d7813d46a30dd0fc02328) · [PR #75](https://github.com/ddalggagclick/starter-kit/pull/75) · [d83fbc59](https://github.com/ddalggagclick/starter-kit/commit/d83fbc5916442433d7ce39bb9df5cbcd76a1d2a2)
+
 **커밋 근거**  [0c1a5901](https://github.com/ddalggagclick/starter-kit/commit/0c1a5901a8f5e5750160eeda57391a1bc1b4f211)
 
 ### 3-2-2. 분류 힌트(법령명·조문·기준일)를 검증 대상 후보로만 다루고 법령 ID·공포번호를 AI의 주장만으로 확정하지 않는다
@@ -982,7 +1044,9 @@
 - 법령 번호·시행일은 MCP/API 공식 결과로 다시 확인한다.
 - 주의: 모델의 법령 추측은 출처 아님. Gemini 제한·장애 시 Groq(선택 Ollama)로 순서대로 자동 전환(3-2-4), 모두 실패하고 429가 있으면 사용량 제한 상태(S9) 처리·무한 재시도 금지.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #66](https://github.com/ddalggagclick/starter-kit/pull/66) · [ade821f9](https://github.com/ddalggagclick/starter-kit/commit/ade821f9b2bdf4d3805d7813d46a30dd0fc02328) · [PR #75](https://github.com/ddalggagclick/starter-kit/pull/75) · [d83fbc59](https://github.com/ddalggagclick/starter-kit/commit/d83fbc5916442433d7ce39bb9df5cbcd76a1d2a2)
 
 ### 3-2-3. 분류에 맞춰 SearchPort.search()와 LawPort.lookup()를 호출한다
 
@@ -997,6 +1061,8 @@
 - 주의: 모델의 법령 추측은 출처 아님. Gemini 제한·장애 시 Groq(선택 Ollama)로 순서대로 자동 전환(3-2-4), 모두 실패하고 429가 있으면 사용량 제한 상태(S9) 처리·무한 재시도 금지.
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #66](https://github.com/ddalggagclick/starter-kit/pull/66) · [ade821f9](https://github.com/ddalggagclick/starter-kit/commit/ade821f9b2bdf4d3805d7813d46a30dd0fc02328) · [PR #75](https://github.com/ddalggagclick/starter-kit/pull/75) · [d83fbc59](https://github.com/ddalggagclick/starter-kit/commit/d83fbc5916442433d7ce39bb9df5cbcd76a1d2a2)
 
 **커밋 근거**  [0c1a5901](https://github.com/ddalggagclick/starter-kit/commit/0c1a5901a8f5e5750160eeda57391a1bc1b4f211)
 
@@ -1036,7 +1102,9 @@
 - staged 자료가 결과에 포함되지 않는다.
 - 주의: MCP가 조문을 내지 않았다면 관련 개정법률을 추가로 자동 탐색하지 않는다. 원문 불명확 시 S7(근거 부족·판단 유보).
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #64](https://github.com/ddalggagclick/starter-kit/pull/64) · [d0b8dce3](https://github.com/ddalggagclick/starter-kit/commit/d0b8dce35d386251ea24a39147a1b1532cf83613) · [PR #77](https://github.com/ddalggagclick/starter-kit/pull/77) · [3d833739](https://github.com/ddalggagclick/starter-kit/commit/3d8337392fd8ac83d48a38db31fd7f4f2eaed457)
 
 ### 3-3-2. 채팅 서비스에서 법령 조회 결과 소비
 
@@ -1050,7 +1118,9 @@
 - 자연어 기반 다른 개정법률 자동 후보 발굴을 추가하지 않는다.
 - [중복 검토] 6-3-1과 MCP 조회 구현을 하나의 태스크로 묶을지 확인; 업무 중복 범위를 담당자끼리 확인.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #78](https://github.com/ddalggagclick/starter-kit/pull/78) · [c648acad](https://github.com/ddalggagclick/starter-kit/commit/c648acaddbd3490109b5376576c2ba9de3b63c0d)
 
 ### 3-3-3. 채팅 서비스에서 MCP 조문별 부칙 전문 보완 결과 통합
 
@@ -1064,7 +1134,9 @@
 - 조문·부칙 버전 불일치/미식별이면 추측 대신 미확인 또는 S7로 처리한다.
 - [중복 검토] 6-3-2와 OPEN API 조회 구현을 하나의 태스크로 묶을지 확인; 업무 중복 범위를 담당자끼리 확인.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #78](https://github.com/ddalggagclick/starter-kit/pull/78) · [c648acad](https://github.com/ddalggagclick/starter-kit/commit/c648acaddbd3490109b5376576c2ba9de3b63c0d)
 
 ### 3-4-3. 완료·검증된 답변 본문을 SSE로 전달받아 자동으로 빠르게 글자를 순서대로 표시한다
 
@@ -1079,6 +1151,8 @@
 - 주의: 인용 누락/공식 근거 0개는 본문 숨김 S7(근거 부족·판단 유보). 다음 글자·전체 즉시 보기 버튼 없음.
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
@@ -1096,6 +1170,8 @@
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
+
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
 ### 3-5-2. AbortController·요청 ID·서버 취소 신호로 화면 이탈/취소 시 해당 작업을 정리하고 늦은 응답을 무시한다
@@ -1111,6 +1187,8 @@
 - 주의: 실패한 AI 답변을 사용자에게 부분 노출하지 않는다. Gemini 한도면 AI 작업 중단, 정적 절차 안내 유지.
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [27eccfb7](https://github.com/ddalggagclick/starter-kit/commit/27eccfb771d79f6b3a3bc4bdbc40e53450337f6e)
 
@@ -1143,6 +1221,8 @@
 - 주의: 실패한 AI 답변을 사용자에게 부분 노출하지 않는다. Gemini 한도면 AI 작업 중단, 정적 절차 안내 유지.
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
@@ -1222,6 +1302,8 @@
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
+
 **커밋 근거**  [80d01ec7](https://github.com/ddalggagclick/starter-kit/commit/80d01ec77cd19261833bd101df4d449e5704697c) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
 ### 3-7-2. 비로그인 질문 성공/소모 횟수를 서버에서 하루 10회로 제한한다
@@ -1265,6 +1347,8 @@
 - 주의: 미동의 데이터 저장 금지; 한쪽 동의가 다른 종류 저장을 허용하지 않는다.
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #72](https://github.com/ddalggagclick/starter-kit/pull/72) · [8206ebc5](https://github.com/ddalggagclick/starter-kit/commit/8206ebc5ae26d5443cc79f6c42aed8751d116cf0)
 
 **커밋 근거**  [e5296eb7](https://github.com/ddalggagclick/starter-kit/commit/e5296eb76883747552a8ec492ce56adeaef844a1) · [0a4b5f1d](https://github.com/ddalggagclick/starter-kit/commit/0a4b5f1d1e457ad253714d8899dd1922d264a1e1)
 
@@ -1734,7 +1818,7 @@
 
 **커밋 근거**  [e19f622d](https://github.com/ddalggagclick/starter-kit/commit/e19f622debc96bad3b5ada0912c749057cb1f792) · [262ca09e](https://github.com/ddalggagclick/starter-kit/commit/262ca09e586e586d219f1761e1f9808bf1e1fe47)
 
-### 6-1-2. 선정 임베딩 google/embeddinggemma-2 768차원으로 청크를 인덱싱한다
+### 6-1-2. ~~선정 임베딩 google/embeddinggemma-2 768차원으로 청크를 인덱싱한다~~
 
 **담당**  B3 · 김수빈
 
@@ -1746,7 +1830,9 @@
 - 차원 불일치 시 적재 실패로 처리한다.
 - 주의: 미검수·미게시 자료 검색 노출 금지, 법령 원문은 RAG 색인 대상에서 제외.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 완료
+
+**2026-10-22 근거**  [PR #64](https://github.com/ddalggagclick/starter-kit/pull/64) · [d0b8dce3](https://github.com/ddalggagclick/starter-kit/commit/d0b8dce35d386251ea24a39147a1b1532cf83613)
 
 ### 6-1-3. Supabase pgvector 게시된 RAG 청크 인덱싱
 
@@ -1760,7 +1846,9 @@
 - staged/failed 상태 청크는 SearchPort 결과 0건이다.
 - 주의: 미검수·미게시 자료 검색 노출 금지, 법령 원문은 RAG 색인 대상에서 제외.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #64](https://github.com/ddalggagclick/starter-kit/pull/64) · [d0b8dce3](https://github.com/ddalggagclick/starter-kit/commit/d0b8dce35d386251ea24a39147a1b1532cf83613)
 
 ### 6-1-4. 승인된 RAG 스키마 변경만 Alembic으로 적용하고 Backend 업무 DB와 소유권을 구분한다
 
@@ -1788,9 +1876,11 @@
 - 실제 원문과 연결할 수 없는 Evidence를 공개 근거로 반환하지 않는다.
 - 주의: 불명확한 URL을 모델이 만들어내면 채택하지 않는다.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
-### 6-2-2. Evidence의 ID와 최종 인용 ID를 검증하여 화면용 AnswerReference를 생성한다
+**2026-10-22 근거**  [PR #64](https://github.com/ddalggagclick/starter-kit/pull/64) · [d0b8dce3](https://github.com/ddalggagclick/starter-kit/commit/d0b8dce35d386251ea24a39147a1b1532cf83613) · [PR #77](https://github.com/ddalggagclick/starter-kit/pull/77) · [3d833739](https://github.com/ddalggagclick/starter-kit/commit/3d8337392fd8ac83d48a38db31fd7f4f2eaed457)
+
+### 6-2-2. ~~Evidence의 ID와 최종 인용 ID를 검증하여 화면용 AnswerReference를 생성한다~~
 
 **담당**  B1 · 김현주 / 통합 협의
 
@@ -1802,7 +1892,9 @@
 - 없는 ID와 임의 URL은 AnswerReference에서 제거되고 S7(근거 부족·판단 유보) 판단 유보를 발생시킨다.
 - 주의: 불명확한 URL을 모델이 만들어내면 채택하지 않는다.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 완료
+
+**2026-10-22 근거**  [PR #80](https://github.com/ddalggagclick/starter-kit/pull/80) · [b8f943da](https://github.com/ddalggagclick/starter-kit/commit/b8f943da5377816bb769b83625c9367fc62287f4)
 
 ### 6-2-3. 게시·교체·롤백을 명시적으로 수행하고 게시 자료만 검색하는 게이트를 테스트한다
 
@@ -1816,7 +1908,9 @@
 - 롤백 때 기존 published 자료가 유지되는지 확인한다.
 - 주의: 불명확한 URL을 모델이 만들어내면 채택하지 않는다.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #64](https://github.com/ddalggagclick/starter-kit/pull/64) · [d0b8dce3](https://github.com/ddalggagclick/starter-kit/commit/d0b8dce35d386251ea24a39147a1b1532cf83613)
 
 ### 6-3-1. 법령 MCP 조문·연혁 조회 어댑터 구현
 
@@ -1830,7 +1924,9 @@
 - 조문 0건이면 OPEN API 부칙 조회는 시작되지 않는다.
 - [중복 검토] 3-3-2와 MCP 조회 제공자/소비자 책임 분리; 업무 중복 범위를 담당자끼리 확인.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #78](https://github.com/ddalggagclick/starter-kit/pull/78) · [c648acad](https://github.com/ddalggagclick/starter-kit/commit/c648acaddbd3490109b5376576c2ba9de3b63c0d)
 
 ### 6-3-2. 법제처 OPEN API 부칙 원문 조회 어댑터 구현
 
@@ -1844,9 +1940,11 @@
 - 임의 확대 검색 없이 법령 버전 일치/누락을 검증한다.
 - [중복 검토] 3-3-3과 OPEN API 조회 제공자/소비자 책임 분리; 업무 중복 범위를 담당자끼리 확인.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
-### 6-3-3. LawLookupResult의 근거 0~N건을 최종 답변 서비스에 제공한다
+**2026-10-22 근거**  [PR #78](https://github.com/ddalggagclick/starter-kit/pull/78) · [c648acad](https://github.com/ddalggagclick/starter-kit/commit/c648acaddbd3490109b5376576c2ba9de3b63c0d)
+
+### 6-3-3. ~~LawLookupResult의 근거 0~N건을 최종 답변 서비스에 제공한다~~
 
 **담당**  B1 · 김현주 / 통합 협의
 
@@ -1858,7 +1956,9 @@
 - 근거 유형·위치·공식 URL을 각각 확인한다.
 - 주의: 관련 조문 자동 추가 검색·개정법률 후보 선정 없음; 미조회/불일치면 유보.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 완료
+
+**2026-10-22 근거**  [PR #78](https://github.com/ddalggagclick/starter-kit/pull/78) · [c648acad](https://github.com/ddalggagclick/starter-kit/commit/c648acaddbd3490109b5376576c2ba9de3b63c0d)
 
 ### 6-4-1. 45건 Golden Set과 추가 안전 사례를 평가 목록으로 정리하고 출처 0건·개정 경계·부칙 누락 사례를 포함한다
 
@@ -1872,7 +1972,9 @@
 - 평가 문항별 근거 파일과 예상 반환을 기록한다.
 - 주의: 테스트 샘플 합격을 전체 법률 안내 정확도 보장으로 확대하지 않는다.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #64](https://github.com/ddalggagclick/starter-kit/pull/64) · [d0b8dce3](https://github.com/ddalggagclick/starter-kit/commit/d0b8dce35d386251ea24a39147a1b1532cf83613) · [PR #77](https://github.com/ddalggagclick/starter-kit/pull/77) · [3d833739](https://github.com/ddalggagclick/starter-kit/commit/3d8337392fd8ac83d48a38db31fd7f4f2eaed457)
 
 ### 6-4-2. Fake 제공자 계약 테스트와 실제 Gemini 구조화 출력/분류·답변 실연동 시험을 분리한다
 
@@ -1886,7 +1988,9 @@
 - 가상 응답을 실연동 성공이라고 주장하지 않는다.
 - 주의: 테스트 샘플 합격을 전체 법률 안내 정확도 보장으로 확대하지 않는다.
 
-**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 미시작
+**구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #77](https://github.com/ddalggagclick/starter-kit/pull/77) · [3d833739](https://github.com/ddalggagclick/starter-kit/commit/3d8337392fd8ac83d48a38db31fd7f4f2eaed457)
 
 ### 6-4-3. 법령 MCP·OPEN API 테스트에서 시험 원문과 실제 서비스 배포의 합격 여부를 구분해 기록한다
 
@@ -1915,6 +2019,8 @@
 - 주의: 문서 도구(md/sheet/Notion), HTTP 경로/메소드는 협의 당일 확정; 기존 승인되지 않은 값 임의 지정 금지.
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #78](https://github.com/ddalggagclick/starter-kit/pull/78) · [c648acad](https://github.com/ddalggagclick/starter-kit/commit/c648acaddbd3490109b5376576c2ba9de3b63c0d)
 
 **커밋 근거**  [cea8b426](https://github.com/ddalggagclick/starter-kit/commit/cea8b426f7d499db267e4c5394d7b8ec3846f2b5)
 
@@ -2080,6 +2186,8 @@
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
 
+**2026-10-22 근거**  [PR #64](https://github.com/ddalggagclick/starter-kit/pull/64) · [d0b8dce3](https://github.com/ddalggagclick/starter-kit/commit/d0b8dce35d386251ea24a39147a1b1532cf83613)
+
 **커밋 근거**  [ea7a80b4](https://github.com/ddalggagclick/starter-kit/commit/ea7a80b4bda1c77713ef0b6f1c0008eec6916c07) · [49abd33c](https://github.com/ddalggagclick/starter-kit/commit/49abd33c8e131eb1e2c73e07e0351fa6817bf0d3)
 
 
@@ -2096,6 +2204,8 @@
 - 비식별화 실업인증 시험본은 별도 실험 경로에서만 검증하고 운영 published 결과에 섞이지 않음을 시험한다.
 
 **구분**  후속 MVP 구현 / 후속 MVP 실구현 / 진행 중
+
+**2026-10-22 근거**  [PR #64](https://github.com/ddalggagclick/starter-kit/pull/64) · [d0b8dce3](https://github.com/ddalggagclick/starter-kit/commit/d0b8dce35d386251ea24a39147a1b1532cf83613)
 
 **커밋 근거**  [262ca09e](https://github.com/ddalggagclick/starter-kit/commit/262ca09e586e586d219f1761e1f9808bf1e1fe47) · [af6027a9](https://github.com/ddalggagclick/starter-kit/commit/af6027a94ff48a04414cded991a1e4d7e7f8207c)
 
