@@ -103,6 +103,17 @@ def test_stream_yields_marked_answer_and_done_chunk():
     assert chunks[-1].done is True and all(not c.done for c in chunks[:-1])
 
 
+def test_stream_cites_first_evidence_id_in_request():
+    text = "".join(c.text_delta for c in _stream("근거 [[E-1]] 와 [[E-2]] 로 답하십시오"))
+    assert text.endswith(" [[E-1]]")
+    assert "[[E-2]]" not in text
+
+
+def test_stream_has_no_citation_without_evidence_id():
+    text = "".join(c.text_delta for c in _stream("상속 절차"))
+    assert "[[" not in text
+
+
 def test_records_calls_and_marks_result_as_fake():
     model = FakeModel()
     asyncio.run(model.generate(_req("상속 절차")))

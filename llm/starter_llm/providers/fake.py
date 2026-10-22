@@ -5,6 +5,7 @@
 
 - generate(): 분류용 JSON 텍스트를 반환한다. (model_profile="classifier"에 쓰는 형태)
 - stream(): 모의 답변 조각을 반환한다. (model_profile="answer"에 쓰는 형태)
+- 요청에 [[근거ID]]가 있으면 모의 답변 끝에 첫 번째 ID를 그대로 인용한다. 없으면 인용하지 않는다.
 - 질문 안에 FAKE_* 표시가 있으면 해당 ModelError를 재현한다.
 
 분류 JSON 모양(backend와의 약속):
@@ -38,6 +39,7 @@ ANSWER_PREFIX = "[모의 답변] "
 ANSWER_CHUNKS = ("공식 안내를 기준으로 ", "확인한 내용을 ", "정리했습니다.")
 
 _ARTICLE = re.compile(r"제\s*(\d+)\s*조")
+_CITATION = re.compile(r"\[\[[^\[\]\s]+\]\]")
 
 
 def _all_text(request: GenerationRequest) -> str:
@@ -50,6 +52,12 @@ def _question(request: GenerationRequest) -> str:
         if message.role == "user":
             return message.content
     return request.messages[-1].content
+
+
+def _first_citation(request: GenerationRequest) -> str | None:
+    """요청 메시지에 들어 있는 첫 [[근거ID]]를 찾는다. 없으면 None."""
+    found = _CITATION.search(_all_text(request))
+    return found.group(0) if found else None
 
 
 def _failure_for(request: GenerationRequest) -> ModelError | None:
@@ -114,6 +122,9 @@ class FakeModel:
             yield GenerationChunk(text_delta=ANSWER_PREFIX)
             for piece in ANSWER_CHUNKS:
                 yield GenerationChunk(text_delta=piece)
+            citation = _first_citation(request)
+            if citation is not None:  # 출처 검증 시험용: 받은 근거 ID 중 첫 번째를 인용한다.
+                yield GenerationChunk(text_delta=f" {citation}")
             yield GenerationChunk(text_delta="", done=True)
 
         return iterate()
