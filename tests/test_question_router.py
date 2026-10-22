@@ -161,9 +161,27 @@ def test_fake_flow_classifies_once_and_answers_once(question, searched, looked_u
     assert len(model.streamed_requests) == 1
     assert model.streamed_requests[0].model_profile == "answer"
     assert (len(search.requests), len(law.queries)) == (searched, looked_up)
-    # Fake 모의 답변에는 [[근거ID]] 인용이 없어 출처 검증을 통과하지 못한다 → S7.
+    # Fake는 user 메시지의 첫 [[근거ID]]를 인용한다(#69). 프롬프트는 [안내자료]가 [법령 조문]보다 앞이다.
+    cited = "rag-1" if searched else "law-1"
+    assert result.outcome.status == "answered" and result.error_code is None
+    assert result.outcome.answer_text.endswith(f"[[{cited}]]")
+    assert [ref.evidence_id for ref in result.outcome.references] == [cited]
+
+
+def test_fake_flow_without_evidence_skips_answer_generation():
+    class EmptySearch:
+        async def search(self, request: SearchRequest) -> SearchResult:
+            return SearchResult(())
+
+    class NotFoundLaw:
+        async def lookup(self, query: LawQuery) -> LawLookupResult:
+            return LawLookupResult("not_found", ())
+
+    model = FakeModel()
+    service = V1ChatAnswerService(ModelQuestionRouter(model), EmptySearch(), NotFoundLaw(), model)
+    result = asyncio.run(service.answer("상속이 궁금해요", "req-1"))
     assert result.outcome.status == "abstained"
-    assert result.outcome.answer_text is None
+    assert len(model.generated_requests) == 1 and len(model.streamed_requests) == 0
 
 
 def test_fake_flow_passes_law_hints_to_lookup():
@@ -174,12 +192,16 @@ def test_fake_flow_passes_law_hints_to_lookup():
     assert query.needs_addenda is True
 
 
-@pytest.mark.parametrize("marker", ["FAKE_BAD_JSON", "FAKE_INVALID_OUTPUT"])
-def test_fake_flow_bad_classification_continues_as_both(marker):
+# FAKE_BAD_JSON은 분류만 깨지고 답변은 정상 → answered.
+# FAKE_INVALID_OUTPUT은 답변 stream()도 같은 오류를 내므로 → 답변 단계 형식 오류 S7.
+@pytest.mark.parametrize(
+    ("marker", "status"), [("FAKE_BAD_JSON", "answered"), ("FAKE_INVALID_OUTPUT", "abstained")]
+)
+def test_fake_flow_bad_classification_continues_as_both(marker, status):
     result, model, search, law = run_flow(f"상속 절차 {marker}")
     assert (len(search.requests), len(law.queries)) == (1, 1)
     assert len(model.streamed_requests) == 1
-    assert result.outcome.status == "abstained" and result.error_code is None
+    assert result.outcome.status == status and result.error_code is None
 
 
 @pytest.mark.parametrize(
