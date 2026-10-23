@@ -17,6 +17,7 @@ from inheritance.checklist import router as checklist_router
 from inheritance.core.errors import install_error_handlers
 from inheritance.core.health import router as health_router
 from inheritance.core.origin import DEFAULT_FRONTEND_ORIGIN
+from inheritance.core.safe_logging import install_safe_logging
 from inheritance.core.security import install_cors_origins
 from inheritance.kakao.handoff import router as handoff_router
 
@@ -43,6 +44,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 # Health·인계·절차 라우터와 CORS를 구성한다. 인증·DB Settings는 업무 라우터 조립 전까지 읽지 않는다.
 def create_app() -> FastAPI:
+    # 로그는 허용된 6개 필드만 출력한다(PRD 7-4-3). 원문·토큰·비밀값은 남지 않는다.
+    install_safe_logging()
     app = FastAPI(
         title="상속길잡이 Backend",
         version="0.1.0",
