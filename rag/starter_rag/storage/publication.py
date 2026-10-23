@@ -1,9 +1,9 @@
 # 담당: [D] | 책임: 안내자료 버전의 게시 상태 전환.
 # PRD: E6 / 스토리 6-2 / 태스크 6-2-3
 # 구현할 기능: 검수·적재 결과에 따라 staging, indexed, published, failed, retired 상태를 관리한다.
-# 완료 기준: 검수·게시된 버전만 검색 결과에 노출된다.
+# 완료 기준: 검수·게시된 버전만 검색 결과에 노출하고 URL 미상태도 보존한다.
 # 제한사항: 게시 마커 변경과 벡터 저장 경계를 분리한다.
-"""Atomic publication state transitions for document versions."""
+"""문서 버전의 게시 상태를 원자적으로 전환한다."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from starter_rag.storage.models import DEFAULT_COLLECTION_ID
 
 
 class PublicationError(RuntimeError):
-    """A document version is not eligible for atomic publication."""
+    """문서 버전이 원자적 게시 조건을 만족하지 않는다."""
 
 
 class PostgresPublicationStore(PublicationPort):
@@ -33,7 +33,7 @@ class PostgresPublicationStore(PublicationPort):
 
     async def publish(self, source_id: str, version: str) -> DocumentVersion:
         async with self.database.sql_engine.begin() as connection:
-            # Serialize competing publication switches for this source/collection.
+            # 같은 출처·collection의 동시 게시 전환을 직렬화한다.
             await connection.execute(
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
                 {"lock_key": f"{self.collection_id}:{source_id}"},
@@ -63,7 +63,7 @@ class PostgresPublicationStore(PublicationPort):
                 raise PublicationError("only a complete indexed version can be published")
             if not _has_publishable_provenance(rows):
                 raise PublicationError(
-                    "publication requires an HTTPS source URL, title, publisher, version, and location"
+                    "publication requires valid source metadata and an optional HTTPS source URL"
                 )
             if self.collection_id == DEFAULT_COLLECTION_ID and any(
                 row["is_synthetic"] for row in rows
@@ -112,12 +112,28 @@ class PostgresPublicationStore(PublicationPort):
 
 
 def _has_publishable_provenance(rows) -> bool:
-    return all(
-        bool(row["source_title"] and row["publisher"] and row["version"] and row["location"])
-        and isinstance(row["source_url"], str)
-        and row["source_url"].startswith("https://")
-        for row in rows
-    )
+    for row in rows:
+        if not all(
+            (
+                row["source_id"],
+                row["source_title"],
+                row["publisher"],
+                row["version"],
+                row["location"],
+            )
+        ):
+            return False
+        try:
+            SourceRef(
+                source_id=row["source_id"],
+                title=row["source_title"],
+                url=row["source_url"],
+                publisher=row["publisher"],
+                version=row["version"],
+            )
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 def _document_version(row, state: str, chunk_count: int) -> DocumentVersion:
