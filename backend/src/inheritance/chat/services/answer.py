@@ -8,8 +8,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from starter_llm.contracts.errors import ModelError
 from starter_llm.contracts.models import GenerationRequest
@@ -38,6 +39,10 @@ from inheritance.core.errors import ErrorCode
 
 ANSWER_MODEL_PROFILE = "answer"
 
+# 진행 단계 이름은 openapi SseStatusEvent.stage 값과 같다. 실제로 그 단계를 시작할 때만 알린다.
+AnswerStage = Literal["searching", "lawChecking", "writing"]
+ProgressCallback = Callable[[AnswerStage], Awaitable[None]]
+
 
 @dataclass(frozen=True)
 class ChatAnswerResult:
@@ -50,7 +55,11 @@ class ChatAnswerService(Protocol):
     # 성공·부분 답변에만 검증된 출처를 담고, 오류·유보 결과에는 본문을 담지 않는다.
     # 취소된 요청은 None(보낼 결과 없음)을 돌려준다. 입력 정책 위반은 ValueError다.
     async def answer(
-        self, question: str, request_id: str, previous_questions: tuple[str, ...] = ()
+        self,
+        question: str,
+        request_id: str,
+        previous_questions: tuple[str, ...] = (),
+        progress: ProgressCallback | None = None,
     ) -> ChatAnswerResult | None: ...
 
 
@@ -82,9 +91,14 @@ class V1ChatAnswerService:
         self._validator = validator or CitationValidator()
 
     async def answer(
-        self, question: str, request_id: str, previous_questions: tuple[str, ...] = ()
+        self,
+        question: str,
+        request_id: str,
+        previous_questions: tuple[str, ...] = (),
+        progress: ProgressCallback | None = None,
     ) -> ChatAnswerResult | None:
         validate_chat_input(question, previous_questions)
+        notify = progress or _no_progress
 
         try:
             decision = await self._router.classify(question)
@@ -95,7 +109,7 @@ class V1ChatAnswerService:
             decision = RouteDecision("BOTH")
 
         try:
-            rag, laws = await self._gather(question, decision)
+            rag, laws = await self._gather(question, decision, notify)
         except _SourceUnavailable:
             return _finish(SOURCE_UNAVAILABLE, request_id)
         # 근거 0건이면 최종 생성을 하지 않는다 (INTERFACE 3장).
@@ -104,6 +118,7 @@ class V1ChatAnswerService:
 
         messages = self._prompts.build(question, rag, laws, previous_questions)
         request = GenerationRequest(messages, ANSWER_MODEL_PROFILE, request_id)
+        await notify("writing")
         try:
             text = await self._collect(request)
         except ModelError as exc:
@@ -117,11 +132,12 @@ class V1ChatAnswerService:
         return ChatAnswerResult(AnswerOutcome("answered", text, references, request_id))
 
     async def _gather(
-        self, question: str, decision: RouteDecision
+        self, question: str, decision: RouteDecision, notify: ProgressCallback
     ) -> tuple[tuple[Evidence, ...], tuple[LawEvidence, ...]]:
         rag: tuple[Evidence, ...] = ()
         laws: tuple[LawEvidence, ...] = ()
         if decision.route in ("RAG", "BOTH"):
+            await notify("searching")
             try:
                 rag = (await self._search.search(SearchRequest(question))).evidence
             except Exception as exc:
@@ -135,6 +151,7 @@ class V1ChatAnswerService:
                 article_numbers=decision.article_numbers,
                 needs_addenda=decision.needs_addenda,
             )
+            await notify("lawChecking")
             try:
                 result = await self._law.lookup(query)
             except Exception as exc:
@@ -151,6 +168,10 @@ class V1ChatAnswerService:
         async for chunk in self._model.stream(request):
             parts.append(chunk.text_delta)
         return "".join(parts)
+
+
+async def _no_progress(stage: AnswerStage) -> None:
+    return None
 
 
 def _finish(safety: SafetyDecision, request_id: str) -> ChatAnswerResult | None:
