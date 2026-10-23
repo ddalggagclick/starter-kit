@@ -1,7 +1,7 @@
-<!-- 책임: [D] RAG Parser의 형식별 요구사항과 Agentic Chunking 모델 설정을 안내한다.
-구현할 기능: Parser 추가 요구사항과 청킹 공급자의 명시적 설정 방법을 기록한다.
-완료 기준: 형식별 실행 조건과 청킹 모델 설정·오류 정책을 확인할 수 있다. -->
-# RAG Parser 및 Agentic Chunking 모델 설정
+<!-- 책임: [D] RAG 독립 CLI와 Parser·청킹·pgvector 사용법을 안내한다.
+구현할 기능: 명령별 용도, 실행 조건, 데이터베이스 영향과 모델 설정을 기록한다.
+완료 기준: 검증·파싱·색인·게시·검색·평가 CLI 흐름을 재현할 수 있다. -->
+# RAG CLI 사용 설명서
 
 ## RAG 단독 설치·배포 경로
 
@@ -23,6 +23,36 @@ uv pip install --python .venv/bin/python .
 이 설치는 PostgreSQL 서버, pgvector 확장, 임베딩 모델 가중치를 설치하지 않습니다. DB와 모델은
 각각 별도로 준비해야 합니다. 현재 이슈 #62의 RAG DB 어댑터는 로컬 `starter_rag_integration`만
 허용하며, Supabase 운영 연결은 Backend의 SearchPort 통합 작업 범위입니다.
+
+## CLI 명령 목록
+
+전체 도움말은 `starter-rag --help`, 명령별 옵션은 `starter-rag <명령> --help`로 확인합니다.
+CLI는 사용자가 명시적으로 호출한 작업만 실행하며, 앱 시작 때 파싱·색인·게시하지 않습니다.
+
+| 명령 | 용도 | DB·모델 동작 |
+|---|---|---|
+| `starter-rag status` | 구현 상태와 `RAG_DATABASE_URL` 설정 유무를 표시합니다. 연결 상태는 검사하지 않습니다. | DB에 연결하지 않습니다. |
+| `starter-rag parse PATH` | Docling 문서 구조와 원문 위치를 JSON으로 출력합니다. | DB를 사용하지 않습니다. |
+| `starter-rag chunk PATH` | 파싱·청킹 결과와 처리 상태를 JSON으로 출력합니다. `--source-id`, `--version`(기본 `cli-test`), `--target-tokens`(기본 512)을 선택할 수 있습니다. | DB에 쓰지 않습니다. 일반 문서는 청킹 모델을 사용할 수 있고 XLSX 표 행은 결정적으로 처리합니다. |
+| `starter-rag db-init` | 승인된 로컬 DB에 `vector` 확장과 `rag_test.chunks` 테이블을 준비합니다. | 스키마를 변경합니다. |
+| `starter-rag index PATH` | 일반 자료는 `--source-id`, `--version`, `--source-title`, `--publisher`가 필요합니다. `--source-url`은 선택이며 HTTPS만 허용합니다. `--type source-v2`는 Source_v2 전용 색인을 실행합니다. `--target-tokens` 기본값은 512입니다. | DB에 색인하지만 게시하지 않습니다. 일반 기본 collection은 `published-guides`, Source_v2는 `rag-test-source-v2-e2e`입니다. |
+| `starter-rag publish --source-id ID --version VERSION` | 완전히 색인된 버전을 게시합니다. 새 버전 게시 시 이전 게시 버전을 원자적으로 `retired` 처리합니다. | 게시 상태를 변경합니다. 기본 collection은 `published-guides`입니다. |
+| `starter-rag search "QUERY"` | 게시된 자료를 검색하고 기존 Evidence JSON을 반환합니다. `--top-k` 허용 범위는 1–10, 기본값은 3입니다. `--collection-id`, `--allow-synthetic`을 선택할 수 있습니다. | 게시 자료를 읽고 질의 임베딩을 만듭니다. 기본 collection은 `published-guides`, 합성 자료는 기본 검색에서 제외됩니다. |
+| `starter-rag check PATH` | Source_v2 승인 상태, 필수값, URL 정책, 원본 행 참조와 31개 Unit 기준을 확인합니다. `--rows`를 추가하면 Docling 결과와 원본 XLSX 행의 일대일 대응도 확인합니다. | DB에 쓰지 않습니다. 비표시 내부 URL은 출력하지 않으며 결정적 `table_row` 청킹에서 모델 호출은 0회입니다. |
+| `starter-rag test` | Golden Truth v1.2 기반 26문항 검색 품질 평가를 실행합니다. `--dataset`, `--out`, `--mode`(`clarified`/`title`, 기본 `clarified`), `--group`(`all`/`direct`/`partial`/`safety_context`, 기본 `all`)을 지원합니다. | `--validate-only`는 DB를 사용하지 않습니다. 실제 평가는 검색만 하며 DB를 수정하지 않습니다. |
+
+일반 사용 명령은 `status`, `parse`, `chunk`, `db-init`, `index`, `publish`, `search`의 7개이고, 검증·평가
+명령은 `check`, `test`의 2개입니다. 토크나이저 경로는 `--tokenizer-path`가 우선하며, 없으면
+`RAG_TOKENIZER_PATH` 환경변수를 사용합니다. 어느 경로도 설정되지 않으면 명확한 오류를 반환하며
+토크나이저를 내려받거나 다른 모델로 바꾸지 않습니다.
+
+일반·Source_v2 `index` 모두 색인만 수행하며 `publish`를 별도로 호출해야 검색됩니다. 합성 자료는
+별도 collection에 `--synthetic`으로 색인하고, 검색할 때 `--allow-synthetic`을 지정해야 합니다.
+Source_v2의 URL 없는 Unit도 게시·검색할 수 있으며 Evidence에는 URL 외의 출처·버전·본문·위치·점수가
+반환됩니다.
+
+성공 종료 코드는 `0`, 잘못된 옵션·입력 또는 허용되지 않은 DB 설정은 `2`, DB·모델·임베딩·저장 중
+실패는 `1`입니다. 오류 출력은 DB URL·비밀번호·토큰을 표시하지 않습니다.
 
 ## 768차원 임베딩과 로컬 pgvector
 
@@ -59,7 +89,7 @@ export RAG_CHUNKING_MODEL=qwen3:4b-instruct
 export RAG_CHUNKING_OLLAMA_BASE_URL=http://127.0.0.1:11434
 
 uv run --project rag --locked starter-rag index \
-  --file ./path/to/official-guide.xlsx \
+  ./path/to/official-guide.xlsx \
   --tokenizer-path /path/to/local/tokenizer \
   --source-id official-guide \
   --version 2026-10 \
@@ -71,7 +101,7 @@ uv run --project rag --locked starter-rag index \
 uv run --project rag --locked starter-rag publish \
   --source-id official-guide --version 2026-10
 uv run --project rag --locked starter-rag search \
-  --query '상속 금융계좌 조회 방법' --top-k 3
+  '상속 금융계좌 조회 방법' --top-k 3
 ```
 
 `search` 기본 collection은 `published-guides`이고 합성 자료를 제외합니다. 테스트 자료에는
@@ -81,6 +111,42 @@ uv run --project rag --locked starter-rag search \
 
 `RAG_DATABASE_URL` 누락/허용되지 않은 DB, 잘못된 CLI 입력은 종료 코드 2입니다. DB·모델 연결,
 임베딩 또는 저장 실패는 종료 코드 1이며, 상세 DB URL이나 비밀값은 출력하지 않습니다.
+
+## Source_v2 관리자 CLI
+
+Source_v2 원본 검증과 Docling 행 검증은 DB를 변경하지 않습니다. 색인과 게시는 별도 명령으로
+실행하며, `index` 결과에 포함된 Source ID와 버전을 기존 `publish` 명령에 전달합니다.
+
+```bash
+export RAG_TOKENIZER_PATH=/path/to/local/tokenizer
+
+uv run --project rag --locked starter-rag check ./rag/data/Source_v2.xlsx
+uv run --project rag --locked starter-rag check ./rag/data/Source_v2.xlsx --rows
+
+uv run --project rag --locked starter-rag index \
+  ./rag/data/Source_v2.xlsx --type source-v2
+
+uv run --project rag --locked starter-rag publish \
+  --source-id U-01-DEATH-REPORT \
+  --version <index-결과의-version> \
+  --collection-id rag-test-source-v2-e2e
+
+uv run --project rag --locked starter-rag search \
+  '사망신고 절차' --top-k 3 \
+  --collection-id rag-test-source-v2-e2e
+
+uv run --project rag --locked starter-rag test --validate-only
+uv run --project rag --locked starter-rag test --mode clarified
+```
+
+검증 기준은 승인 Unit 31건, 화면 표시 허용 16건, 화면 표시 비허용 15건, 실제 URL 없음 7건입니다.
+비표시 URL은 Evidence에 포함하지 않습니다. Golden Truth 평가는 26개 질문과 38개 검증 라벨을
+확인한 뒤 로컬 검색 결과를 평가하며 DB를 수정하지 않습니다. `--dataset`, `--group`, `--out`,
+`--mode title`로 입력과 평가 범위를 고정할 수 있습니다.
+
+26문항 실측은 `clarified` Hit@3 1.000 / Recall@3 0.865385, `title` Hit@3 0.692308 /
+Recall@3 0.615385입니다. 두 모드 모두 정리 전과 같은 결과입니다. 작업 기준에 적힌 `clarified`
+Recall@3 0.884615와는 차이가 있어, 평가 정의가 확인될 때까지 실제 측정값을 기록합니다.
 
 ## Agentic Chunking 모델
 
@@ -131,7 +197,7 @@ chunks = await chunk_document_with_config(
 RAG_CHUNKING_PROVIDER=ollama \
 RAG_CHUNKING_MODEL=qwen3:4b-instruct \
 uv run --locked starter-rag chunk \
-  --file ./path/to/guide.pdf \
+  ./path/to/guide.pdf \
   --tokenizer-path /path/to/local/qwen3-tokenizer \
   --source-id guide-test \
   --version local
