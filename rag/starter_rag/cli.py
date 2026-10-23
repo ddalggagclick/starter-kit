@@ -112,7 +112,7 @@ def _load_tokenizer(path: str):
     try:
         from transformers import AutoTokenizer
     except ImportError:
-        raise RuntimeError(
+        raise ValueError(
             "토크나이저를 불러오려면 RAG의 transformers 의존성이 필요합니다."
         ) from None
 
