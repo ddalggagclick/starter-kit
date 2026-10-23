@@ -247,9 +247,7 @@ def _table_structure(item: object) -> TableStructure:
         TableRowStructure(
             row_index=row_index,
             cell_indexes=tuple(
-                cell_index
-                for cell_index, cell in enumerate(cells)
-                if cell.start_row == row_index
+                cell_index for cell_index, cell in enumerate(cells) if cell.start_row == row_index
             ),
         )
         for row_index in range(max(row_count, 0))
@@ -276,7 +274,9 @@ def extract_document_structure(
         self_ref = getattr(item, "self_ref", None)
         table = None
         if label == "title":
-            kind: Literal["document_title", "section_title", "paragraph", "table"] = "document_title"
+            kind: Literal["document_title", "section_title", "paragraph", "table"] = (
+                "document_title"
+            )
         elif label == "section_header":
             kind = "section_title"
         elif label in {"paragraph", "text"}:
@@ -371,16 +371,12 @@ def parse_document(path: str | Path) -> DoclingDocument:
     try:
         result = _get_converter().convert(source, raises_on_error=False)
     except Exception as error:
-        raise DocumentConversionError(
-            f"Docling 변환에 실패했습니다: {source}"
-        ) from error
+        raise DocumentConversionError(f"Docling 변환에 실패했습니다: {source}") from error
 
     status = getattr(result.status, "value", result.status)
     # 일부 페이지나 구조만 변환된 결과도 정상 문서로 넘기지 않는다.
     if status != "success":
-        raise DocumentConversionError(
-            f"Docling 변환 상태가 성공이 아닙니다: {source} ({status})"
-        )
+        raise DocumentConversionError(f"Docling 변환 상태가 성공이 아닙니다: {source} ({status})")
 
     document = getattr(result, "document", None)
     if document is None:
@@ -423,10 +419,15 @@ HEADERS = (
 )
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+MAX_XLSX_SIZE_BYTES = 30_000_000
 
 
 class SourceV2Error(ValueError):
     """정리된 입력이 불완전하거나 서로 일치하지 않을 때 발생한다."""
+
+
+class XlsxTableError(ValueError):
+    """XLSX worksheet cannot be read using the generic table parser."""
 
 
 @dataclass(frozen=True)
@@ -453,9 +454,16 @@ class SourceUnit:
 
 
 def _column(cell_ref: str) -> int:
+    try:
+        return _column_number(cell_ref)
+    except XlsxTableError as error:
+        raise SourceV2Error(str(error)) from error
+
+
+def _column_number(cell_ref: str) -> int:
     match = re.fullmatch(r"([A-Z]+)[1-9][0-9]*", cell_ref)
     if not match:
-        raise SourceV2Error("invalid XLSX cell address")
+        raise XlsxTableError("invalid XLSX cell address")
     index = 0
     for letter in match.group(1):
         index = 26 * index + ord(letter) - ord("A") + 1
@@ -467,7 +475,7 @@ def _text(element: ET.Element) -> str:
 
 
 def _sheet_rows(path: Path) -> list[tuple[int, dict[int, str]]]:
-    if path.stat().st_size > 30_000_000:
+    if path.stat().st_size > MAX_XLSX_SIZE_BYTES:
         raise SourceV2Error("workbook exceeds 30 MB")
     try:
         return _read_xlsx_rows(path)
@@ -477,43 +485,79 @@ def _sheet_rows(path: Path) -> list[tuple[int, dict[int, str]]]:
         raise SourceV2Error("invalid XLSX workbook structure") from error
 
 
+def _read_xlsx_sheet_rows(
+    path: Path,
+    sheet_name: str,
+    *,
+    require_only_sheet: bool = False,
+) -> list[tuple[int, dict[int, str]]]:
+    if not sheet_name:
+        raise XlsxTableError("worksheet name is required")
+    if path.stat().st_size > MAX_XLSX_SIZE_BYTES:
+        raise XlsxTableError("workbook exceeds 30 MB")
+    try:
+        with ZipFile(path) as archive:
+            workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+            relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+            targets = {node.attrib["Id"]: node.attrib["Target"] for node in relations}
+            sheets = list(workbook.iter(f"{{{NS}}}sheet"))
+            if require_only_sheet:
+                if len(sheets) != 1 or sheets[0].get("name") != sheet_name:
+                    raise XlsxTableError("Source_v2 must contain only RAG_Unit본문")
+                selected = sheets
+            else:
+                selected = [sheet for sheet in sheets if sheet.get("name") == sheet_name]
+                if len(selected) != 1:
+                    raise XlsxTableError("worksheet does not exist or is ambiguous")
+
+            relationship_id = selected[0].attrib[f"{{{REL}}}id"]
+            target = targets[relationship_id]
+            sheet_file = (
+                target.lstrip("/")
+                if target.startswith("/")
+                else posixpath.normpath(posixpath.join("xl", target))
+            )
+            if not sheet_file.startswith("xl/") or ".." in sheet_file.split("/"):
+                raise XlsxTableError("unsafe worksheet location")
+
+            shared: list[str] = []
+            if "xl/sharedStrings.xml" in archive.namelist():
+                strings = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+                shared = [_text(node) for node in strings.iter(f"{{{NS}}}si")]
+
+            root = ET.fromstring(archive.read(sheet_file))
+            rows: list[tuple[int, dict[int, str]]] = []
+            for row in root.iter(f"{{{NS}}}row"):
+                cells: dict[int, str] = {}
+                for cell in row.findall(f"{{{NS}}}c"):
+                    kind = cell.get("t")
+                    value = cell.find(f"{{{NS}}}v")
+                    if kind == "inlineStr":
+                        inline = cell.find(f"{{{NS}}}is")
+                        raw = _text(inline) if inline is not None else ""
+                    elif kind == "s" and value is not None:
+                        raw = shared[int(value.text or "0")]
+                    else:
+                        raw = value.text if value is not None and value.text else ""
+                    cells[_column_number(cell.attrib["r"])] = raw
+                rows.append((int(row.attrib["r"]), cells))
+            return rows
+    except XlsxTableError:
+        raise
+    except (BadZipFile, KeyError, ET.ParseError, ValueError, IndexError) as error:
+        raise XlsxTableError("invalid XLSX workbook structure") from error
+
+
+def read_xlsx_table_rows(path: Path, sheet_name: str) -> list[tuple[int, dict[int, str]]]:
+    """Read one configured worksheet with the shared XLSX row parser."""
+    return _read_xlsx_sheet_rows(Path(path), sheet_name)
+
+
 def _read_xlsx_rows(path: Path) -> list[tuple[int, dict[int, str]]]:
-    with ZipFile(path) as archive:
-        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
-        relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
-        targets = {node.attrib["Id"]: node.attrib["Target"] for node in relations}
-        sheets = list(workbook.iter(f"{{{NS}}}sheet"))
-        if len(sheets) != 1 or sheets[0].get("name") != SHEET:
-            raise SourceV2Error("Source_v2 must contain only RAG_Unit본문")
-        target = targets[sheets[0].attrib[f"{{{REL}}}id"]]
-        sheet_file = (
-            target.lstrip("/")
-            if target.startswith("/")
-            else posixpath.normpath(posixpath.join("xl", target))
-        )
-        if not sheet_file.startswith("xl/") or ".." in sheet_file.split("/"):
-            raise SourceV2Error("unsafe worksheet location")
-        shared: list[str] = []
-        if "xl/sharedStrings.xml" in archive.namelist():
-            strings = ET.fromstring(archive.read("xl/sharedStrings.xml"))
-            shared = [_text(node) for node in strings.iter(f"{{{NS}}}si")]
-        root = ET.fromstring(archive.read(sheet_file))
-        rows: list[tuple[int, dict[int, str]]] = []
-        for row in root.iter(f"{{{NS}}}row"):
-            cells: dict[int, str] = {}
-            for cell in row.findall(f"{{{NS}}}c"):
-                kind = cell.get("t")
-                value = cell.find(f"{{{NS}}}v")
-                if kind == "inlineStr":
-                    inline = cell.find(f"{{{NS}}}is")
-                    raw = _text(inline) if inline is not None else ""
-                elif kind == "s" and value is not None:
-                    raw = shared[int(value.text or "0")]
-                else:
-                    raw = value.text if value is not None and value.text else ""
-                cells[_column(cell.attrib["r"])] = raw
-            rows.append((int(row.attrib["r"]), cells))
-        return rows
+    try:
+        return _read_xlsx_sheet_rows(path, SHEET, require_only_sheet=True)
+    except XlsxTableError as error:
+        raise SourceV2Error(str(error)) from error
 
 
 def _url(value: str) -> str | None:

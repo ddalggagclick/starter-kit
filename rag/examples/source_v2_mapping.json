@@ -1,0 +1,173 @@
+{
+  "sheet": "RAG_Unit본문",
+  "fields": {
+    "source_id": "Unit ID",
+    "title": "절차·주제",
+    "publisher": "기관·발행처",
+    "excerpt": "RAG 인용 발췌 본문 (링크 H열 원문)",
+    "condition": "투입 조건 (Unit F)",
+    "unverified": "미확인·유의 (Unit G)",
+    "scope": "본문 범위",
+    "caution": "사용 주의",
+    "official_url": "공식 URL (내부 출처)",
+    "display_link_allowed": "화면 URL 사용",
+    "official_location_note": "공식 원문 위치 메모 (Unit J)",
+    "version_note": "버전·기준일 (Unit K)",
+    "historical_positions": "원본 링크 위치",
+    "approval": "적재 승인"
+  },
+  "approval": {
+    "field": "approval",
+    "value": "적재 승인"
+  },
+  "nullable_fields": [
+    "official_url"
+  ],
+  "boolean_fields": {
+    "display_link_allowed": {
+      "표시": true,
+      "표시 금지 / 없음": false
+    }
+  },
+  "split_fields": {
+    "historical_positions": ";"
+  },
+  "docling": {
+    "source_id": "source-v2-worksheet",
+    "version": "source-v2-table"
+  },
+  "projection": {
+    "id_field": "source_id",
+    "row_field": "row",
+    "excerpt_field": "excerpt",
+    "internal_url_field": "official_url",
+    "display_url_field": "display_link_allowed",
+    "hash_fields": [
+      [
+        "source_id",
+        "source_id"
+      ],
+      [
+        "title",
+        "title"
+      ],
+      [
+        "publisher",
+        "publisher"
+      ],
+      [
+        "excerpt",
+        "excerpt"
+      ],
+      [
+        "condition",
+        "condition"
+      ],
+      [
+        "unverified",
+        "unverified"
+      ],
+      [
+        "scope",
+        "scope"
+      ],
+      [
+        "caution",
+        "caution"
+      ],
+      [
+        "official_url",
+        "official_url"
+      ],
+      [
+        "display_link_allowed",
+        "display_link_allowed"
+      ],
+      [
+        "official_location_note",
+        "official_location_note"
+      ],
+      [
+        "version_note",
+        "version_note"
+      ],
+      [
+        "xlsx_row",
+        "row"
+      ],
+      [
+        "historical_positions",
+        "historical_positions"
+      ]
+    ],
+    "searchable_fields": [
+      [
+        "Source Unit",
+        "source_id"
+      ],
+      [
+        "절차·주제",
+        "title"
+      ],
+      [
+        "확인한 내용·유의 (인용 발췌)",
+        "excerpt"
+      ],
+      [
+        "투입 조건",
+        "condition"
+      ],
+      [
+        "미확인·유의",
+        "unverified"
+      ],
+      [
+        "본문 범위",
+        "scope"
+      ],
+      [
+        "사용 주의",
+        "caution"
+      ]
+    ],
+    "location_fields": [
+      [
+        "source_unit_id",
+        "source_id"
+      ],
+      [
+        "source_v2_row",
+        "row"
+      ],
+      [
+        "historical_excerpt_positions",
+        "historical_positions"
+      ],
+      [
+        "official_location_note",
+        "official_location_note"
+      ]
+    ],
+    "location_constants": [
+      [
+        "source_v2_sheet",
+        "RAG_Unit본문"
+      ],
+      [
+        "chunk_kind",
+        "table_row"
+      ],
+      [
+        "historical_positions_are_live_links",
+        false
+      ],
+      [
+        "official_location_verified",
+        false
+      ]
+    ],
+    "location_row_index_key": "chunk_row_index",
+    "location_provenance_key": "docling_locations",
+    "version_prefix": "source-v2-"
+  }
+}
