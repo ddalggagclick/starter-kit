@@ -1,15 +1,21 @@
-# 담당: [D] | 책임: Docling 기반 공식 안내자료 문서 변환.
+# 담당: [D] | 책임: Docling 문서 변환과 Source_v2 XLSX 검증.
 # PRD: E6 / 스토리 6-1 / 태스크 6-1-1
-# 구현할 기능: 설치된 Docling 입력 형식을 DoclingDocument로 변환하고 실패 유형을 구분한다.
-# 완료 기준: Docling 성공 상태의 변환 결과를 반환하고, 입력·변환 실패를 각각 식별한다.
+# 구현할 기능: Docling 입력 형식을 변환하고 Source_v2 승인·URL·행 정보를 검증한다.
+# 완료 기준: 문서 변환 결과와 Source_v2 검증 결과를 기존 파서 경계에서 반환한다.
 # 제한사항: 명시적으로 호출한 파일만 변환하며 법령 원문을 벡터 색인하지 않는다.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import posixpath
+import re
+from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import urlsplit
+from xml.etree import ElementTree as ET
+from zipfile import BadZipFile, ZipFile
 
 from docling_core.types.doc.document import DoclingDocument
 
@@ -380,3 +386,266 @@ def parse_document(path: str | Path) -> DoclingDocument:
     if document is None:
         raise DocumentConversionError(f"Docling 결과에 문서가 없습니다: {source}")
     return document
+
+
+SHEET = "RAG_Unit본문"
+APPROVED = "적재 승인"
+EXPECTED_NO_URL = frozenset(
+    {
+        "U-06-BANK-KB",
+        "U-06-BANK-NH",
+        "U-06-BANK-WOORI",
+        "U-06-BANK-HANA",
+        "U-08-SKT",
+        "U-08-KT",
+        "U-08-LGU",
+    }
+)
+HEADERS = (
+    "Unit ID",
+    "Unit 목록 행",
+    "절차·주제",
+    "연결된 기본 카드",
+    "공식 URL (내부 출처)",
+    "화면 URL 사용",
+    "연결한 링크 행",
+    "RAG 인용 발췌 본문 (링크 H열 원문)",
+    "투입 조건 (Unit F)",
+    "미확인·유의 (Unit G)",
+    "공식 원문 위치 메모 (Unit J)",
+    "버전·기준일 (Unit K)",
+    "적재 승인",
+    "본문 범위",
+    "사용 주의",
+    "기관·발행처",
+    "원본 링크 위치",
+    "소스 변경키",
+)
+NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+class SourceV2Error(ValueError):
+    """정리된 입력이 불완전하거나 서로 일치하지 않을 때 발생한다."""
+
+
+@dataclass(frozen=True)
+class SourceUnit:
+    source_id: str
+    row: int
+    original_unit_row: int
+    title: str
+    card: str
+    official_url: str | None
+    display_link_allowed: bool
+    excerpt_rows: tuple[int, ...]
+    excerpt: str
+    condition: str
+    unverified: str
+    official_location_note: str
+    version_note: str
+    approval: str
+    scope: str
+    caution: str
+    publisher: str
+    historical_positions: tuple[str, ...]
+    content_key: str
+
+
+def _column(cell_ref: str) -> int:
+    match = re.fullmatch(r"([A-Z]+)[1-9][0-9]*", cell_ref)
+    if not match:
+        raise SourceV2Error("invalid XLSX cell address")
+    index = 0
+    for letter in match.group(1):
+        index = 26 * index + ord(letter) - ord("A") + 1
+    return index - 1
+
+
+def _text(element: ET.Element) -> str:
+    return "".join(node.text or "" for node in element.iter(f"{{{NS}}}t"))
+
+
+def _sheet_rows(path: Path) -> list[tuple[int, dict[int, str]]]:
+    if path.stat().st_size > 30_000_000:
+        raise SourceV2Error("workbook exceeds 30 MB")
+    try:
+        return _read_xlsx_rows(path)
+    except SourceV2Error:
+        raise
+    except (BadZipFile, KeyError, ET.ParseError, ValueError) as error:
+        raise SourceV2Error("invalid XLSX workbook structure") from error
+
+
+def _read_xlsx_rows(path: Path) -> list[tuple[int, dict[int, str]]]:
+    with ZipFile(path) as archive:
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        targets = {node.attrib["Id"]: node.attrib["Target"] for node in relations}
+        sheets = list(workbook.iter(f"{{{NS}}}sheet"))
+        if len(sheets) != 1 or sheets[0].get("name") != SHEET:
+            raise SourceV2Error("Source_v2 must contain only RAG_Unit본문")
+        target = targets[sheets[0].attrib[f"{{{REL}}}id"]]
+        sheet_file = (
+            target.lstrip("/")
+            if target.startswith("/")
+            else posixpath.normpath(posixpath.join("xl", target))
+        )
+        if not sheet_file.startswith("xl/") or ".." in sheet_file.split("/"):
+            raise SourceV2Error("unsafe worksheet location")
+        shared: list[str] = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            strings = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            shared = [_text(node) for node in strings.iter(f"{{{NS}}}si")]
+        root = ET.fromstring(archive.read(sheet_file))
+        rows: list[tuple[int, dict[int, str]]] = []
+        for row in root.iter(f"{{{NS}}}row"):
+            cells: dict[int, str] = {}
+            for cell in row.findall(f"{{{NS}}}c"):
+                kind = cell.get("t")
+                value = cell.find(f"{{{NS}}}v")
+                if kind == "inlineStr":
+                    inline = cell.find(f"{{{NS}}}is")
+                    raw = _text(inline) if inline is not None else ""
+                elif kind == "s" and value is not None:
+                    raw = shared[int(value.text or "0")]
+                else:
+                    raw = value.text if value is not None and value.text else ""
+                cells[_column(cell.attrib["r"])] = raw
+            rows.append((int(row.attrib["r"]), cells))
+        return rows
+
+
+def _url(value: str) -> str | None:
+    if not value:
+        return None
+    if value.strip() != value or any(char.isspace() or ord(char) < 32 for char in value):
+        raise SourceV2Error("invalid HTTPS URL")
+    try:
+        parts = urlsplit(value)
+        valid = (
+            parts.scheme == "https"
+            and bool(parts.hostname)
+            and parts.username is None
+            and parts.password is None
+        )
+        _ = parts.port
+    except ValueError as exc:
+        raise SourceV2Error("invalid HTTPS URL") from exc
+    if not valid:
+        raise SourceV2Error("invalid HTTPS URL")
+    return value
+
+
+def _positive_integer(value: str, label: str) -> int:
+    if not re.fullmatch(r"[1-9][0-9]*", value):
+        raise SourceV2Error(f"invalid {label}")
+    return int(value)
+
+
+def read_source_units(path: str | Path, *, enforce_baseline: bool = True) -> tuple[SourceUnit, ...]:
+    """31개 유닛이 들어 있는 단일 시트 통합문서의 자체 일관성을 검증한다.
+
+    보존된 과거 행 참조는 출처 표기이며 현재 셀 주소가 아니다.
+    이 참조만으로 발췌문이 삭제된 시트의 원문과 일치한다고 증명할 수 없다.
+    """
+    rows = _sheet_rows(Path(path))
+    if not rows or rows[0][0] != 1:
+        raise SourceV2Error("empty or missing header row")
+    headers = {value.strip(): index for index, value in rows[0][1].items() if value.strip()}
+    if len(headers) != sum(bool(x.strip()) for x in rows[0][1].values()):
+        raise SourceV2Error("duplicate column heading")
+    missing = set(HEADERS) - headers.keys()
+    if missing:
+        raise SourceV2Error(f"missing columns: {sorted(missing)}")
+    seen: set[str] = set()
+    results: list[SourceUnit] = []
+    for row_number, cells in rows[1:]:
+
+        def field(key: str, row_cells: dict[int, str] = cells) -> str:
+            return row_cells.get(headers[key], "")
+
+        sid = field("Unit ID").strip()
+        if not sid:
+            if any(x.strip() for x in cells.values()):
+                raise SourceV2Error(f"missing Unit ID at row {row_number}")
+            continue
+        if not re.fullmatch(r"U-[A-Z0-9-]+", sid) or sid in seen:
+            raise SourceV2Error(f"duplicate or invalid Unit ID: {sid}")
+        seen.add(sid)
+        if field("적재 승인").strip() != APPROVED:
+            raise SourceV2Error(f"not approved: {sid}")
+        title = field("절차·주제").strip()
+        publisher = field("기관·발행처").strip()
+        excerpt = field("RAG 인용 발췌 본문 (링크 H열 원문)")
+        if not title or not publisher or not excerpt.strip():
+            raise SourceV2Error(f"missing required title, publisher, or excerpt: {sid}")
+        url = _url(field("공식 URL (내부 출처)").strip())
+        display = field("화면 URL 사용").strip()
+        if display not in ("표시", "표시 금지 / 없음"):
+            raise SourceV2Error(f"invalid display rule: {sid}")
+        if display == "표시" and url is None:
+            raise SourceV2Error(f"cannot display nonexistent URL: {sid}")
+        row_list = [part.strip() for part in field("연결한 링크 행").split(",")]
+        positions = [part.strip() for part in field("원본 링크 위치").split(";")]
+        numbers = tuple(_positive_integer(x, "historical link row") for x in row_list)
+        expected_positions = tuple(f"SU_링크기록(전체)!H{n}" for n in numbers)
+        if (
+            not numbers
+            or len(numbers) != len(set(numbers))
+            or tuple(positions) != expected_positions
+        ):
+            raise SourceV2Error(f"historical excerpt positions disagree: {sid}")
+        condition = field("투입 조건 (Unit F)")
+        unverified = field("미확인·유의 (Unit G)")
+        expected_key = hashlib.sha256(
+            (sid + "\n" + excerpt + "\n" + condition + "\n" + unverified).encode("utf-8")
+        ).hexdigest()
+        if field("소스 변경키").strip() != expected_key:
+            raise SourceV2Error(f"content key mismatch: {sid}")
+        results.append(
+            SourceUnit(
+                source_id=sid,
+                row=row_number,
+                original_unit_row=_positive_integer(field("Unit 목록 행").strip(), "Unit row"),
+                title=title,
+                card=field("연결된 기본 카드"),
+                official_url=url,
+                display_link_allowed=display == "표시",
+                excerpt_rows=numbers,
+                excerpt=excerpt,
+                condition=condition,
+                unverified=unverified,
+                official_location_note=field("공식 원문 위치 메모 (Unit J)"),
+                version_note=field("버전·기준일 (Unit K)"),
+                approval=APPROVED,
+                scope=field("본문 범위"),
+                caution=field("사용 주의"),
+                publisher=publisher,
+                historical_positions=expected_positions,
+                content_key=expected_key,
+            )
+        )
+    if enforce_baseline:
+        if len(results) != 31:
+            raise SourceV2Error(f"expected 31 approved Units, received {len(results)}")
+        no_url = {unit.source_id for unit in results if unit.official_url is None}
+        if no_url != EXPECTED_NO_URL:
+            raise SourceV2Error(f"unexpected URL-free Units: {sorted(no_url)}")
+    return tuple(results)
+
+
+def inspect_source_v2(path: str | Path) -> dict[str, object]:
+    units = read_source_units(path)
+    return {
+        "source_v2_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+        "sheet": SHEET,
+        "approved": len(units),
+        "without_url": sum(unit.official_url is None for unit in units),
+        "with_url": sum(unit.official_url is not None for unit in units),
+        "display_allowed": sum(unit.display_link_allowed for unit in units),
+        "mapping_pairs": sum(len(unit.excerpt_rows) for unit in units),
+        "source_units": [asdict(unit) for unit in units],
+        "historical_rows_are_live_links": False,
+        "official_source_freshness_verified": False,
+    }
