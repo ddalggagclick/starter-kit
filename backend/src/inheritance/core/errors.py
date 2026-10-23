@@ -26,6 +26,8 @@ class ErrorCode(StrEnum):
     RATE_LIMITED = "RATE_LIMITED"
     HANDOFF_INVALID = "HANDOFF_INVALID"
     CSRF_INVALID = "CSRF_INVALID"
+    EMAIL_TAKEN = "EMAIL_TAKEN"  # A11 409 (2026-10-23 API 담당 제안)
+    TOKEN_INVALID = "TOKEN_INVALID"  # A12·A15 400: 만료·사용·없음을 구분하지 않는다
     ORIGIN_FORBIDDEN = "ORIGIN_FORBIDDEN"
     PROVIDER_RATE_LIMIT = "PROVIDER_RATE_LIMIT"
     PROVIDER_TIMEOUT = "PROVIDER_TIMEOUT"
@@ -43,6 +45,8 @@ HTTP_STATUS: dict[ErrorCode, int | None] = {
     ErrorCode.RATE_LIMITED: 429,
     ErrorCode.HANDOFF_INVALID: 400,  # invalid/used/expired => one indistinguishable result
     ErrorCode.CSRF_INVALID: 403,
+    ErrorCode.EMAIL_TAKEN: 409,
+    ErrorCode.TOKEN_INVALID: 400,
     ErrorCode.ORIGIN_FORBIDDEN: 403,
     ErrorCode.PROVIDER_RATE_LIMIT: 429,
     ErrorCode.PROVIDER_TIMEOUT: 504,
