@@ -15,8 +15,12 @@ from fastapi.testclient import TestClient
 from inheritance.chat import router as chat_router
 from inheritance.chat.services.answer import V1ChatAnswerService
 from inheritance.chat.services.question_router import ModelQuestionRouter
+from inheritance.contracts.chat import AnswerReference
 from inheritance.contracts.law import LawEvidence, LawLookupResult, LawQuery
+from inheritance.core.dependencies import build_chat_service, law_from_env
+from inheritance.law.service import LawLookupService
 from inheritance.main import create_app
+from starter_llm.contracts.errors import ModelError, ModelErrorCode
 from starter_llm.providers.fake import FakeModel
 from starter_rag.contracts.models import Evidence, SearchRequest, SearchResult, SourceRef
 
@@ -218,3 +222,74 @@ def test_closing_stream_cancels_service_and_sends_no_late_result():
     first = asyncio.run(scenario())
     assert first.startswith("event: status")
     assert state["cancelled"] is True
+
+
+# ---- 조립(core/dependencies.build_chat_service) ------------------------------
+
+
+def test_build_chat_service_needs_model_search_and_law():
+    factory = lambda purpose: FakeModel()
+    assert build_chat_service(None, Search(), Law()) is None
+    assert build_chat_service(factory, None, Law()) is None
+    assert build_chat_service(factory, Search(), None) is None
+    assert build_chat_service(factory, Search(), Law()) is not None
+
+
+def test_build_chat_service_without_model_key_is_none():
+    def no_key(purpose):
+        raise ModelError(ModelErrorCode.UNAVAILABLE, "init")
+
+    assert build_chat_service(no_key, Search(), Law()) is None
+
+
+def test_create_app_uses_assembled_service():
+    purposes = []
+
+    def factory(purpose):
+        purposes.append(purpose)
+        return FakeModel()
+
+    service = build_chat_service(factory, Search(), Law())
+    response = ask(TestClient(create_app(chat_service=service)), "상속 절차와 서류를 알려주세요")
+    assert purposes == ["classifier", "answer"]
+    assert events(response)[-1][1]["state"] == "answered"
+
+
+def test_law_from_env_needs_law_oc(monkeypatch):
+    monkeypatch.delenv("LAW_OC", raising=False)
+    assert law_from_env() is None
+    monkeypatch.setenv("LAW_OC", "test-oc")
+    assert isinstance(law_from_env(), LawLookupService)
+
+
+# ---- URL 없는 RAG 출처(전화번호·공식 사이트 안내, #96) ---------------------------------
+
+NO_URL = Evidence(
+    evidence_id="rag-phone",
+    source=SourceRef("guide-2", "상속 상담 전화 안내", None, "시험 기관", "v1"),
+    text="상속 상담 전화 안내",
+    location="2쪽",
+)
+
+
+def test_cited_source_without_url_is_answered_with_null_url():
+    # Fake는 user 메시지의 첫 [[ID]]를 인용한다. URL 없는 근거만 있으면 그 근거를 인용한다.
+    client = make_client(search=Search((NO_URL,)), law=Law("not_found"))
+    result = events(ask(client, "상속 절차와 서류를 알려주세요"))[-1][1]
+    assert result["state"] == "answered"
+    assert result["sources"] == [{"title": "상속 상담 전화 안내", "url": None}]
+
+
+def test_uncited_source_without_url_does_not_break_answer():
+    client = make_client(search=Search((RAG, NO_URL)), law=Law("not_found"))
+    result = events(ask(client, "상속 절차와 서류를 알려주세요"))[-1][1]
+    assert result["state"] == "answered"
+    assert result["sources"] == [{"title": "상속 절차 안내", "url": RAG.source.url}]
+
+
+def test_law_reference_still_requires_https_url():
+    with pytest.raises(ValueError):
+        AnswerReference("law-1", "law_article", "민법", None, "제1019조", "2026-03-17")
+    with pytest.raises(ValueError):
+        AnswerReference("rag-1", "procedure", "안내", "http://example.com", "1쪽", "v1")
+    assert AnswerReference("rag-1", "procedure", "안내", None, "1쪽", "v1").official_url is None

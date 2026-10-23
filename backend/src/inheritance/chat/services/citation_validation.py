@@ -42,7 +42,7 @@ def _from_rag(item: Evidence) -> AnswerReference:
         evidence_id=item.evidence_id,
         kind="procedure",
         title=source.title,
-        official_url=source.url or "",
+        official_url=source.url,
         location=item.location,
         version=source.version,
     )
@@ -64,8 +64,17 @@ class CitationValidator:
     def validate_and_resolve(
         self, cited_ids: tuple[str, ...], rag: tuple[Evidence, ...], laws: tuple[LawEvidence, ...]
     ) -> tuple[AnswerReference, ...]:
-        known = {item.evidence_id: _from_rag(item) for item in rag}
-        known.update({item.evidence_id: _from_law(item) for item in laws})
+        # 인용된 근거만 출처로 바꾼다. 인용하지 않은 근거의 형식 문제로 답변 전체가 깨지지 않게 한다.
+        known: dict[str, Evidence | LawEvidence] = {item.evidence_id: item for item in rag}
+        known.update({item.evidence_id: item for item in laws})
         if not cited_ids or any(cited not in known for cited in cited_ids):
             raise CitationMismatch
-        return tuple(known[cited] for cited in cited_ids)
+        try:
+            return tuple(_reference(known[cited]) for cited in cited_ids)
+        except ValueError:
+            # 인용된 출처가 계약(제목·위치·버전·HTTPS)을 못 채우면 검증 실패로 본다(S7).
+            raise CitationMismatch from None
+
+
+def _reference(item: Evidence | LawEvidence) -> AnswerReference:
+    return _from_law(item) if isinstance(item, LawEvidence) else _from_rag(item)
