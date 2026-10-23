@@ -7,7 +7,7 @@
 """LawPort.lookup 조립 (I11). MCP 조문 → (필요할 때) 같은 시행본의 OPEN API 부칙 전문 → 0~N건.
 
 - 조문 0건이면 부칙 조회를 시작하지 않는다 (6-3-1).
-- 부칙은 MCP가 실제로 돌려준 조문의 MST·공포번호로만 조회한다. 다른 개정 법률 후보를 찾지 않는다 (6-3-2).
+- 부칙은 MCP가 실제로 돌려준 조문의 MST(시행본 고유 번호)로만 조회한다. 다른 개정 법률 후보를 찾지 않는다 (6-3-2).
 - 조문이 불완전하거나, 부칙이 없거나, 부칙 시행본이 조문과 다르면 하나라도 전체를 ambiguous(S7)로 둔다.
 - MCP·OPEN API 장애·시간 초과는 unavailable(S6)이다. verified가 아니면 근거를 내보내지 않는다.
 """
@@ -59,16 +59,15 @@ class LawLookupService:
             return LawLookupResult("ambiguous", ())
         return LawLookupResult("verified", tuple(evidence))
 
-    # 같은 시행본(MST·공포번호)의 부칙은 한 번만 조회한다. MCP 발췌(addendum_excerpt)는 쓰지 않는다.
+    # 같은 시행본(MST)의 부칙은 한 번만 조회한다. MCP 발췌(addendum_excerpt)는 쓰지 않는다.
     async def _addenda_for(
         self, articles: tuple[McpArticle, ...], query: LawQuery, checked_at: str
     ) -> list[LawEvidence]:
-        found: dict[tuple[str, str], LawEvidence] = {}
+        found: dict[str, LawEvidence] = {}
         for article in articles:
-            if not article.mst or not article.promulgation_number:
+            if not article.mst:
                 raise _Unverified  # 시행본을 식별할 수 없으면 추측하지 않는다 (3-3-3).
-            key = (article.mst, article.promulgation_number)
-            if key in found:
+            if article.mst in found:
                 continue
             candidate = AmendmentCandidate(
                 law_id=article.law_id,
@@ -82,9 +81,13 @@ class LawLookupService:
             except AddendumNotFound:
                 raise _Unverified from None
             got = full.candidate
-            if (got.mst, got.promulgation_number) != key:
-                raise _Unverified  # 부칙 시행본이 조문과 다르다.
-            found[key] = _evidence(
+            # 부칙 시행본이 조문과 다르면 미확인. MCP가 공포번호를 줬다면 그것도 맞아야 한다.
+            if got.mst != article.mst or (
+                article.promulgation_number
+                and got.promulgation_number != article.promulgation_number
+            ):
+                raise _Unverified
+            found[article.mst] = _evidence(
                 evidence_id=f"law:{article.mst}:addendum",
                 kind="addendum",
                 law_title=article.law_title,
