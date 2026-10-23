@@ -94,9 +94,15 @@ RISK_WARNING_IDS: MappingProxyType[RiskId, str] = MappingProxyType(
 )
 
 # 위험 답변별 W01~W03 노출 조건. 결정 문서 22.2절이 개발자의 임의 기본값을 금지한다.
-# TODO(B1 김현주, PRD 1-2-2): 팀이 노출 조건을 확정하면 예: {"debt": frozenset({"yes"})} 형태로 채운다.
-# 비어 있는 동안은 PRD 1-2-4에 따라 공통 경고와 웹 링크만 반환한다.
-RISK_WARNING_EXPOSURE: MappingProxyType[RiskId, frozenset[AnswerChoice]] = MappingProxyType({})
+# 2026-10-23: B안 반영(#82). 예·모름이면 해당 경고, 아니요·미응답은 공통 경고 W00만(PRD 1-2-4).
+_WARN_ON_YES_OR_UNKNOWN: frozenset[AnswerChoice] = frozenset({"yes", "unknown"})
+RISK_WARNING_EXPOSURE: MappingProxyType[RiskId, frozenset[AnswerChoice]] = MappingProxyType(
+    {
+        "debt": _WARN_ON_YES_OR_UNKNOWN,
+        "property_disposal": _WARN_ON_YES_OR_UNKNOWN,
+        "self_application": _WARN_ON_YES_OR_UNKNOWN,
+    }
+)
 
 
 @dataclass(frozen=True)
