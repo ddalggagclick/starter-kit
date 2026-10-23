@@ -105,9 +105,11 @@ def _result_event(result: ChatAnswerResult) -> str:
         }
     else:
         # 출처 0건·인용 불일치·답변 형식 오류는 판단 유보(S7). 오류가 아니다.
-        data = {"state": "withheld", "answer": None, "sources": []}
-    # remainingToday(A10)는 횟수 저장 방식 결정 전, reasonCode는 필드 확정 전이라 null로 보낸다.
-    return _sse("result", {**data, "remainingToday": None, "reasonCode": None})
+        # 사유: 근거 0건 SOURCE_NOT_VERIFIED, 인용 불일치 CITATION_MISMATCH, 그 밖(답변 형식 오류)은 null.
+        reason = result.reason_code.value if result.reason_code is not None else None
+        data = {"state": "withheld", "answer": None, "sources": [], "reasonCode": reason}
+    # remainingToday(A10)는 횟수 저장 방식 결정 전이라 null로 보낸다.
+    return _sse("result", {"reasonCode": None, **data, "remainingToday": None})
 
 
 def _error_event(code: ErrorCode, request_id: str) -> str:
