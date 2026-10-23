@@ -14,12 +14,13 @@ from typing import Protocol
 class AmendmentCandidate:
     law_id: str | None
     mst: str
-    promulgation_number: str
+    # MCP 조문 결과에는 공포번호가 없어 비어 있을 수 있다. 부칙 조회 결과에서 채운다(MST가 시행본을 정한다).
+    promulgation_number: str | None
     effective_from: str
     reference_date: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.mst or not self.promulgation_number or not self.effective_from:
+        if not self.mst or not self.effective_from:
             raise ValueError("amendment candidate requires version metadata")
 
 
