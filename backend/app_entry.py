@@ -10,10 +10,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 
+from inheritance.core.config import Settings
+from inheritance.core.database import create_db_engine, dispose_db_engine
 from inheritance.core.dependencies import ModelFactory, build_chat_service, law_from_env
 from inheritance.main import create_app
 from starter_llm.contracts.ports import ModelPort
+from starter_rag.composition import create_postgres_search_port
 from starter_rag.contracts.ports import SearchPort
 
 
@@ -33,7 +37,7 @@ def model_factory_from_env() -> ModelFactory | None:
     return factory
 
 
-# TODO(RAG 담당): starter_rag가 SearchPort를 만들어 주는 공개 함수를 내주면 여기서 부른다.
+# 운영 SearchPort는 DB 검증을 거쳐 lifespan에서 비동기로 만든다.
 def search_from_env() -> SearchPort | None:
     return None
 
@@ -47,3 +51,49 @@ def build_app(
 
 
 app = build_app()
+
+
+# [통합] Composition root only. Preserve build_app/search_from_env and the
+# existing main.py lifespan contract; the operational SearchPort is async.
+_original_lifespan_context = app.router.lifespan_context
+
+
+@asynccontextmanager
+async def _connected_rag_lifespan(application):
+    engine = None
+    try:
+        try:
+            factory = model_factory_from_env()
+            law = law_from_env()
+            if factory is not None and law is not None:
+                settings = Settings.from_env()
+                if (
+                    settings.rag_collection_id.strip()
+                    and settings.rag_db_schema == "rag"
+                    and settings.rag_vector_table == "chunks"
+                ):
+                    engine = create_db_engine(settings)
+                    search_port = await create_postgres_search_port(
+                        engine=engine,
+                        schema_name=settings.rag_db_schema,
+                        table_name=settings.rag_vector_table,
+                        collection_id=settings.rag_collection_id,
+                    )
+                    application.state.chat_service = build_chat_service(factory, search_port, law)
+                elif not settings.rag_collection_id.strip():
+                    raise ValueError("RAG_COLLECTION_ID is required for SearchPort")
+        except Exception:  # noqa: BLE001 - DB error text may contain connection secrets.
+            # An unready dependency must leave the existing A08 503 boundary intact.
+            application.state.chat_service = None
+        if engine is not None and application.state.chat_service is None:
+            await dispose_db_engine(engine)
+            engine = None
+        async with _original_lifespan_context(application):
+            yield
+    finally:
+        application.state.chat_service = None
+        if engine is not None:
+            await dispose_db_engine(engine)
+
+
+app.router.lifespan_context = _connected_rag_lifespan
