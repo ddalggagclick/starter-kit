@@ -35,8 +35,8 @@ class InMemoryAuthRepository:
 
     def user_by_email(self, email: str) -> User | None:
         with self._lock:
-            user_id = self._emails.get(email)
-            return replace(self._users[user_id]) if user_id else None
+            user = self._users.get(self._emails.get(email, ""))
+            return replace(user) if user else None
 
     def user_by_id(self, user_id: str) -> User | None:
         with self._lock:
