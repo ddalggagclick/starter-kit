@@ -6,10 +6,15 @@
 
 from __future__ import annotations
 
+import logging
+import smtplib
+import threading
 import time
+from typing import ClassVar
 
 import pytest
 from fastapi.testclient import TestClient
+from inheritance.auth.email_sender import SmtpEmailSender, smtp_sender_from_env
 from inheritance.auth.jwt import AccessTokenCodec
 from inheritance.auth.repository import InMemoryAuthRepository
 from inheritance.auth.router import auth_router_from_env, create_auth_router
@@ -241,3 +246,111 @@ def test_auth_routes_closed_without_secrets(monkeypatch):
     monkeypatch.setenv("JWT_SIGNING_KEY", "j" * 32)
     monkeypatch.setenv("CSRF_SECRET", "c" * 32)
     assert auth_router_from_env() is not None
+
+
+# ---- 리뷰 반영(PR #93): 재설정 메일 폭탄 방지, 동시 요청 ----------------------------
+
+
+def test_reset_request_is_silently_throttled(env):
+    env.signup_verified()
+    assert env.post("/api/auth/password/reset-request", {"email": EMAIL}).status_code == 202
+    # 60초 안 재요청·하루 5회 초과는 응답은 같은 202, 메일만 보내지 않는다.
+    assert env.post("/api/auth/password/reset-request", {"email": EMAIL}).status_code == 202
+    assert len(env.mail.resets) == 1
+    for _ in range(6):
+        env.now += 61
+        env.post("/api/auth/password/reset-request", {"email": EMAIL})
+    assert len(env.mail.resets) == 5
+
+
+def test_concurrent_resend_allows_only_one():
+    service = AuthService(InMemoryAuthRepository(), AccessTokenCodec("k" * 32), RecordingEmail())
+    results = []
+
+    def resend():
+        try:
+            service.resend_verification(EMAIL)
+            results.append("ok")
+        except Exception:  # noqa: BLE001 - 시험: 제한 오류 개수만 센다
+            results.append("limited")
+
+    threads = [threading.Thread(target=resend) for _ in range(20)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert results.count("ok") == 1 and results.count("limited") == 19
+
+
+# ---- SMTP 발송기 ------------------------------------------------------------------
+
+
+class FakeSmtp:
+    sent: ClassVar[list] = []
+    fail = False
+
+    def __init__(self, host, port, timeout):
+        self.address = (host, port)
+
+    def starttls(self, context):
+        self.tls = True
+
+    def login(self, username, password):
+        self.user = username
+
+    def send_message(self, message):
+        if FakeSmtp.fail:
+            raise smtplib.SMTPServerDisconnected("down")
+        FakeSmtp.sent.append(message)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def smtp_sender() -> SmtpEmailSender:
+    FakeSmtp.sent, FakeSmtp.fail = [], False
+    return SmtpEmailSender(
+        "smtp.example.com", 587, "noreply@example.com", ORIGIN + "/", "user", "pw", FakeSmtp
+    )
+
+
+def test_smtp_sends_links_with_token_in_fragment():
+    sender = smtp_sender()
+    sender.send_verification(EMAIL, "tok-1")
+    sender.send_password_reset(EMAIL, "tok-2")
+    verify, reset = FakeSmtp.sent
+    assert verify["To"] == EMAIL and verify["From"] == "noreply@example.com"
+    assert f"{ORIGIN}/auth/verify#token=tok-1" in verify.get_content()
+    assert f"{ORIGIN}/auth/reset#token=tok-2" in reset.get_content()
+    assert "?token=" not in verify.get_content()
+
+
+def test_smtp_failure_does_not_raise_or_log_secrets(caplog):
+    sender = smtp_sender()
+    FakeSmtp.fail = True
+    caplog.set_level(logging.INFO)
+    sender.send_verification(EMAIL, "secret-token")
+    assert "secret-token" not in caplog.text and EMAIL not in caplog.text
+    record = next(r for r in caplog.records if getattr(r, "event", "") == "auth.email.verify")
+    assert (record.status, record.error_code) == ("failed", "SMTPServerDisconnected")
+
+
+def test_signup_sends_real_mail_through_smtp(monkeypatch):
+    sender = smtp_sender()
+    service = AuthService(InMemoryAuthRepository(), AccessTokenCodec("k" * 32), sender)
+    service.signup(EMAIL, PASSWORD)
+    assert "/auth/verify#token=" in FakeSmtp.sent[0].get_content()
+
+
+def test_smtp_from_env_needs_host_and_sender(monkeypatch):
+    for name in ("SMTP_HOST", "SMTP_FROM", "SMTP_PORT"):
+        monkeypatch.delenv(name, raising=False)
+    assert smtp_sender_from_env(ORIGIN) is None
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_FROM", "noreply@example.com")
+    assert smtp_sender_from_env(ORIGIN) is not None
+    monkeypatch.setenv("SMTP_PORT", "abc")
+    assert smtp_sender_from_env(ORIGIN) is None

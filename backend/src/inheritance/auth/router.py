@@ -18,6 +18,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
+from inheritance.auth.email_sender import smtp_sender_from_env
 from inheritance.auth.jwt import AccessTokenCodec, AccessTokenInvalid
 from inheritance.auth.repository import InMemoryAuthRepository
 from inheritance.auth.schemas import (
@@ -182,10 +183,13 @@ def auth_router_from_env() -> APIRouter | None:
     csrf_secret = os.environ.get("CSRF_SECRET", "")
     if len(signing_key) < 32 or len(csrf_secret) < 32:
         return None
+    origin = os.environ.get("FRONTEND_ORIGIN", DEFAULT_FRONTEND_ORIGIN)
     security = WebSecuritySettings(
-        allowed_origins=(os.environ.get("FRONTEND_ORIGIN", DEFAULT_FRONTEND_ORIGIN),),
+        allowed_origins=(origin,),
         csrf_secret=csrf_secret,
         production=os.environ.get("APP_ENV", "development") == "production",
     )
-    service = AuthService(InMemoryAuthRepository(), AccessTokenCodec(signing_key))
+    # SMTP 설정이 없으면 메일을 보내지 않는다(NoEmailSender).
+    email = smtp_sender_from_env(origin)
+    service = AuthService(InMemoryAuthRepository(), AccessTokenCodec(signing_key), email)
     return create_auth_router(service, security)

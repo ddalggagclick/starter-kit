@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import threading
 import time
 import uuid
 from collections import defaultdict, deque
@@ -74,6 +75,42 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+class _SlidingWindow:
+    """이메일별 최근 시각 기록. 인증 경로는 여러 스레드에서 동시에 돌아서 잠금 안에서만 바꾼다."""
+
+    def __init__(self, window_seconds: float) -> None:
+        self._window = window_seconds
+        self._lock = threading.Lock()
+        self._items: dict[str, deque[float]] = defaultdict(deque)
+
+    def _recent(self, key: str, now: float) -> deque[float]:
+        items = self._items[key]
+        while items and now - items[0] >= self._window:
+            items.popleft()
+        return items
+
+    def count(self, key: str, now: float) -> int:
+        with self._lock:
+            return len(self._recent(key, now))
+
+    def add(self, key: str, now: float) -> None:
+        with self._lock:
+            self._recent(key, now).append(now)
+
+    def clear(self, key: str) -> None:
+        with self._lock:
+            self._items.pop(key, None)
+
+    # 간격·횟수 안이면 기록하고 True. 확인과 기록을 한 번에 해서 동시 요청이 함께 통과하지 못한다.
+    def take(self, key: str, now: float, limit: int, min_interval: float) -> bool:
+        with self._lock:
+            recent = self._recent(key, now)
+            if (recent and now - recent[-1] < min_interval) or len(recent) >= limit:
+                return False
+            recent.append(now)
+            return True
+
+
 class AuthService:
     def __init__(
         self,
@@ -90,10 +127,10 @@ class AuthService:
         self._email = email or NoEmailSender()
         self._refresh_ttl = refresh_ttl_seconds
         self._failure_limit = login_failure_limit
-        self._failure_window = login_failure_window_seconds
         self._clock = clock
-        self._failures: dict[str, deque[float]] = defaultdict(deque)
-        self._resends: dict[str, deque[float]] = defaultdict(deque)
+        self._failures = _SlidingWindow(login_failure_window_seconds)
+        self._resends = _SlidingWindow(DAY_SECONDS)
+        self._reset_requests = _SlidingWindow(DAY_SECONDS)
 
     # A11: 이메일 인증 전에는 로그인할 수 없다.
     def signup(self, email: str, password: str) -> None:
@@ -116,12 +153,8 @@ class AuthService:
     # A12 재전송: 가입 여부를 알리지 않는다. 간격·횟수 제한은 이메일 기준으로 항상 센다.
     def resend_verification(self, email: str) -> None:
         key = normalize_email(email)
-        now = self._clock()
-        recent = self._window(self._resends[key], now, DAY_SECONDS)
-        too_soon = bool(recent) and now - recent[-1] < RESEND_INTERVAL_SECONDS
-        if too_soon or len(recent) >= RESEND_DAILY_LIMIT:
+        if not self._resends.take(key, self._clock(), RESEND_DAILY_LIMIT, RESEND_INTERVAL_SECONDS):
             raise AuthError("rate_limited")
-        recent.append(now)
         user = self._repo.user_by_email(key)
         if user is not None and not user.verified:
             self._send_one_time(user, "email_verify")
@@ -130,16 +163,15 @@ class AuthService:
     def login(self, email: str, password: str) -> IssuedTokens:
         key = normalize_email(email)
         now = self._clock()
-        failures = self._window(self._failures[key], now, self._failure_window)
-        if len(failures) >= self._failure_limit:
+        if self._failures.count(key, now) >= self._failure_limit:
             raise AuthError("rate_limited")
         user = self._repo.user_by_email(key)
         if user is None or not verify_password(password, user.password_hash):
-            failures.append(now)
+            self._failures.add(key, now)
             raise AuthError("unauthenticated")
         if not user.verified:
             raise AuthError("not_verified")
-        failures.clear()
+        self._failures.clear(key)
         return self._issue(user.user_id, uuid.uuid4().hex, now)
 
     # A14: 쓴 Refresh는 다시 쓸 수 없다. 이미 쓴 것이 또 오면 탈취로 보고 그 가족 전체를 끊는다.
@@ -156,9 +188,15 @@ class AuthService:
         if refresh_token:
             self._repo.revoke_session(_hash(refresh_token))
 
-    # A15: 가입 여부를 알리지 않고 항상 같은 결과다.
+    # A15: 가입 여부를 알리지 않고 항상 같은 결과다. 메일 폭탄을 막으려고 재전송과 같은 간격·횟수를
+    # 넘으면 조용히 보내지 않는다(openapi 응답은 항상 202라 429를 새로 만들지 않는다).
     def request_password_reset(self, email: str) -> None:
-        user = self._repo.user_by_email(normalize_email(email))
+        key = normalize_email(email)
+        if not self._reset_requests.take(
+            key, self._clock(), RESEND_DAILY_LIMIT, RESEND_INTERVAL_SECONDS
+        ):
+            return
+        user = self._repo.user_by_email(key)
         if user is not None:
             self._send_one_time(user, "password_reset")
 
@@ -202,9 +240,3 @@ class AuthService:
             self._email.send_verification(user.email, token)
         else:
             self._email.send_password_reset(user.email, token)
-
-    @staticmethod
-    def _window(items: deque[float], now: float, window: float) -> deque[float]:
-        while items and now - items[0] >= window:
-            items.popleft()
-        return items
