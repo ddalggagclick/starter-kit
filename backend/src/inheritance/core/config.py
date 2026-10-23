@@ -45,6 +45,7 @@ class Settings:
     backend_db_schema: str
     rag_db_schema: str
     rag_vector_table: str
+    rag_collection_id: str
     db_pool_size: int
     db_max_overflow: int
     db_pool_timeout_seconds: int
@@ -88,7 +89,8 @@ class Settings:
             database_url=environ.get("DATABASE_URL", ""),
             backend_db_schema=environ.get("BACKEND_DB_SCHEMA", "app"),
             rag_db_schema=environ.get("RAG_DB_SCHEMA", "rag"),
-            rag_vector_table=environ.get("RAG_VECTOR_TABLE", "published_embeddings"),
+            rag_vector_table=environ.get("RAG_VECTOR_TABLE", "chunks"),
+            rag_collection_id=environ.get("RAG_COLLECTION_ID", ""),
             db_pool_size=_int_env("DB_POOL_SIZE", 2, min_value=1),
             db_max_overflow=_int_env("DB_MAX_OVERFLOW", 0),
             db_pool_timeout_seconds=_int_env("DB_POOL_TIMEOUT_SECONDS", 10, min_value=1),
@@ -141,8 +143,8 @@ class Settings:
             ) from None
         if url.scheme != "postgresql+asyncpg" or not url.hostname or port != 5432:
             raise ValueError("DATABASE_URL must be postgresql+asyncpg Session Pooler port 5432")
-        if self.production and not url.hostname.endswith(".pooler.supabase.com"):
-            raise ValueError("production DATABASE_URL must be Supabase shared Session Pooler")
+        if not url.hostname.endswith(".pooler.supabase.com"):
+            raise ValueError("DATABASE_URL must use Supabase Session Pooler")
         if self.production and (
             not url.username or not url.username.startswith("postgres.") or not url.password
         ):
@@ -150,6 +152,10 @@ class Settings:
         identifiers = (self.backend_db_schema, self.rag_db_schema, self.rag_vector_table)
         if any(_SQL_IDENTIFIER.fullmatch(value) is None for value in identifiers):
             raise ValueError("schema/table names must be simple SQL identifiers")
+        if self.rag_db_schema != "rag" or self.rag_vector_table != "chunks":
+            raise ValueError("RAG_DB_SCHEMA=rag and RAG_VECTOR_TABLE=chunks are required")
+        if self.rag_collection_id and not self.rag_collection_id.strip():
+            raise ValueError("RAG_COLLECTION_ID must be a non-empty value when set")
 
     def _validate_origin(self) -> None:
         if not is_exact_http_origin(self.frontend_origin):
