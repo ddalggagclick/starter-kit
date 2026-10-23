@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
+from inheritance.auth.router import auth_router_from_env
 from inheritance.checklist import router as checklist_router
 from inheritance.core.errors import install_error_handlers
 from inheritance.core.health import router as health_router
@@ -57,6 +58,9 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(handoff_router.router)
     app.include_router(checklist_router.router)
+    # 인증(A11~A16)은 JWT·CSRF 비밀값이 있을 때만 연다. 저장소는 ERD 승인 전이라 메모리다.
+    if (auth_router := auth_router_from_env()) is not None:
+        app.include_router(auth_router)
     # TODO [통합/API 담당]: 업무 router 및 lifespan 의존성 구성은 ERD/API 승인 후 연결한다.
     return app
 
