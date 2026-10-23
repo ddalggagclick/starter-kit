@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from starter_rag.contracts.models import Evidence, SearchRequest, SearchResult, SourceRef
 from starter_rag.evaluation.golden_set import (
+    GoldenSearchCommandError,
     GoldenSetValidationError,
     _same_url,
     evaluate_golden_set,
+    evaluate_source_v2_golden,
     load_golden_set,
     parse_golden_set,
     validate_chunk_mapping,
@@ -46,6 +52,29 @@ class FixedSearchPort:
     async def search(self, request: SearchRequest) -> SearchResult:
         self.requests.append(request)
         return SearchResult(self.results_by_query.get(request.query, ()))
+
+
+class SourceV2EvaluationCliTests(unittest.TestCase):
+    def test_검색_CLI_오류_종료_코드를_평가_명령에_전달한다(self) -> None:
+        dataset = Path(__file__).resolve().parents[1] / "rag/evaluation/source_v2_golden_v1_2.json"
+        for search_exit_code, expected_exit_code in ((2, 2), (1, 1)):
+            with tempfile.TemporaryDirectory() as directory:
+                stderr = StringIO()
+                with (
+                    patch.dict(os.environ, {"RAG_DATABASE_URL": "configured"}, clear=True),
+                    patch(
+                        "starter_rag.evaluation.golden_set._search_source_v2_golden",
+                        side_effect=GoldenSearchCommandError(search_exit_code),
+                    ),
+                    redirect_stderr(stderr),
+                ):
+                    exit_code = evaluate_source_v2_golden(
+                        dataset_path=dataset,
+                        out_path=Path(directory) / "result.json",
+                    )
+
+            self.assertEqual(exit_code, expected_exit_code)
+            self.assertIn("RAG search failed", stderr.getvalue())
 
 
 def _retrieved_evidence(

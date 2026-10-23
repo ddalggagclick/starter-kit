@@ -491,7 +491,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             stdout, stderr = StringIO(), StringIO()
 
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = rag_cli.main(["--file", str(source)])
+                result = rag_cli.main(["parse", str(source)])
 
         self.assertEqual(result, 0)
         payload = json.loads(stdout.getvalue())
@@ -507,7 +507,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         )
 
     def test_파일_경로가_없거나_비어_있으면_사용법_오류를_낸다(self) -> None:
-        for argv in ([], ["--file"]):
+        for argv in ([], ["parse"]):
             stderr = StringIO()
             with redirect_stderr(stderr), self.assertRaises(SystemExit) as context:
                 rag_cli.main(argv)
@@ -520,7 +520,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             stdout, stderr = StringIO(), StringIO()
 
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = rag_cli.main(["--file", str(source)])
+                result = rag_cli.main(["parse", str(source)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
@@ -533,7 +533,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             stdout, stderr = StringIO(), StringIO()
 
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = rag_cli.main(["--file", str(source)])
+                result = rag_cli.main(["parse", str(source)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
@@ -548,7 +548,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            result = rag_cli.main(["--file", "broken.pdf"])
+            result = rag_cli.main(["parse", "broken.pdf"])
 
         self.assertEqual(result, 1)
         self.assertEqual(stdout.getvalue(), "")
@@ -561,24 +561,47 @@ class DoclingParserAdapterTests(unittest.TestCase):
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            result = rag_cli.main(["--file", "unreadable.pdf"])
+            result = rag_cli.main(["parse", "unreadable.pdf"])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("읽기 실패", stderr.getvalue())
 
-    def test_CLI_파일_인자와_기존_서브커맨드를_함께_거부한다(self) -> None:
+    def test_도움말에는_승인된_아홉_명령만_표시한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
             redirect_stdout(stdout),
             redirect_stderr(stderr),
             self.assertRaises(SystemExit) as context,
         ):
-            rag_cli.main(["--file", "guide.html", "status"])
+            rag_cli.main(["--help"])
 
-        self.assertEqual(context.exception.code, 2)
-        self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("함께 사용할 수 없습니다", stderr.getvalue())
+        self.assertEqual(context.exception.code, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        help_text = stdout.getvalue()
+        command_line = next(line for line in help_text.splitlines() if "{" in line)
+        self.assertIn("{status,parse,chunk,db-init,index,publish,search,check,test}", command_line)
+        for removed in ("validate-search", "source-v2", "evaluate-source-v2"):
+            self.assertNotIn(removed, help_text)
+
+    def test_이전_공개_명령과_옵션은_사용법_오류로_거부한다(self) -> None:
+        for argv in (
+            ["--file", "guide.pdf"],
+            ["validate-search", "--query", "상속 포기"],
+            ["source-v2", "validate", "source.xlsx"],
+            ["evaluate-source-v2"],
+        ):
+            stderr = StringIO()
+            with redirect_stderr(stderr), self.assertRaises(SystemExit) as context:
+                rag_cli.main(argv)
+            self.assertEqual(context.exception.code, 2, argv)
+
+    def test_parse는_위치_경로를_기존_파서_출력에_전달한다(self) -> None:
+        with patch.object(rag_cli, "_parse_file", return_value=0) as parse_file:
+            result = rag_cli.main(["parse", "manual.pdf"])
+
+        self.assertEqual(result, 0)
+        parse_file.assert_called_once_with("manual.pdf")
 
     def test_status가_구현과_환경설정_실행준비를_구분한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
@@ -666,16 +689,87 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(payload["runtimeReadiness"], "not-checked")
         self.assertNotIn("status-secret", stdout.getvalue())
 
-    def test_기존_validate_search_명령_출력을_유지한다(self) -> None:
-        stdout = StringIO()
-        with redirect_stdout(stdout):
-            result = rag_cli.main(["validate-search", "--query", "상속 포기"])
+    def test_search는_검색어와_top_k를_DB_접속_전에_검증한다(self) -> None:
+        for argv in (["search", "   "], ["search", "검색어", "--top-k", "11"]):
+            stdout, stderr = StringIO(), StringIO()
+            with (
+                patch.object(
+                    rag_cli,
+                    "_database_for_command",
+                    side_effect=AssertionError("잘못된 검색 요청은 DB에 접속하면 안 된다"),
+                ),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                result = rag_cli.main(argv)
+
+            self.assertEqual(result, 2, argv)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("검색 요청", stderr.getvalue())
+
+    def test_search는_위치_검색어와_기본_top_k를_기존_검색에_전달한다(self) -> None:
+        with patch.object(rag_cli, "_search", return_value=0) as search:
+            result = rag_cli.main(["search", "상속 포기"])
 
         self.assertEqual(result, 0)
-        self.assertEqual(
-            json.loads(stdout.getvalue()),
-            {"valid": True, "query": "상속 포기", "topK": 3},
-        )
+        search.assert_called_once_with("상속 포기", 3, "published-guides", False)
+
+    def test_search는_합성자료_허용과_collection_옵션을_전달한다(self) -> None:
+        with patch.object(rag_cli, "_search", return_value=0) as search:
+            result = rag_cli.main(
+                [
+                    "search",
+                    "합성 시험 검색",
+                    "--top-k",
+                    "5",
+                    "--collection-id",
+                    "isolated-test",
+                    "--allow-synthetic",
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        search.assert_called_once_with("합성 시험 검색", 5, "isolated-test", True)
+
+    def test_청킹은_명령줄_토크나이저_경로를_환경변수보다_우선한다(self) -> None:
+        with (
+            patch.dict(os.environ, {"RAG_TOKENIZER_PATH": "/env/tokenizer"}, clear=True),
+            patch.object(rag_cli, "_chunk_file", return_value=0) as chunk_file,
+        ):
+            result = rag_cli.main(["chunk", "guide.pdf", "--tokenizer-path", "/cli/tokenizer"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(chunk_file.call_args.kwargs["tokenizer_path"], "/cli/tokenizer")
+
+    def test_청킹은_RAG_TOKENIZER_PATH를_기본_토크나이저로_사용한다(self) -> None:
+        with (
+            patch.dict(os.environ, {"RAG_TOKENIZER_PATH": "/env/tokenizer"}, clear=True),
+            patch.object(rag_cli, "_chunk_file", return_value=0) as chunk_file,
+        ):
+            result = rag_cli.main(["chunk", "guide.pdf"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(chunk_file.call_args.args, ("guide.pdf",))
+        self.assertEqual(chunk_file.call_args.kwargs["tokenizer_path"], "/env/tokenizer")
+        self.assertEqual(chunk_file.call_args.kwargs["target_tokens"], 512)
+
+    def test_토크나이저_경로가_없으면_청킹_전에_입력_오류로_종료한다(self) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(
+                rag_cli,
+                "_chunk_file",
+                side_effect=AssertionError("설정 오류 뒤에는 청킹을 실행하면 안 된다"),
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            result = rag_cli.main(["chunk", "guide.pdf"])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("RAG_TOKENIZER_PATH", stderr.getvalue())
 
     def test_청킹_도움말과_기존_status_명령이_정상_작동한다(self) -> None:
         help_stdout, help_stderr = StringIO(), StringIO()
@@ -733,7 +827,6 @@ class DoclingParserAdapterTests(unittest.TestCase):
                 result = rag_cli.main(
                     [
                         "chunk",
-                        "--file",
                         str(source),
                         "--tokenizer-path",
                         "local-tokenizer",
@@ -774,9 +867,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            result = rag_cli.main(
-                ["chunk", "--file", "guide.pdf", "--tokenizer-path", "/missing/tokenizer"]
-            )
+            result = rag_cli.main(["chunk", "guide.pdf", "--tokenizer-path", "/missing/tokenizer"])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
@@ -803,9 +894,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            result = rag_cli.main(
-                ["chunk", "--file", "guide.pdf", "--tokenizer-path", "local-tokenizer"]
-            )
+            result = rag_cli.main(["chunk", "guide.pdf", "--tokenizer-path", "local-tokenizer"])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")

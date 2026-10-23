@@ -1,15 +1,21 @@
 # 담당: [D] | 책임: 검색 Golden Set의 검증과 검색 품질 지표.
 # PRD: E6 / 스토리 6-4 / 태스크 6-4-1
-# 구현할 기능: 검증된 정답 라벨로 Recall@K와 MRR@K를 산출한다.
-# 완료 기준: 검색 Port 주입만으로 오프라인 평가와 재현 요약을 제공한다.
+# 구현할 기능: 검증된 정답 라벨과 Golden Truth v1.2로 검색 품질을 평가한다.
+# 완료 기준: 검색 Port 평가와 Source_v2 CLI 평가를 재현할 수 있다.
 # 제한사항: 청크 라벨과 문서·위치 라벨을 섞지 않고 법률 안전성 승인으로 간주하지 않는다.
 
 from __future__ import annotations
 
 import json
+import os
 import re
+import statistics
+import subprocess
+import sys
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlsplit
@@ -46,6 +52,14 @@ RUN_METADATA_FIELDS = frozenset(
 
 class GoldenSetValidationError(ValueError):
     """Golden Set 데이터나 평가 출처가 선언된 계약을 위반할 때 발생한다."""
+
+
+class GoldenSearchCommandError(RuntimeError):
+    """검색 CLI의 입력·설정 실패 종료 코드를 평가 CLI에 전달한다."""
+
+    def __init__(self, exit_code: int) -> None:
+        self.exit_code = 2 if exit_code == 2 else 1
+        super().__init__(f"RAG search failed (return code {self.exit_code}); no DB changes")
 
 
 @dataclass(frozen=True)
@@ -919,3 +933,243 @@ async def evaluate_golden_set(
         ),
         "run_metadata": {field: metadata.get(field) for field in sorted(RUN_METADATA_FIELDS)},
     }
+
+
+SOURCE_V2_GOLDEN_COLLECTION = "rag-test-source-v2-e2e"
+SOURCE_V2_GOLDEN_GROUPS = ("direct", "partial", "safety_context")
+SOURCE_V2_GOLDEN_METRICS = (
+    "hit_at_3",
+    "hit_at_10",
+    "recall_at_3",
+    "recall_at_10",
+    "mrr_at_3",
+    "mrr_at_10",
+)
+
+
+def _check_source_v2_golden(data):
+    meta = data["metadata"]
+    qs = data["queries"]
+    if meta.get("collection_id") != SOURCE_V2_GOLDEN_COLLECTION:
+        raise ValueError("unexpected collection")
+    if len(qs) != 26 or len({q["query_id"] for q in qs}) != 26:
+        raise ValueError("expected exactly 26 distinct Golden Truth questions")
+    if Counter(q["group"] for q in qs) != Counter(
+        {"direct": 5, "partial": 13, "safety_context": 8}
+    ):
+        raise ValueError("unexpected group sizes")
+    if not all(q["question"] and q["clarified_query"] and q["relevant_evidence"] for q in qs):
+        raise ValueError("missing query text or evidence")
+    ref_count = 0
+    for q in qs:
+        refs = q["relevant_evidence"]
+        if len({r["evidence_id"] for r in refs}) != len(refs):
+            raise ValueError("duplicate evidence label")
+        for ref in refs:
+            if (
+                not ref.get("source_id")
+                or not ref.get("evidence_id", "").startswith("sha256:")
+                or not ref.get("version", "").startswith("source-v2-")
+                or not ref.get("literal_supporting_anchor")
+            ):
+                raise ValueError(f"incomplete evidence label: {q['query_id']}")
+        ref_count += len(refs)
+    if ref_count != 38:
+        raise ValueError(f"expected 38 labels, got {ref_count}")
+    return qs
+
+
+def _search_source_v2_golden(query, top_k=10):
+    cmd = [
+        "uv",
+        "run",
+        "--project",
+        "rag",
+        "--locked",
+        "starter-rag",
+        "search",
+        query,
+        "--top-k",
+        str(top_k),
+        "--collection-id",
+        SOURCE_V2_GOLDEN_COLLECTION,
+    ]
+    p = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if p.returncode:
+        raise GoldenSearchCommandError(p.returncode)
+    try:
+        result = json.loads(p.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError("RAG output not valid JSON") from e
+    if (
+        result.get("success") is not True
+        or result.get("collectionId") != SOURCE_V2_GOLDEN_COLLECTION
+    ):
+        raise RuntimeError("RAG search did not confirm target collection")
+    hits = result.get("evidence")
+    if not isinstance(hits, list) or len(hits) > 10:
+        raise RuntimeError("unexpected search evidence list")
+    return hits
+
+
+def _evaluate_source_v2_query(q, mode):
+    query = q["question"] if mode == "title" else q["clarified_query"]
+    hits = _search_source_v2_golden(query)
+    gold = {r["evidence_id"]: r for r in q["relevant_evidence"]}
+    ranks = {}
+    for rank, item in enumerate(hits, 1):
+        ev_id = item.get("evidence_id")
+        if ev_id not in gold:
+            continue
+        ref = gold[ev_id]
+        src = item.get("source") or {}
+        if src.get("source_id") != ref["source_id"] or src.get("version") != ref["version"]:
+            raise RuntimeError(f"ID/version mismatch in {q['query_id']} rank {rank}")
+        if src.get("url") != ref.get("source_url"):
+            raise RuntimeError(f"URL policy mismatch in {q['query_id']} rank {rank}")
+        ranks[ev_id] = rank
+    best = min(ranks.values(), default=None)
+
+    def hit(k):
+        return int(best is not None and best <= k)
+
+    def recall(k):
+        return sum(rank <= k for rank in ranks.values()) / len(gold)
+
+    def mrr(k):
+        return (1 / best) if best is not None and best <= k else 0.0
+
+    return {
+        "query_id": q["query_id"],
+        "group": q["group"],
+        "query_mode": mode,
+        "search_query": query,
+        "original_gt_title": q["question"],
+        "relevant_evidence_count": len(gold),
+        "returned_count": len(hits),
+        "first_relevant_rank": best,
+        "matched_evidence_ranks": ranks,
+        "hit_at_3": hit(3),
+        "hit_at_10": hit(10),
+        "recall_at_3": recall(3),
+        "recall_at_10": recall(10),
+        "mrr_at_3": mrr(3),
+        "mrr_at_10": mrr(10),
+        "returned_source_ids": [(h.get("source") or {}).get("source_id") for h in hits],
+        "scope_note": q["scope"],
+    }
+
+
+def _aggregate_source_v2_results(rows):
+    if not rows:
+        return {"questions": 0, "metrics": None}
+    return {
+        "questions": len(rows),
+        "metrics": {
+            m: round(statistics.mean(r[m] for r in rows), 6) for m in SOURCE_V2_GOLDEN_METRICS
+        },
+    }
+
+
+def evaluate_source_v2_golden(
+    *,
+    dataset_path: str | Path | None = None,
+    mode: str = "clarified",
+    group: str = "all",
+    out_path: str | Path | None = None,
+    validate_only: bool = False,
+) -> int:
+    """Golden Truth v1.2 검증 또는 로컬 검색 평가를 실행한다."""
+    if mode not in {"clarified", "title"}:
+        print("ERROR: mode must be clarified or title", file=sys.stderr)
+        return 2
+    if group not in {"all", *SOURCE_V2_GOLDEN_GROUPS}:
+        print("ERROR: unsupported evaluation group", file=sys.stderr)
+        return 2
+
+    dataset = (
+        Path(dataset_path)
+        if dataset_path is not None
+        else Path(__file__).resolve().parents[2] / "evaluation" / "source_v2_golden_v1_2.json"
+    )
+    output = (
+        Path(out_path)
+        if out_path is not None
+        else Path("/tmp/source_v2_retrieval_expanded_26_results.json")
+    )
+    phase = "validation"
+    try:
+        data = json.loads(dataset.read_text(encoding="utf-8"))
+        questions = _check_source_v2_golden(data)
+        print(
+            "PASS: 26 questions; 38 verified evidence labels; "
+            "5 direct + 13 partial + 8 safety-context",
+            flush=True,
+        )
+        if validate_only:
+            return 0
+        if not os.environ.get("RAG_DATABASE_URL"):
+            print("ERROR: RAG_DATABASE_URL is required for live evaluation", file=sys.stderr)
+            return 2
+        if group != "all":
+            questions = [question for question in questions if question["group"] == group]
+
+        phase = "evaluation"
+        results = []
+        output.parent.mkdir(parents=True, exist_ok=True)
+        for index, question in enumerate(questions, 1):
+            result = _evaluate_source_v2_query(question, mode)
+            results.append(result)
+            print(
+                f"{index:02d}/{len(questions):02d} {question['query_id']} "
+                f"[{question['group']}] first_rank={result['first_relevant_rank'] or '-'} "
+                f"hit@3={result['hit_at_3']} hit@10={result['hit_at_10']}",
+                flush=True,
+            )
+            snapshot = {
+                "status": "in_progress",
+                "collection_id": SOURCE_V2_GOLDEN_COLLECTION,
+                "query_mode": mode,
+                "dataset_id": data["metadata"]["dataset_id"],
+                "completed": len(results),
+                "planned": len(questions),
+                "results": results,
+            }
+            output.write_text(
+                json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+        summary = {
+            "status": "measured_retrieval_relevance_only",
+            "collection_id": SOURCE_V2_GOLDEN_COLLECTION,
+            "dataset_id": data["metadata"]["dataset_id"],
+            "query_mode": mode,
+            "evaluated_at_utc": datetime.now(UTC).isoformat(),
+            "overall": _aggregate_source_v2_results(results),
+            "by_group": {
+                name: _aggregate_source_v2_results(
+                    [result for result in results if result["group"] == name]
+                )
+                for name in SOURCE_V2_GOLDEN_GROUPS
+            },
+            "results": results,
+            "warning": (
+                "This measures partial-subtopic retrieval, not complete answers, legal correctness, "
+                "source freshness, or unanswerable detection. Clarified queries use the GT answer."
+            ),
+        }
+        output.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print("OVERALL:", json.dumps(summary["overall"], ensure_ascii=False), flush=True)
+        print("BY GROUP:", json.dumps(summary["by_group"], ensure_ascii=False), flush=True)
+        print("RESULT:", output, flush=True)
+        return 0
+    except GoldenSearchCommandError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return error.exit_code
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError) as error:
+        print(f"ERROR: {type(error).__name__}: {error}", file=sys.stderr)
+        return 2 if phase == "validation" else 1
