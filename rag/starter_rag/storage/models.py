@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+
 from starter_rag.contracts.models import PublicationState
 
 DATABASE_NAME = "starter_rag_integration"
@@ -21,6 +24,25 @@ PUBLICATION_STATES: tuple[PublicationState, ...] = (
     "failed",
     "retired",
 )
+_SQL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+@dataclass(frozen=True)
+class RagTableTarget:
+    """Validated PostgreSQL schema and table used by one RAG store instance."""
+
+    schema_name: str
+    table_name: str
+
+    def __post_init__(self) -> None:
+        if not _SQL_IDENTIFIER.fullmatch(self.schema_name):
+            raise ValueError("schema_name must be a simple SQL identifier")
+        if not _SQL_IDENTIFIER.fullmatch(self.table_name):
+            raise ValueError("table_name must be a simple SQL identifier")
+
+    @property
+    def qualified_name(self) -> str:
+        return f'"{self.schema_name}"."{self.table_name}"'
 
 
 def validate_publication_state(state: str) -> PublicationState:

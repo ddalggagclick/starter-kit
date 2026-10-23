@@ -22,8 +22,6 @@ from starter_rag.embedding.model import EMBEDDING_MODEL_ID, EMBEDDING_MODEL_REVI
 from starter_rag.storage.database import PostgresRagDatabase
 from starter_rag.storage.models import (
     DEFAULT_COLLECTION_ID,
-    SCHEMA_NAME,
-    TABLE_NAME,
     VECTOR_DIMENSION,
 )
 
@@ -145,6 +143,7 @@ class PGVectorStore(VectorPort):
         self.database = database
         self.embedding = embedding
         self.collection_id = collection_id
+        self.table_name = database.target.qualified_name
         self._store: AsyncPGVectorStore | None = None
 
     async def _vectorstore(self) -> AsyncPGVectorStore:
@@ -152,8 +151,8 @@ class PGVectorStore(VectorPort):
             self._store = await AsyncPGVectorStore.create(
                 self.database.pg_engine,
                 None,  # vectors are always generated explicitly through EmbeddingPort
-                TABLE_NAME,
-                schema_name=SCHEMA_NAME,
+                self.database.target.table_name,
+                schema_name=self.database.target.schema_name,
                 content_column="content",
                 embedding_column="embedding",
                 metadata_columns=list(_METADATA_COLUMNS),
@@ -221,7 +220,9 @@ class PGVectorStore(VectorPort):
                 or getattr(chunk, "version", None) != document.source.version
                 or not getattr(chunk, "text", "").strip()
             ):
-                raise VectorIntegrityError("chunk identity or content differs from document version")
+                raise VectorIntegrityError(
+                    "chunk identity or content differs from document version"
+                )
 
         existing = await self._version_rows(document.source.source_id, document.source.version)
         chunk_set = set(chunk_ids)
@@ -314,7 +315,7 @@ class PGVectorStore(VectorPort):
             async with self.database.sql_engine.begin() as connection:
                 result = await connection.execute(
                     text(
-                        """SELECT count(*) FROM rag_test.chunks
+                        f"""SELECT count(*) FROM {self.table_name}
                         WHERE collection_id = :collection_id AND source_id = :source_id
                           AND version = :version AND chunk_id IN :chunk_ids"""
                     ).bindparams(bindparam("chunk_ids", expanding=True)),
@@ -329,7 +330,7 @@ class PGVectorStore(VectorPort):
                     raise VectorIntegrityError("database row count differs from expected chunks")
                 await connection.execute(
                     text(
-                        """UPDATE rag_test.chunks SET publication_state = 'indexed'
+                        f"""UPDATE {self.table_name} SET publication_state = 'indexed'
                         WHERE collection_id = :collection_id AND source_id = :source_id
                           AND version = :version AND publication_state = 'staging'"""
                     ),
@@ -343,7 +344,7 @@ class PGVectorStore(VectorPort):
             async with self.database.sql_engine.begin() as connection:
                 await connection.execute(
                     text(
-                        """UPDATE rag_test.chunks SET publication_state = 'failed'
+                        f"""UPDATE {self.table_name} SET publication_state = 'failed'
                         WHERE collection_id = :collection_id AND source_id = :source_id
                           AND version = :version AND publication_state = 'staging'"""
                     ),
@@ -410,8 +411,8 @@ class PGVectorStore(VectorPort):
         async with self.database.sql_engine.connect() as connection:
             result = await connection.execute(
                 text(
-                    """SELECT chunk_id, source_id, version, content, location
-                    FROM rag_test.chunks WHERE chunk_id = :chunk_id
+                    f"""SELECT chunk_id, source_id, version, content, location
+                    FROM {self.table_name} WHERE chunk_id = :chunk_id
                       AND collection_id = :collection_id"""
                 ),
                 {"chunk_id": chunk_id, "collection_id": self.collection_id},
@@ -432,7 +433,7 @@ class PGVectorStore(VectorPort):
         async with self.database.sql_engine.begin() as connection:
             result = await connection.execute(
                 text(
-                    """DELETE FROM rag_test.chunks
+                    f"""DELETE FROM {self.table_name}
                     WHERE collection_id = :collection_id AND source_id = :source_id
                       AND version = :version AND publication_state <> 'published'"""
                 ),
@@ -445,7 +446,7 @@ class PGVectorStore(VectorPort):
             if result.rowcount == 0:
                 exists = await connection.execute(
                     text(
-                        """SELECT 1 FROM rag_test.chunks
+                        f"""SELECT 1 FROM {self.table_name}
                         WHERE collection_id = :collection_id AND source_id = :source_id
                           AND version = :version AND publication_state = 'published' LIMIT 1"""
                     ),
@@ -472,10 +473,10 @@ class PGVectorStore(VectorPort):
         async with self.database.sql_engine.connect() as connection:
             result = await connection.execute(
                 text(
-                    """SELECT chunk_id, content, content_sha256, publication_state,
+                    f"""SELECT chunk_id, content, content_sha256, publication_state,
                     embedding_model_id, embedding_model_revision, location, source_title,
                     source_url, publisher, is_synthetic
-                    FROM rag_test.chunks WHERE collection_id = :collection_id
+                    FROM {self.table_name} WHERE collection_id = :collection_id
                       AND source_id = :source_id AND version = :version"""
                 ),
                 {
@@ -490,8 +491,8 @@ class PGVectorStore(VectorPort):
         async with self.database.sql_engine.connect() as connection:
             result = await connection.execute(
                 text(
-                    """SELECT chunk_id, collection_id, source_id, version
-                    FROM rag_test.chunks WHERE chunk_id IN :chunk_ids"""
+                    f"""SELECT chunk_id, collection_id, source_id, version
+                    FROM {self.table_name} WHERE chunk_id IN :chunk_ids"""
                 ).bindparams(bindparam("chunk_ids", expanding=True)),
                 {"chunk_ids": list(chunk_ids)},
             )
