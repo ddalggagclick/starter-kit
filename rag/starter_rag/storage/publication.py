@@ -30,6 +30,7 @@ class PostgresPublicationStore(PublicationPort):
             raise ValueError("collection_id must not be empty")
         self.database = database
         self.collection_id = collection_id
+        self.table_name = database.target.qualified_name
 
     async def publish(self, source_id: str, version: str) -> DocumentVersion:
         async with self.database.sql_engine.begin() as connection:
@@ -40,9 +41,9 @@ class PostgresPublicationStore(PublicationPort):
             )
             result = await connection.execute(
                 text(
-                    """SELECT source_id, version, content_sha256, publication_state,
+                    f"""SELECT source_id, version, content_sha256, publication_state,
                     source_title, source_url, publisher, is_synthetic, location
-                    FROM rag_test.chunks
+                    FROM {self.table_name}
                     WHERE collection_id = :collection_id AND source_id = :source_id
                       AND version = :version
                     FOR UPDATE"""
@@ -68,7 +69,9 @@ class PostgresPublicationStore(PublicationPort):
             if self.collection_id == DEFAULT_COLLECTION_ID and any(
                 row["is_synthetic"] for row in rows
             ):
-                raise PublicationError("synthetic test material cannot enter the published-guides collection")
+                raise PublicationError(
+                    "synthetic test material cannot enter the published-guides collection"
+                )
 
             reference = rows[0]
             inconsistent = any(
@@ -84,7 +87,7 @@ class PostgresPublicationStore(PublicationPort):
 
             await connection.execute(
                 text(
-                    """UPDATE rag_test.chunks SET publication_state = 'retired'
+                    f"""UPDATE {self.table_name} SET publication_state = 'retired'
                     WHERE collection_id = :collection_id AND source_id = :source_id
                       AND publication_state = 'published' AND version <> :version"""
                 ),
@@ -96,7 +99,7 @@ class PostgresPublicationStore(PublicationPort):
             )
             updated = await connection.execute(
                 text(
-                    """UPDATE rag_test.chunks SET publication_state = 'published'
+                    f"""UPDATE {self.table_name} SET publication_state = 'published'
                     WHERE collection_id = :collection_id AND source_id = :source_id
                       AND version = :version AND publication_state = 'indexed'"""
                 ),
