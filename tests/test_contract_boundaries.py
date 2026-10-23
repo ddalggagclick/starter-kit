@@ -12,11 +12,11 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from typing import get_args
 
 root = Path(__file__).resolve().parents[1]
 for x in ["llm", "rag", "backend/src"]:
     sys.path.insert(0, str(root / x))
-from typing import get_args
 
 from inheritance.contracts.chat import (
     MAX_CLARIFICATION_QUESTIONS,
@@ -27,8 +27,8 @@ from inheritance.contracts.chat import (
     ChatInputPolicy,
 )
 from inheritance.contracts.domain import (
-    InitialAnswers,
     GuidanceResult,
+    InitialAnswers,
     ProcedureGuidance,
     RiskAnswer,
 )
@@ -147,9 +147,8 @@ class ContractTest(unittest.TestCase):
     def test_guidance_result_requires_nonempty_content_version(self):
         rows = tuple(ProcedureGuidance(f"p{i:02d}") for i in range(1, 9))
         for content_version in ("", "   ", None):
-            with self.subTest(content_version=content_version):
-                with self.assertRaises(ValueError):
-                    GuidanceResult(rows, None, None, content_version)
+            with self.subTest(content_version=content_version), self.assertRaises(ValueError):
+                GuidanceResult(rows, None, None, content_version)
 
     def test_unknown_date_matches_null(self):
         InitialAnswers("spouse", None, True, "unknown")

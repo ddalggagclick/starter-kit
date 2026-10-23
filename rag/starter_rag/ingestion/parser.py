@@ -146,10 +146,10 @@ def _bounding_box(value: object) -> DocumentBoundingBox | None:
         return None
     try:
         coordinates = (
-            float(getattr(value, "l")),
-            float(getattr(value, "t")),
-            float(getattr(value, "r")),
-            float(getattr(value, "b")),
+            float(value.l),
+            float(value.t),
+            float(value.r),
+            float(value.b),
         )
     except (AttributeError, TypeError, ValueError):
         return None

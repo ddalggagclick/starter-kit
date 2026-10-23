@@ -17,11 +17,11 @@ for root in ("llm", "rag", "backend/src"):
 from inheritance.contracts.chat import AnswerOutcome, AnswerReference
 from inheritance.contracts.checklist import ChecklistService, GuidanceInput
 from inheritance.contracts.domain import InitialAnswers, RiskAnswer
-from inheritance.core.app_ports import AppServicePorts
-from inheritance.kakao.adapter import KakaoInputAdapter
 from inheritance.contracts.law import LawEvidence, LawLookupResult, LawQuery
 from inheritance.contracts.routing import RouteDecision
+from inheritance.core.app_ports import AppServicePorts
 from inheritance.core.errors import HTTP_STATUS, ErrorCode
+from inheritance.kakao.adapter import KakaoInputAdapter
 from inheritance.law.addenda_contract import AmendmentCandidate, FullAddendum
 from starter_llm.contracts.profiles import ModelSelection
 from starter_llm.runtime.lifecycle import IDLE_CLOSE_SECONDS
