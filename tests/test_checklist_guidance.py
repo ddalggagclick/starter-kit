@@ -150,7 +150,7 @@ class ChecklistGuidanceRuleTest(unittest.TestCase):
             for link in notice.fallback.links:
                 self.assertTrue(link.browser_checked)
 
-    def test_unapproved_risk_exposure_returns_common_warning_only(self) -> None:
+    def test_risk_answers_keep_order_and_follow_b_option_exposure(self) -> None:
         risks = (
             RiskAnswer("self_application", "unknown"),
             RiskAnswer("debt", "yes"),
@@ -162,13 +162,35 @@ class ChecklistGuidanceRuleTest(unittest.TestCase):
         self.assertEqual(info.common_warning_id, "W00")
         self.assertEqual(info.common_warning_text, WARNING_TEXTS["W00"])
         self.assertEqual(
-            [(r.risk_id, r.answer, r.confirmed) for r in info.answered],
+            [(r.risk_id, r.answer, r.confirmed, r.warning_id) for r in info.answered],
             [
-                ("debt", "yes", False),
-                ("property_disposal", "no", True),
-                ("self_application", "unknown", False),
+                ("debt", "yes", False, "W01"),
+                ("property_disposal", "no", True, None),
+                ("self_application", "unknown", False, "W03"),
             ],
         )
+
+    def test_b_option_shows_warning_on_yes_or_unknown_only(self) -> None:
+        # B안(#82): 예·모름 → 해당 경고 + W00, 아니요 → W00만. 세 질문 모두 같은 기준.
+        expected = {"debt": "W01", "property_disposal": "W02", "self_application": "W03"}
+        for risk_id, warning_id in expected.items():
+            for answer, shown in (("yes", True), ("unknown", True), ("no", False)):
+                with self.subTest(risk_id=risk_id, answer=answer):
+                    info = build_risk_information((RiskAnswer(risk_id, answer),))
+                    notice = info.answered[0]
+                    self.assertEqual(info.common_warning_id, "W00")
+                    self.assertEqual(notice.warning_id, warning_id if shown else None)
+                    self.assertEqual(
+                        notice.warning_text, WARNING_TEXTS[warning_id] if shown else None
+                    )
+
+    def test_empty_exposure_returns_common_warning_only(self) -> None:
+        # 노출 조건이 없는 분기는 새 문장 없이 공통 경고만 받는다(PRD 1-2-4).
+        info = build_risk_information(
+            (RiskAnswer("debt", "yes"), RiskAnswer("self_application", "unknown")),
+            MappingProxyType({}),
+        )
+        self.assertEqual(info.common_warning_id, "W00")
         self.assertTrue(all(r.warning_id is None for r in info.answered))
 
     def test_unanswered_risks_are_not_filled_in(self) -> None:
@@ -177,7 +199,7 @@ class ChecklistGuidanceRuleTest(unittest.TestCase):
         self.assertEqual(info.common_warning_id, "W00")
 
     def test_approved_exposure_table_maps_each_risk_to_its_warning(self) -> None:
-        # 노출 조건 값은 시험용 예시다. 실제 조건은 팀 결정 후 RISK_WARNING_EXPOSURE에 넣는다.
+        # 노출 조건 표를 인자로 바꿔 넣을 수 있는지 보는 시험용 예시다(실제 값은 B안).
         exposure = MappingProxyType(
             {
                 "debt": frozenset({"yes"}),
