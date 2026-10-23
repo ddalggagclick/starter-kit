@@ -1,5 +1,6 @@
 """A04·A05 인계 계약 시험 (openapi.yaml 0.2.0, D1, PRD 1-4-2)."""
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -157,3 +158,33 @@ def test_raw_token_not_kept():
     store = InMemoryHandoffStore()
     token = store.issue({})
     assert token not in store._items
+
+
+# PRD 7-4-3: 인계 로그에는 event·status·duration_ms만 넘기고 토큰·비밀값·답변 값은 넘기지 않는다(#87).
+def test_handoff_logs_only_safe_fields(caplog):
+    caplog.set_level(logging.INFO, logger=handoff_router.logger.name)
+    token = issue().json()["token"]
+    exchange(token)
+    exchange(token)
+    issue(secret="wrong-secret-value")
+
+    records = [r for r in caplog.records if r.name == handoff_router.logger.name]
+    assert [(r.event, r.status) for r in records] == [
+        ("handoff.issue", "issued"),
+        ("handoff.exchange", "exchanged"),
+        ("handoff.exchange", "invalid"),
+        ("handoff.issue", "unauthorized"),
+    ]
+    forbidden = (
+        token,
+        SECRET,
+        "wrong-secret-value",
+        "descendant",
+        "2026-09-30",
+        "property_disposal",
+    )
+    for r in records:
+        assert r.args == () and r.getMessage() == r.event
+        assert isinstance(r.duration_ms, float) and r.duration_ms >= 0
+        dumped = repr(vars(r))
+        assert not any(value in dumped for value in forbidden)

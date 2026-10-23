@@ -12,6 +12,9 @@
 
 from __future__ import annotations
 
+import logging
+import time
+
 from fastapi import APIRouter, Header, HTTPException
 
 from inheritance.core.errors import HTTP_STATUS, ErrorCode
@@ -21,6 +24,13 @@ from inheritance.kakao.handoff.service import HandoffInvalid, HandoffService, Ha
 
 service = HandoffService(InMemoryHandoffStore())
 router = APIRouter(prefix="/api/handoff", tags=["handoff"])
+logger = logging.getLogger(__name__)
+
+
+# 허용 필드(event·status·duration_ms)만 extra로 넘긴다(PRD 7-4-3). 토큰·비밀값·답변은 넘기지 않는다.
+def _log(event: str, status: str, started: float) -> None:
+    duration_ms = (time.perf_counter() - started) * 1000
+    logger.info(event, extra={"event": event, "status": status, "duration_ms": duration_ms})
 
 
 def _error(code: ErrorCode, message: str) -> HTTPException:
@@ -33,19 +43,27 @@ def _error(code: ErrorCode, message: str) -> HTTPException:
 def issue_handoff(
     body: HandoffPayload, x_handoff_secret: str | None = Header(default=None)
 ) -> IssueResponse:
+    started = time.perf_counter()
     try:
         token = service.issue(body, x_handoff_secret)
     except HandoffUnauthorized:
+        _log("handoff.issue", "unauthorized", started)
         # 비밀값 불일치는 401. 코드 이름은 openapi에서도 제안 상태라 UNAUTHENTICATED를 쓴다.
         raise _error(ErrorCode.UNAUTHENTICATED, "인증에 실패했습니다.") from None
+    _log("handoff.issue", "issued", started)
     return IssueResponse(token=token, expires_in_seconds=HANDOFF_TTL_SECONDS)
 
 
 @router.post("/exchange")
 def exchange_handoff(body: ExchangeRequest) -> dict:
+    started = time.perf_counter()
     try:
-        return service.exchange(body.token)
+        payload = service.exchange(body.token)
     except HandoffInvalid:
+        # 만료·이미 사용·없는 토큰을 로그에서도 구분하지 않는다(D1).
+        _log("handoff.exchange", "invalid", started)
         raise _error(
             ErrorCode.HANDOFF_INVALID, "연결이 만료되었거나 이미 사용되었습니다."
         ) from None
+    _log("handoff.exchange", "exchanged", started)
+    return payload
