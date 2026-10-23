@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from inheritance.chat.schemas import AskRequest
@@ -32,10 +32,10 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
 
 
-# 실제 ModelPort·SearchPort·LawPort 조립은 통합 담당 범위다(dependency_overrides 등으로 넣는다).
-# 연결 전에는 None이라 스트림을 열기 전에 503 PROVIDER_UNAVAILABLE을 돌려준다.
-def get_chat_service() -> ChatAnswerService | None:
-    return None
+# 서버 시작 시 core/dependencies.py가 조립한 서비스를 쓴다(main.py → app.state.chat_service).
+# 모델·검색·법령 중 하나라도 없으면 None이라 스트림을 열기 전에 503 PROVIDER_UNAVAILABLE을 돌려준다.
+def get_chat_service(request: Request) -> ChatAnswerService | None:
+    return getattr(request.app.state, "chat_service", None)
 
 
 @router.post("/ask", operation_id="A08_askAi", response_model=None)

@@ -15,6 +15,7 @@ from fastapi import FastAPI
 
 from inheritance.auth.router import auth_router_from_env
 from inheritance.chat import router as chat_router
+from inheritance.chat.services.answer import ChatAnswerService
 from inheritance.checklist import router as checklist_router
 from inheritance.core.errors import install_error_handlers
 from inheritance.core.health import router as health_router
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 # Health·인계·절차·AI 질문 라우터와 CORS를 구성한다. 인증·DB Settings는 업무 라우터 조립 전까지 읽지 않는다.
-def create_app() -> FastAPI:
+def create_app(chat_service: ChatAnswerService | None = None) -> FastAPI:
     # 로그는 허용된 6개 필드만 출력한다(PRD 7-4-3). 원문·토큰·비밀값은 남지 않는다.
     install_safe_logging()
     app = FastAPI(
@@ -63,6 +64,8 @@ def create_app() -> FastAPI:
     # 인증(A11~A16)은 JWT·CSRF 비밀값이 있을 때만 연다. 저장소는 ERD 승인 전이라 메모리다.
     if (auth_router := auth_router_from_env()) is not None:
         app.include_router(auth_router)
+    # A08 서비스는 실행 진입점이 core/dependencies.build_chat_service로 만들어 넘긴다. 없으면 503.
+    app.state.chat_service = chat_service
     # TODO [통합/API 담당]: 업무 router 및 lifespan 의존성 구성은 ERD/API 승인 후 연결한다.
     return app
 
