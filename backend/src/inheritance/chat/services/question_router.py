@@ -28,6 +28,7 @@ CLASSIFIER_MODEL_PROFILE = "classifier"
 CLASSIFIER_SYSTEM_PROMPT = (
     "질문을 RAG(상속 절차·서류·신청 안내), LAW(법령 조문·부칙), BOTH 중 하나로 분류하세요.\n"
     "모호하면 BOTH로 답하세요.\n"
+    '조문 번호는 "제1019조"처럼 문자열로 적으세요.\n'
     "아래 모양의 JSON 하나만 출력하세요.\n"
     '{"route": "RAG|LAW|BOTH", "lawNames": [], "articleNumbers": [], '
     '"referenceDate": null, "needsAddenda": false}'
@@ -67,7 +68,7 @@ def parse_route_decision(text: str, request_id: str) -> RouteDecision:
         route=data["route"],
         needs_addenda=data.get("needsAddenda") is True,
         law_names=_hint_strings(data.get("lawNames")),
-        article_numbers=_hint_strings(data.get("articleNumbers")),
+        article_numbers=_hint_articles(data.get("articleNumbers")),
         reference_date=_hint_date(data.get("referenceDate")),
     )
 
@@ -76,6 +77,22 @@ def _hint_strings(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
+
+
+# 모델이 조문 번호를 숫자(1019)나 숫자 글자("1019")로 보내도 "제1019조"로 받는다(#83).
+# 그 밖의 값은 _hint_strings와 같이 다룬다. bool은 int의 하위 타입이라 따로 거른다.
+def _hint_articles(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    articles = []
+    for item in value:
+        if isinstance(item, int) and not isinstance(item, bool) and item > 0:
+            articles.append(f"제{item}조")
+        elif isinstance(item, str) and item.strip().isdecimal():
+            articles.append(f"제{int(item.strip())}조")
+        elif isinstance(item, str) and item.strip():
+            articles.append(item.strip())
+    return tuple(articles)
 
 
 def _hint_date(value: object) -> str | None:

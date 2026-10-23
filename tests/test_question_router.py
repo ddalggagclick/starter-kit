@@ -10,7 +10,11 @@ import asyncio
 
 import pytest
 from inheritance.chat.services.answer import V1ChatAnswerService
-from inheritance.chat.services.question_router import ModelQuestionRouter, parse_route_decision
+from inheritance.chat.services.question_router import (
+    CLASSIFIER_SYSTEM_PROMPT,
+    ModelQuestionRouter,
+    parse_route_decision,
+)
 from inheritance.contracts.law import LawEvidence, LawLookupResult, LawQuery
 from inheritance.contracts.routing import QuestionRouterPort
 from inheritance.core.errors import ErrorCode
@@ -71,9 +75,29 @@ def test_law_hints_are_passed_as_candidates():
 
 
 @pytest.mark.parametrize(
+    ("articles", "expected"),
+    [
+        ("[1019]", ("제1019조",)),
+        ('["1019", " 제1020조 "]', ("제1019조", "제1020조")),
+        ('["제1019조의2", 0, -1, true, 1.5, null, ""]', ("제1019조의2",)),
+    ],
+)
+def test_numeric_article_numbers_become_article_strings(articles, expected):
+    # 김선 님 실호출(민법 제1019조)에서 articleNumbers가 숫자로 와 빈 값이 되던 문제(#83).
+    decision, _ = classify(
+        f'{{"route": "LAW", "lawNames": ["민법"], "articleNumbers": {articles}}}'
+    )
+    assert decision.article_numbers == expected
+
+
+def test_prompt_asks_article_numbers_as_strings():
+    assert '"제1019조"' in CLASSIFIER_SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize(
     "text",
     [
-        '{"route": "BOTH", "lawNames": "민법", "articleNumbers": [1019], "referenceDate": "어제"}',
+        '{"route": "BOTH", "lawNames": "민법", "articleNumbers": 1019, "referenceDate": "어제"}',
         '{"route": "BOTH", "needsAddenda": "yes"}',
     ],
 )
