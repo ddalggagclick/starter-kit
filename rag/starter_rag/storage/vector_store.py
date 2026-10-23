@@ -143,16 +143,26 @@ class PGVectorStore(VectorPort):
         self.database = database
         self.embedding = embedding
         self.collection_id = collection_id
-        self.table_name = database.target.qualified_name
         self._store: AsyncPGVectorStore | None = None
+
+    @property
+    def table_name(self) -> str:
+        return self._require_database().target.qualified_name
+
+    def _require_database(self) -> PostgresRagDatabase:
+        if self.database is None:
+            raise VectorStoreError("a PostgreSQL RAG database is required for storage operations")
+        return self.database
 
     async def _vectorstore(self) -> AsyncPGVectorStore:
         if self._store is None:
+            database = self._require_database()
+            target = database.target
             self._store = await AsyncPGVectorStore.create(
-                self.database.pg_engine,
+                database.pg_engine,
                 None,  # vectors are always generated explicitly through EmbeddingPort
-                self.database.target.table_name,
-                schema_name=self.database.target.schema_name,
+                target.table_name,
+                schema_name=target.schema_name,
                 content_column="content",
                 embedding_column="embedding",
                 metadata_columns=list(_METADATA_COLUMNS),
@@ -169,6 +179,7 @@ class PGVectorStore(VectorPort):
             raise VectorIntegrityError(
                 "raw VectorPort.upsert requires a non-production collection with explicit provenance"
             )
+        self._require_database()
         self._validate_chunk_identity(chunks)
         texts = tuple(chunk.text for chunk in chunks)
         vectors = await self.embedding.embed_documents(texts)
@@ -224,6 +235,7 @@ class PGVectorStore(VectorPort):
                     "chunk identity or content differs from document version"
                 )
 
+        self._require_database()
         existing = await self._version_rows(document.source.source_id, document.source.version)
         chunk_set = set(chunk_ids)
         if existing:
@@ -376,6 +388,7 @@ class PGVectorStore(VectorPort):
             raise ValueError("search top_k must be within 1..10")
         if allow_synthetic and self.collection_id == DEFAULT_COLLECTION_ID:
             raise ValueError("synthetic search is available only in an isolated test collection")
+        self._require_database()
         _validate_vectors((vector,), 1)
         filters: dict[str, object] = {
             "collection_id": self.collection_id,
@@ -408,7 +421,8 @@ class PGVectorStore(VectorPort):
         return await PGVectorSearch(self, self.embedding).search(request)
 
     async def get_by_id(self, chunk_id: str) -> ChunkRecord | None:
-        async with self.database.sql_engine.connect() as connection:
+        database = self._require_database()
+        async with database.sql_engine.connect() as connection:
             result = await connection.execute(
                 text(
                     f"""SELECT chunk_id, source_id, version, content, location
@@ -430,7 +444,8 @@ class PGVectorStore(VectorPort):
 
     async def delete_version(self, source_id: str, version: str) -> None:
         """Delete only unpublished rows; published versions are protected."""
-        async with self.database.sql_engine.begin() as connection:
+        database = self._require_database()
+        async with database.sql_engine.begin() as connection:
             result = await connection.execute(
                 text(
                     f"""DELETE FROM {self.table_name}
@@ -470,7 +485,8 @@ class PGVectorStore(VectorPort):
             ids.add(chunk.chunk_id)
 
     async def _version_rows(self, source_id: str, version: str) -> list[Mapping[str, Any]]:
-        async with self.database.sql_engine.connect() as connection:
+        database = self._require_database()
+        async with database.sql_engine.connect() as connection:
             result = await connection.execute(
                 text(
                     f"""SELECT chunk_id, content, content_sha256, publication_state,
@@ -488,7 +504,8 @@ class PGVectorStore(VectorPort):
             return list(result.mappings().all())
 
     async def _rows_for_chunk_ids(self, chunk_ids: Sequence[str]) -> list[Mapping[str, Any]]:
-        async with self.database.sql_engine.connect() as connection:
+        database = self._require_database()
+        async with database.sql_engine.connect() as connection:
             result = await connection.execute(
                 text(
                     f"""SELECT chunk_id, collection_id, source_id, version

@@ -39,6 +39,7 @@ from starter_rag.ingestion.parser import (
 from starter_rag.ingestion.service import (
     SOURCE_V2_TEST_COLLECTION,
     chunk_document_with_config,
+    index_mapped_xlsx,
     index_source_v2,
     verify_source_rows,
 )
@@ -214,6 +215,60 @@ async def _database_for_command():
     return PostgresRagDatabase(database_url_from_environment())
 
 
+async def _database_for_profile(profile: str):
+    """Use the local CLI by default; remote DB requires explicit opt-in and TLS."""
+    if profile == "local":
+        return await _database_for_command()
+    if profile != "supabase":
+        raise DatabaseConfigurationError("unsupported database profile")
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from starter_rag.storage.models import RagTableTarget
+
+    raw_url = os.environ.get("DATABASE_URL", "").strip()
+    try:
+        url = make_url(raw_url)
+    except ArgumentError:
+        raise DatabaseConfigurationError("invalid DATABASE_URL") from None
+    if (
+        url.drivername != "postgresql+asyncpg"
+        or url.port != 5432
+        or not url.host
+        or not url.host.endswith(".pooler.supabase.com")
+    ):
+        raise DatabaseConfigurationError("Supabase Session Pooler 5432 URL required")
+    schema = os.environ.get("RAG_DB_SCHEMA", "rag")
+    table = os.environ.get("RAG_VECTOR_TABLE", "chunks")
+    if (schema, table) != ("rag", "chunks"):
+        raise DatabaseConfigurationError("approved target must be rag.chunks")
+    engine = create_async_engine(raw_url, connect_args={"ssl": "require"}, pool_pre_ping=True)
+    try:
+        db = PostgresRagDatabase.from_engine(engine, target=RagTableTarget(schema, table))
+        await db.validate_existing_table()
+    except BaseException:
+        await engine.dispose()
+        raise
+    return db
+
+
+async def _release_profile_database(database, profile: str) -> None:
+    if profile == "supabase":
+        await database.sql_engine.dispose()
+    else:
+        await database.close()
+
+
+def _collection_for_profile(profile: str, requested: str | None) -> str:
+    if profile == "supabase":
+        configured = os.environ.get("RAG_COLLECTION_ID", "").strip()
+        if not configured or requested != configured:
+            raise DatabaseConfigurationError("explicit approved RAG_COLLECTION_ID required")
+        return configured
+    return requested or DEFAULT_COLLECTION_ID
+
+
 def _database_is_configured() -> bool:
     try:
         database_url_from_environment()
@@ -274,6 +329,7 @@ def _index_file(
     collection_id: str,
     target_tokens: int,
     is_synthetic: bool,
+    db_profile: str = "local",
 ) -> int:
     source_path = Path(path)
     try:
@@ -310,7 +366,7 @@ def _index_file(
         )
 
         async def index() -> dict[str, object]:
-            database = await _database_for_command()
+            database = await _database_for_profile(db_profile)
             try:
                 store = PGVectorStore(
                     database,
@@ -336,7 +392,7 @@ def _index_file(
                     "synthetic": is_synthetic,
                 }
             finally:
-                await database.close()
+                await _release_profile_database(database, db_profile)
 
         print(json.dumps(asyncio.run(index()), ensure_ascii=False))
         return 0
@@ -356,9 +412,48 @@ def _index_file(
         return 1
 
 
-def _publish(source_id: str, version: str, collection_id: str) -> int:
+def _index_mapped_file(
+    path: str,
+    *,
+    mapping_path: str,
+    tokenizer_path: str,
+    collection_id: str,
+    db_profile: str,
+) -> int:
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
+            tokenizer = _load_tokenizer(tokenizer_path)
+
+            def count_tokens(value: str) -> int:
+                return len(tokenizer.encode(value, add_special_tokens=False))
+
+        async def run():
+            database = await _database_for_profile(db_profile)
+            try:
+                return await index_mapped_xlsx(
+                    path,
+                    mapping,
+                    count_tokens=count_tokens,
+                    database=database,
+                    collection_id=collection_id,
+                )
+            finally:
+                await _release_profile_database(database, db_profile)
+
+        print(json.dumps(asyncio.run(run()), ensure_ascii=False))
+        return 0
+    except (ValueError, OSError, DatabaseConfigurationError, json.JSONDecodeError):
+        print("XLSX mapping or database profile is invalid", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - connection credentials must not leak.
+        print(f"mapped XLSX indexing failed: {type(exc).__name__}", file=sys.stderr)
+        return 1
+
+
+def _publish(source_id: str, version: str, collection_id: str, db_profile: str = "local") -> int:
     async def run() -> dict[str, object]:
-        database = await _database_for_command()
+        database = await _database_for_profile(db_profile)
         try:
             document = await PostgresPublicationStore(
                 database,
@@ -373,7 +468,7 @@ def _publish(source_id: str, version: str, collection_id: str) -> int:
                 "contentSha256": document.content_sha256,
             }
         finally:
-            await database.close()
+            await _release_profile_database(database, db_profile)
 
     try:
         print(json.dumps(asyncio.run(run()), ensure_ascii=False))
@@ -386,7 +481,9 @@ def _publish(source_id: str, version: str, collection_id: str) -> int:
     return 0
 
 
-def _search(query: str, top_k: int, collection_id: str, allow_synthetic: bool) -> int:
+def _search(
+    query: str, top_k: int, collection_id: str, allow_synthetic: bool, db_profile: str = "local"
+) -> int:
     try:
         request = SearchRequest(query=query, top_k=top_k)
     except ValueError as exc:
@@ -394,7 +491,7 @@ def _search(query: str, top_k: int, collection_id: str, allow_synthetic: bool) -
         return 2
 
     async def run() -> dict[str, object]:
-        database = await _database_for_command()
+        database = await _database_for_profile(db_profile)
         try:
             store = PGVectorStore(database, EmbeddingGemma(), collection_id=collection_id)
             from starter_rag.retrieval.search import PGVectorSearch
@@ -412,7 +509,7 @@ def _search(query: str, top_k: int, collection_id: str, allow_synthetic: bool) -
                 "evidence": [asdict(item) for item in result.evidence],
             }
         finally:
-            await database.close()
+            await _release_profile_database(database, db_profile)
 
     try:
         print(json.dumps(asyncio.run(run()), ensure_ascii=False))
@@ -465,7 +562,7 @@ def main(argv: list[str] | None = None) -> int:
     index.add_argument("path", type=_file_argument, metavar="PATH")
     index.add_argument(
         "--type",
-        choices=("standard", "source-v2"),
+        choices=("standard", "source-v2", "mapped-xlsx"),
         default="standard",
         help="색인 종류 (기본값: standard)",
     )
@@ -475,6 +572,8 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help="필요: CLI 경로 우선, 없으면 RAG_TOKENIZER_PATH 사용 (로컬 전용)",
     )
+    index.add_argument("--mapping", type=_file_argument, help="mapped-xlsx schema JSON")
+    index.add_argument("--db-profile", choices=("local", "supabase"), default="local")
     index.add_argument("--source-id", help="standard 필수 출처 ID")
     index.add_argument("--version", help="standard 필수 문서 버전")
     index.add_argument("--source-title", help="standard 필수 출처 제목")
@@ -498,17 +597,19 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     publish = cmd.add_parser("publish", help="완전히 색인된 문서 버전을 원자적으로 게시")
+    publish.add_argument("--db-profile", choices=("local", "supabase"), default="local")
     publish.add_argument("--source-id", required=True)
     publish.add_argument("--version", required=True)
     publish.add_argument(
-        "--collection-id", default=DEFAULT_COLLECTION_ID, help="기본값: published-guides"
+        "--collection-id", help="local default: published-guides; supabase: explicit approved ID"
     )
 
     search = cmd.add_parser("search", help="게시된 pgvector 자료를 검색")
     search.add_argument("query", metavar="QUERY")
+    search.add_argument("--db-profile", choices=("local", "supabase"), default="local")
     search.add_argument("--top-k", type=int, default=3, help="검색 결과 수 1~10 (기본값: 3)")
     search.add_argument(
-        "--collection-id", default=DEFAULT_COLLECTION_ID, help="기본값: published-guides"
+        "--collection-id", help="local default: published-guides; supabase: explicit approved ID"
     )
     search.add_argument(
         "--allow-synthetic",
@@ -580,6 +681,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "db-init":
         return _database_init()
     if args.command == "index":
+        if args.db_profile == "supabase" and args.synthetic:
+            parser.error("synthetic data is forbidden in Supabase operational collections")
         if args.type == "standard":
             required_metadata = {
                 "--source-id": args.source_id,
@@ -595,9 +698,19 @@ def main(argv: list[str] | None = None) -> int:
         elif args.synthetic:
             parser.error("Source_v2 색인에는 --synthetic을 사용할 수 없습니다")
 
-        collection_id = args.collection_id or (
-            SOURCE_V2_TEST_COLLECTION if args.type == "source-v2" else DEFAULT_COLLECTION_ID
-        )
+        try:
+            default_collection = (
+                SOURCE_V2_TEST_COLLECTION if args.type == "source-v2" else DEFAULT_COLLECTION_ID
+            )
+            collection_id = _collection_for_profile(
+                args.db_profile,
+                args.collection_id
+                if args.db_profile == "supabase"
+                else args.collection_id or default_collection,
+            )
+        except DatabaseConfigurationError:
+            print("approved RAG_COLLECTION_ID must match --collection-id", file=sys.stderr)
+            return 2
         try:
             tokenizer_path = _tokenizer_path(args.tokenizer_path)
         except ValueError as exc:
@@ -611,13 +724,25 @@ def main(argv: list[str] | None = None) -> int:
                 def count_tokens(value: str) -> int:
                     return len(tokenizer.encode(value, add_special_tokens=False))
 
-                result = asyncio.run(
-                    index_source_v2(
-                        args.path,
-                        count_tokens=count_tokens,
-                        collection_id=collection_id,
-                    )
-                )
+                async def index_source():
+                    if args.db_profile == "local":
+                        return await index_source_v2(
+                            args.path,
+                            count_tokens=count_tokens,
+                            collection_id=collection_id,
+                        )
+                    db = await _database_for_profile(args.db_profile)
+                    try:
+                        return await index_source_v2(
+                            args.path,
+                            count_tokens=count_tokens,
+                            collection_id=collection_id,
+                            database=db,
+                        )
+                    finally:
+                        await _release_profile_database(db, args.db_profile)
+
+                result = asyncio.run(index_source())
                 print(json.dumps(result, ensure_ascii=False))
                 return 0
             except (SourceV2Error, FileNotFoundError, UnsupportedDocumentFormatError) as error:
@@ -630,28 +755,55 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Source_v2 색인 실패: {type(error).__name__}", file=sys.stderr)
                 return 1
 
+        if args.type == "mapped-xlsx":
+            if not args.mapping or args.synthetic:
+                parser.error("mapped-xlsx requires --mapping and rejects --synthetic")
+            return _index_mapped_file(
+                args.path,
+                mapping_path=args.mapping,
+                tokenizer_path=tokenizer_path,
+                collection_id=collection_id,
+                db_profile=args.db_profile,
+            )
+
         if args.synthetic and "합성 시험 자료" not in args.source_title:
             parser.error("--synthetic 제목에는 '합성 시험 자료' 표시가 필요합니다")
         if args.synthetic and collection_id == DEFAULT_COLLECTION_ID:
             parser.error(
                 "합성 시험자료는 기본 published-guides가 아닌 별도 collection에 적재해야 합니다"
             )
-        return _index_file(
-            args.path,
-            tokenizer_path=tokenizer_path,
-            source_id=args.source_id,
-            version=args.version,
-            source_title=args.source_title,
-            source_url=args.source_url,
-            publisher=args.publisher,
-            collection_id=collection_id,
-            target_tokens=args.target_tokens,
-            is_synthetic=args.synthetic,
-        )
+        index_arguments = {
+            "tokenizer_path": tokenizer_path,
+            "source_id": args.source_id,
+            "version": args.version,
+            "source_title": args.source_title,
+            "source_url": args.source_url,
+            "publisher": args.publisher,
+            "collection_id": collection_id,
+            "target_tokens": args.target_tokens,
+            "is_synthetic": args.synthetic,
+        }
+        if args.db_profile == "local":
+            return _index_file(args.path, **index_arguments)
+        return _index_file(args.path, **index_arguments, db_profile=args.db_profile)
     if args.command == "publish":
-        return _publish(args.source_id, args.version, args.collection_id)
+        try:
+            collection = _collection_for_profile(args.db_profile, args.collection_id)
+        except DatabaseConfigurationError:
+            return 2
+        if args.db_profile == "local":
+            return _publish(args.source_id, args.version, collection)
+        return _publish(args.source_id, args.version, collection, args.db_profile)
     if args.command == "search":
-        return _search(args.query, args.top_k, args.collection_id, args.allow_synthetic)
+        if args.db_profile == "supabase" and args.allow_synthetic:
+            parser.error("synthetic search not supported on Supabase")
+        try:
+            collection = _collection_for_profile(args.db_profile, args.collection_id)
+        except DatabaseConfigurationError:
+            return 2
+        if args.db_profile == "local":
+            return _search(args.query, args.top_k, collection, args.allow_synthetic)
+        return _search(args.query, args.top_k, collection, args.allow_synthetic, args.db_profile)
     if args.command == "check":
         try:
             report = inspect_source_v2(args.path)
