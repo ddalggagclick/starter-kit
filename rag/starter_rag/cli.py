@@ -1,13 +1,14 @@
 # 책임: [D] RAG 패키지의 독립 CLI 진입점.
-# 구현할 기능: 공개 검색 요청 검증과 명시적 DB 준비·적재·게시·검색.
+# 구현할 기능: 공개 검색과 Source_v2 검증·적재·평가를 명시적으로 실행한다.
 # 코드 경계: startup 시 자동 적재하지 않고 승인된 로컬 RAG DB만 사용한다.
-# 완료 기준: 상태·검색 검증은 오프라인에서, chunk는 명시적 모델 설정으로 동작한다.
+# 완료 기준: Source_v2 검증·색인·평가와 기존 게시·검색 명령을 명시적으로 실행한다.
 from __future__ import annotations
 
 import argparse
 import asyncio
 import contextlib
 import json
+import os
 import sys
 from dataclasses import asdict
 from hashlib import sha256
@@ -20,6 +21,7 @@ from starter_rag.embedding.model import (
     EMBEDDING_MODEL_REVISION,
     EmbeddingGemma,
 )
+from starter_rag.evaluation.golden_set import evaluate_source_v2_golden
 from starter_rag.ingestion.chunking import DEFAULT_TARGET_TOKENS, DocumentChunk
 from starter_rag.ingestion.chunking_model import (
     ChunkingModelConfigurationError,
@@ -28,11 +30,18 @@ from starter_rag.ingestion.chunking_model import (
 from starter_rag.ingestion.parser import (
     DocumentReadError,
     DocumentStructure,
+    SourceV2Error,
     UnsupportedDocumentFormatError,
     extract_document_structure,
+    inspect_source_v2,
     parse_document,
 )
-from starter_rag.ingestion.service import chunk_document_with_config
+from starter_rag.ingestion.service import (
+    SOURCE_V2_TEST_COLLECTION,
+    chunk_document_with_config,
+    index_source_v2,
+    verify_source_rows,
+)
 from starter_rag.storage.database import (
     DatabaseConfigurationError,
     PostgresRagDatabase,
@@ -47,6 +56,13 @@ def _file_argument(value: str) -> str:
     if not value:
         raise argparse.ArgumentTypeError("파일 경로가 비어 있습니다")
     return value
+
+
+def _tokenizer_path(cli_path: str | None) -> str:
+    path = cli_path if cli_path is not None else os.environ.get("RAG_TOKENIZER_PATH")
+    if path is None or not path.strip():
+        raise ValueError("토크나이저 경로를 지정하세요: --tokenizer-path 또는 RAG_TOKENIZER_PATH")
+    return path
 
 
 def _parse_file(path: str) -> int:
@@ -96,7 +112,7 @@ def _load_tokenizer(path: str):
     try:
         from transformers import AutoTokenizer
     except ImportError:
-        raise RuntimeError(
+        raise ValueError(
             "토크나이저를 불러오려면 RAG의 transformers 의존성이 필요합니다."
         ) from None
 
@@ -327,8 +343,12 @@ def _index_file(
     except (FileNotFoundError, UnsupportedDocumentFormatError, DocumentReadError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    except (DatabaseConfigurationError, ValueError, ChunkingModelConfigurationError,
-            ChunkingModelInitializationError) as exc:
+    except (
+        DatabaseConfigurationError,
+        ValueError,
+        ChunkingModelConfigurationError,
+        ChunkingModelInitializationError,
+    ) as exc:
         print(f"잘못된 RAG 적재 요청: {type(exc).__name__}", file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 - exception text may contain credentials.
@@ -407,63 +427,125 @@ def _search(query: str, top_k: int, collection_id: str, allow_synthetic: bool) -
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="starter-rag", description="RAG 명시적 청킹·pgvector 적재·검색 CLI"
+        prog="starter-rag",
+        description="문서 파싱·청킹·색인·게시·검색과 Source_v2 검증 CLI",
     )
-    parser.add_argument("--file", dest="parse_file", type=_file_argument, metavar="PATH")
-    cmd = parser.add_subparsers(dest="command", required=False)
-    cmd.add_parser("status", help="검색/적재 구현 상태 확인 (DB 연결 없음)")
-    validate = cmd.add_parser("validate-search", help="검색 요청 DTO 검증 (DB 연결 없음)")
-    validate.add_argument("--query", required=True)
-    validate.add_argument("--top-k", type=int, default=3)
-    chunk = cmd.add_parser("chunk", help="문서를 청킹해 결과와 모델 상태를 JSON으로 출력")
-    chunk.add_argument(
-        "--file", dest="chunk_file", type=_file_argument, required=True, metavar="PATH"
-    )
+    cmd = parser.add_subparsers(dest="command", required=True)
+    cmd.add_parser("status", help="구현 상태와 DB 설정 확인 (DB 연결 없음)")
+
+    parse = cmd.add_parser("parse", help="문서 구조와 원문 위치를 JSON으로 출력 (DB 미사용)")
+    parse.add_argument("path", type=_file_argument, metavar="PATH")
+
+    chunk = cmd.add_parser("chunk", help="문서를 청킹해 결과 JSON 출력 (DB 미사용)")
+    chunk.add_argument("path", type=_file_argument, metavar="PATH")
     chunk.add_argument(
         "--tokenizer-path",
-        required=True,
+        type=_file_argument,
         metavar="PATH",
-        help="로컬 토크나이저 경로 또는 캐시 ID (원격 다운로드 안 함)",
+        help="필요: CLI 경로 우선, 없으면 RAG_TOKENIZER_PATH 사용 (로컬 전용)",
     )
-    chunk.add_argument("--source-id")
-    chunk.add_argument("--version", default="cli-test")
-    chunk.add_argument("--target-tokens", type=_positive_integer, default=DEFAULT_TARGET_TOKENS)
+    chunk.add_argument("--source-id", help="Source ID (기본값: 파일명)")
+    chunk.add_argument("--version", default="cli-test", help="문서 버전 (기본값: cli-test)")
+    chunk.add_argument(
+        "--target-tokens",
+        type=_positive_integer,
+        default=DEFAULT_TARGET_TOKENS,
+        help=f"일반 문서 청크 목표 토큰 수 (기본값: {DEFAULT_TARGET_TOKENS})",
+    )
 
-    cmd.add_parser("db-init", help="승인된 로컬 DB에 rag_test.chunks를 준비")
-    index = cmd.add_parser("index", help="문서를 청킹·임베딩해 로컬 pgvector에 적재")
-    index.add_argument("--file", type=_file_argument, required=True, metavar="PATH")
-    index.add_argument("--tokenizer-path", required=True, metavar="PATH")
-    index.add_argument("--source-id", required=True)
-    index.add_argument("--version", required=True)
-    index.add_argument("--source-title", required=True)
-    index.add_argument("--source-url", type=_https_url)
-    index.add_argument("--publisher", required=True)
-    index.add_argument("--collection-id", default=DEFAULT_COLLECTION_ID)
-    index.add_argument("--target-tokens", type=_positive_integer, default=DEFAULT_TARGET_TOKENS)
-    index.add_argument("--synthetic", action="store_true", help="합성 시험자료로 표시")
+    cmd.add_parser("db-init", help="승인된 로컬 DB 스키마 준비 (DB 변경)")
 
-    publish = cmd.add_parser("publish", help="indexed 문서 버전을 원자적으로 게시")
+    index = cmd.add_parser(
+        "index",
+        help=(
+            "문서를 색인만 합니다. standard는 출처 정보가 필요합니다. "
+            "검색에 공개하려면 publish를 별도 실행합니다"
+        ),
+    )
+    index.add_argument("path", type=_file_argument, metavar="PATH")
+    index.add_argument(
+        "--type",
+        choices=("standard", "source-v2"),
+        default="standard",
+        help="색인 종류 (기본값: standard)",
+    )
+    index.add_argument(
+        "--tokenizer-path",
+        type=_file_argument,
+        metavar="PATH",
+        help="필요: CLI 경로 우선, 없으면 RAG_TOKENIZER_PATH 사용 (로컬 전용)",
+    )
+    index.add_argument("--source-id", help="standard 필수 출처 ID")
+    index.add_argument("--version", help="standard 필수 문서 버전")
+    index.add_argument("--source-title", help="standard 필수 출처 제목")
+    index.add_argument("--source-url", type=_https_url, help="선택 출처 URL (HTTPS만 허용)")
+    index.add_argument("--publisher", help="standard 필수 발행처")
+    index.add_argument(
+        "--collection-id",
+        help=(
+            "색인 collection (기본값: standard는 published-guides, "
+            "source-v2는 rag-test-source-v2-e2e)"
+        ),
+    )
+    index.add_argument(
+        "--target-tokens",
+        type=_positive_integer,
+        default=DEFAULT_TARGET_TOKENS,
+        help=f"일반 문서 청크 목표 토큰 수 (기본값: {DEFAULT_TARGET_TOKENS})",
+    )
+    index.add_argument(
+        "--synthetic", action="store_true", help="합성 시험자료로 표시; 별도 collection 필수"
+    )
+
+    publish = cmd.add_parser("publish", help="완전히 색인된 문서 버전을 원자적으로 게시")
     publish.add_argument("--source-id", required=True)
     publish.add_argument("--version", required=True)
-    publish.add_argument("--collection-id", default=DEFAULT_COLLECTION_ID)
+    publish.add_argument(
+        "--collection-id", default=DEFAULT_COLLECTION_ID, help="기본값: published-guides"
+    )
 
     search = cmd.add_parser("search", help="게시된 pgvector 자료를 검색")
-    search.add_argument("--query", required=True)
-    search.add_argument("--top-k", type=int, default=3)
-    search.add_argument("--collection-id", default=DEFAULT_COLLECTION_ID)
+    search.add_argument("query", metavar="QUERY")
+    search.add_argument("--top-k", type=int, default=3, help="검색 결과 수 1~10 (기본값: 3)")
+    search.add_argument(
+        "--collection-id", default=DEFAULT_COLLECTION_ID, help="기본값: published-guides"
+    )
     search.add_argument(
         "--allow-synthetic",
         action="store_true",
         help="격리된 테스트 collection의 합성자료를 검색 (기본값: 제외)",
     )
-    args = parser.parse_args(argv)
+    check = cmd.add_parser(
+        "check", help="Source_v2 필수값·URL·승인 검증 (DB 미사용, --rows로 원본 행 확인)"
+    )
+    check.add_argument("path", type=_file_argument, metavar="PATH")
+    check.add_argument("--rows", action="store_true", help="Docling 행 대응과 결정적 청킹도 확인")
+    check.add_argument(
+        "--tokenizer-path",
+        type=_file_argument,
+        metavar="PATH",
+        help="--rows에 필요: CLI 경로 우선, 없으면 RAG_TOKENIZER_PATH (로컬 전용)",
+    )
 
-    if args.parse_file is not None and args.command is not None:
-        parser.error("--file과 기존 서브커맨드는 함께 사용할 수 없습니다")
-    if args.parse_file is not None:
-        return _parse_file(args.parse_file)
-    if args.command is None:
-        parser.error("서브커맨드 또는 --file을 지정해야 합니다")
+    evaluate = cmd.add_parser("test", help="Golden Truth v1.2 검색 품질 평가 (DB 쓰기 없음)")
+    evaluate.add_argument("--dataset", type=Path, help="평가 JSON (기본값: Golden Truth v1.2)")
+    evaluate.add_argument("--out", type=Path, help="평가 결과 JSON 경로")
+    evaluate.add_argument(
+        "--mode",
+        choices=("clarified", "title"),
+        default="clarified",
+        help="검색 질의 종류 (기본값: clarified)",
+    )
+    evaluate.add_argument(
+        "--group",
+        choices=("all", "direct", "partial", "safety_context"),
+        default="all",
+        help="평가 질문 그룹 (기본값: all)",
+    )
+    evaluate.add_argument(
+        "--validate-only", action="store_true", help="평가 자료만 검증 (DB 사용 안 함)"
+    )
+    args = parser.parse_args(argv)
 
     if args.command == "status":
         print(
@@ -480,10 +562,17 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "parse":
+        return _parse_file(args.path)
     if args.command == "chunk":
+        try:
+            tokenizer_path = _tokenizer_path(args.tokenizer_path)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
         return _chunk_file(
-            args.chunk_file,
-            tokenizer_path=args.tokenizer_path,
+            args.path,
+            tokenizer_path=tokenizer_path,
             source_id=args.source_id,
             version=args.version,
             target_tokens=args.target_tokens,
@@ -491,19 +580,71 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "db-init":
         return _database_init()
     if args.command == "index":
+        if args.type == "standard":
+            required_metadata = {
+                "--source-id": args.source_id,
+                "--version": args.version,
+                "--source-title": args.source_title,
+                "--publisher": args.publisher,
+            }
+            missing = [name for name, value in required_metadata.items() if not value]
+            if missing:
+                parser.error(
+                    f"--type standard에는 필수 출처 정보가 필요합니다: {', '.join(missing)}"
+                )
+        elif args.synthetic:
+            parser.error("Source_v2 색인에는 --synthetic을 사용할 수 없습니다")
+
+        collection_id = args.collection_id or (
+            SOURCE_V2_TEST_COLLECTION if args.type == "source-v2" else DEFAULT_COLLECTION_ID
+        )
+        try:
+            tokenizer_path = _tokenizer_path(args.tokenizer_path)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+
+        if args.type == "source-v2":
+            try:
+                tokenizer = _load_tokenizer(tokenizer_path)
+
+                def count_tokens(value: str) -> int:
+                    return len(tokenizer.encode(value, add_special_tokens=False))
+
+                result = asyncio.run(
+                    index_source_v2(
+                        args.path,
+                        count_tokens=count_tokens,
+                        collection_id=collection_id,
+                    )
+                )
+                print(json.dumps(result, ensure_ascii=False))
+                return 0
+            except (SourceV2Error, FileNotFoundError, UnsupportedDocumentFormatError) as error:
+                print(f"Source_v2 입력 검증 실패: {error}", file=sys.stderr)
+                return 2
+            except (DatabaseConfigurationError, ValueError, OSError) as error:
+                print(f"Source_v2 실행 설정 오류: {type(error).__name__}", file=sys.stderr)
+                return 2
+            except Exception as error:  # noqa: BLE001 - 예외 내용에 연결 정보가 포함될 수 있다.
+                print(f"Source_v2 색인 실패: {type(error).__name__}", file=sys.stderr)
+                return 1
+
         if args.synthetic and "합성 시험 자료" not in args.source_title:
             parser.error("--synthetic 제목에는 '합성 시험 자료' 표시가 필요합니다")
-        if args.synthetic and args.collection_id == DEFAULT_COLLECTION_ID:
-            parser.error("합성 시험자료는 기본 published-guides가 아닌 별도 collection에 적재해야 합니다")
+        if args.synthetic and collection_id == DEFAULT_COLLECTION_ID:
+            parser.error(
+                "합성 시험자료는 기본 published-guides가 아닌 별도 collection에 적재해야 합니다"
+            )
         return _index_file(
-            args.file,
-            tokenizer_path=args.tokenizer_path,
+            args.path,
+            tokenizer_path=tokenizer_path,
             source_id=args.source_id,
             version=args.version,
             source_title=args.source_title,
             source_url=args.source_url,
             publisher=args.publisher,
-            collection_id=args.collection_id,
+            collection_id=collection_id,
             target_tokens=args.target_tokens,
             is_synthetic=args.synthetic,
         )
@@ -511,12 +652,55 @@ def main(argv: list[str] | None = None) -> int:
         return _publish(args.source_id, args.version, args.collection_id)
     if args.command == "search":
         return _search(args.query, args.top_k, args.collection_id, args.allow_synthetic)
-    try:
-        req = SearchRequest(query=args.query, top_k=args.top_k)
-    except ValueError as exc:
-        parser.exit(2, f"잘못된 RAG 검색 요청: {exc}\n")
-    print(json.dumps({"valid": True, "query": req.query, "topK": req.top_k}, ensure_ascii=False))
-    return 0
+    if args.command == "check":
+        try:
+            report = inspect_source_v2(args.path)
+            safe_report = {key: value for key, value in report.items() if key != "source_units"}
+            payload = {**safe_report, "db_write": False}
+            if args.rows:
+                try:
+                    tokenizer_path = _tokenizer_path(args.tokenizer_path)
+                    tokenizer = _load_tokenizer(tokenizer_path)
+                except ValueError:
+                    print(
+                        "로컬 토크나이저 경로 또는 RAG_TOKENIZER_PATH 설정을 확인하세요.",
+                        file=sys.stderr,
+                    )
+                    return 2
+
+                def count_tokens(value: str) -> int:
+                    return len(tokenizer.encode(value, add_special_tokens=False))
+
+                units, rows = asyncio.run(verify_source_rows(args.path, count_tokens=count_tokens))
+                payload.update(
+                    {
+                        "verified_units": len(units),
+                        "verified_table_rows": len(rows),
+                        "chunk_kind": "table_row",
+                        "generation_method": "deterministic",
+                        "model_calls_for_table_rows": 0,
+                    }
+                )
+            print(json.dumps(payload, ensure_ascii=False))
+            return 0
+        except (SourceV2Error, FileNotFoundError, UnsupportedDocumentFormatError) as error:
+            print(f"Source_v2 입력 검증 실패: {error}", file=sys.stderr)
+            return 2
+        except (ValueError, OSError) as error:
+            print(f"Source_v2 실행 설정 오류: {type(error).__name__}", file=sys.stderr)
+            return 2
+        except Exception as error:  # noqa: BLE001 - 예외 내용에 연결 정보가 포함될 수 있다.
+            print(f"Source_v2 실행 실패: {type(error).__name__}", file=sys.stderr)
+            return 1
+    if args.command == "test":
+        return evaluate_source_v2_golden(
+            dataset_path=args.dataset,
+            mode=args.mode,
+            group=args.group,
+            out_path=args.out,
+            validate_only=args.validate_only,
+        )
+    parser.error("지원하지 않는 명령입니다")
 
 
 if __name__ == "__main__":

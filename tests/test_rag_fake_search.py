@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "rag"))
 from starter_rag.contracts.models import SearchRequest, SearchResult
 from starter_rag.contracts.ports import SearchPort
 from starter_rag.retrieval.fake_search import FakeSearchPort, make_fixed_evidence
+from starter_rag.retrieval.search import PGVectorSearch
 
 
 class FixedEvidenceTests(unittest.TestCase):
@@ -116,6 +117,52 @@ class FakeSearchEmptyTests(unittest.TestCase):
         # 기대값: 'unknown' 설정으로 FakeSearchPort를 만들면 ValueError가 발생한다.
         with self.assertRaises(ValueError):
             FakeSearchPort(scenario="unknown")  # type: ignore[arg-type]
+
+
+class PublishedEvidenceAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_게시자료는_주소가_없어도_출처정보를_유지한다(self) -> None:
+        from types import SimpleNamespace
+
+        class Embedding:
+            async def embed_query(self, _: str) -> tuple[float, ...]:
+                return (0.0,) * 768
+
+        class Store:
+            async def search_vectors(self, vector, *, top_k, allow_synthetic):
+                self.assert_args = (len(vector), top_k, allow_synthetic)
+                return (
+                    SimpleNamespace(
+                        chunk_id="guide-chunk-1",
+                        text="사용 설명서의 절차 안내",
+                        cosine_distance=0.25,
+                        metadata={
+                            "source_id": "guide-001",
+                            "source_title": "사용 설명서",
+                            "source_url": None,
+                            "publisher": "Example",
+                            "version": "1.0",
+                            "location": "manual.pdf page=2",
+                            "publication_state": "published",
+                            "is_synthetic": False,
+                        },
+                    ),
+                )
+
+        store = Store()
+        result = await PGVectorSearch(store, Embedding()).search(SearchRequest("절차 안내"))
+
+        self.assertEqual(store.assert_args, (768, 3, False))
+        self.assertEqual(len(result.evidence), 1)
+        evidence = result.evidence[0]
+        self.assertEqual(evidence.evidence_id, "guide-chunk-1")
+        self.assertEqual(evidence.source.source_id, "guide-001")
+        self.assertEqual(evidence.source.title, "사용 설명서")
+        self.assertIsNone(evidence.source.url)
+        self.assertEqual(evidence.source.publisher, "Example")
+        self.assertEqual(evidence.source.version, "1.0")
+        self.assertEqual(evidence.text, "사용 설명서의 절차 안내")
+        self.assertEqual(evidence.location, "manual.pdf page=2")
+        self.assertEqual(evidence.score, 0.75)
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ npm-debug.log*
 *.backup
 
 # 사용자가 제공한 RAG 검수 원본은 저장소에 포함하지 않음
-rag/data/Source_V1.xlsx
+rag/data/*.xlsx
 
 # 로그와 편집기 임시 파일
 *.log

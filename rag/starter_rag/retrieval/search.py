@@ -1,9 +1,9 @@
 # 담당: [D] | 책임: 게시된 공식 안내자료 벡터 검색.
 # PRD: E3 / 스토리 3-3 / 태스크 3-3-1; E6 / 스토리 6-2 / 태스크 6-2-1
-# 구현할 기능: 검색 범위를 제한하고 출처·위치·점수를 SearchPort 결과로 변환한다.
-# 완료 기준: 검수·게시된 자료만 검색되고 출처 URL과 원문 위치가 반환된다.
+# 구현할 기능: 검색 범위를 제한하고 출처·위치·점수를 Evidence로 변환한다.
+# 완료 기준: 게시된 자료만 검색하며 URL 유무와 관계없이 출처·위치·버전을 반환한다.
 # 제한사항: 법령 원문을 벡터 검색에 저장하거나 검색하지 않는다.
-"""Search adapter that turns eligible pgvector hits into public Evidence DTOs."""
+"""게시된 pgvector 검색 결과를 공개 Evidence 자료형으로 변환한다."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class PGVectorSearch(SearchPort):
     allow_synthetic: bool = False
 
     async def search(self, request: SearchRequest) -> SearchResult:
-        # SearchRequest enforces the public 1..10 range and default top_k=3.
+        # SearchRequest가 공개 top_k 범위와 기본값을 검증한다.
         vector = await self.embedding.embed_query(request.query)
         hits = await self.vector_store.search_vectors(
             vector,
@@ -46,8 +46,6 @@ class PGVectorSearch(SearchPort):
                 source_id, title, publisher, version, location, hit.text
             )):
                 continue
-            if not isinstance(url, str) or not url.startswith("https://"):
-                continue
             score = 1.0 - hit.cosine_distance
             if not math.isfinite(score):
                 continue
@@ -67,7 +65,7 @@ class PGVectorSearch(SearchPort):
                     score=score,
                 )
             except ValueError:
-                # Do not synthesize missing or invalid provenance.
+                # 누락되거나 유효하지 않은 출처 정보는 만들어내지 않는다.
                 continue
             evidence.append(item)
         evidence.sort(key=lambda item: item.score if item.score is not None else -math.inf, reverse=True)
