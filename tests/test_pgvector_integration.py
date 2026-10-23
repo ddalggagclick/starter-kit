@@ -31,7 +31,7 @@ from starter_rag.storage.database import (
     PostgresRagDatabase,
     database_url_from_environment,
 )
-from starter_rag.storage.publication import PostgresPublicationStore, PublicationError
+from starter_rag.storage.publication import PostgresPublicationStore
 from starter_rag.storage.vector_store import (
     DocumentVersionConflictError,
     PGVectorStore,
@@ -324,10 +324,11 @@ class PgVectorIntegrationTests(unittest.TestCase):
                 (missing_url_chunk,),
                 is_synthetic=True,
             )
-            with self.assertRaises(PublicationError):
-                await PostgresPublicationStore(
-                    database, collection_id=collection
-                ).publish(missing_url.source_id, missing_url.version)
+            published_without_url = await publication.publish(
+                missing_url.source_id, missing_url.version
+            )
+            self.assertEqual(published_without_url.state, "published")
+            self.assertIsNone(published_without_url.source.url)
 
             failed = self._source(f"{source_key}-failed")
             failed_chunk = self._chunk(failed, "state gate failed sentinel")
@@ -353,7 +354,12 @@ class PgVectorIntegrationTests(unittest.TestCase):
                 SearchRequest("state gate sentinel")
             )
             returned_ids = {item.evidence_id for item in result.evidence}
-            self.assertEqual(returned_ids, {new_chunk.chunk_id})
+            self.assertEqual(
+                returned_ids,
+                {new_chunk.chunk_id, missing_url_chunk.chunk_id},
+            )
+            evidence_by_id = {item.evidence_id: item for item in result.evidence}
+            self.assertIsNone(evidence_by_id[missing_url_chunk.chunk_id].source.url)
             async with database.sql_engine.connect() as connection:
                 rows = await connection.execute(
                     text(
