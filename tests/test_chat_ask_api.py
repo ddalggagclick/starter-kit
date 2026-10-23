@@ -21,6 +21,7 @@ from inheritance.core.dependencies import build_chat_service, law_from_env
 from inheritance.law.service import LawLookupService
 from inheritance.main import create_app
 from starter_llm.contracts.errors import ModelError, ModelErrorCode
+from starter_llm.contracts.models import GenerationChunk
 from starter_llm.providers.fake import FakeModel
 from starter_rag.contracts.models import Evidence, SearchRequest, SearchResult, SourceRef
 
@@ -122,7 +123,7 @@ def test_zero_evidence_is_withheld_without_writing():
         "answer": None,
         "sources": [],
         "remainingToday": None,
-        "reasonCode": None,
+        "reasonCode": "SOURCE_NOT_VERIFIED",
     }
 
 
@@ -293,3 +294,33 @@ def test_law_reference_still_requires_https_url():
     with pytest.raises(ValueError):
         AnswerReference("rag-1", "procedure", "안내", "http://example.com", "1쪽", "v1")
     assert AnswerReference("rag-1", "procedure", "안내", None, "1쪽", "v1").official_url is None
+
+
+# ---- 판단 유보 사유(reasonCode) -------------------------------------------------------
+
+
+def test_citation_mismatch_reason():
+    class WrongCitationModel(FakeModel):
+        def stream(self, request):
+            async def chunks():
+                yield GenerationChunk("근거와 다른 인용 [[없는-ID]]")
+
+            self.streamed_requests.append(request)
+            return chunks()
+
+    app = create_app()
+    model = WrongCitationModel()
+    service = V1ChatAnswerService(ModelQuestionRouter(model), Search(), Law(), model)
+    app.dependency_overrides[chat_router.get_chat_service] = lambda: service
+    result = events(ask(TestClient(app), "상속 절차와 서류를 알려주세요"))[-1][1]
+    assert (result["state"], result["reasonCode"]) == ("withheld", "CITATION_MISMATCH")
+
+
+def test_answer_format_error_reason_is_null():
+    result = events(ask(make_client(), "상속 절차 FAKE_INVALID_OUTPUT"))[-1][1]
+    assert (result["state"], result["reasonCode"]) == ("withheld", None)
+
+
+def test_answered_reason_is_null():
+    result = events(ask(make_client(), "상속 절차와 서류를 알려주세요"))[-1][1]
+    assert (result["state"], result["reasonCode"]) == ("answered", None)

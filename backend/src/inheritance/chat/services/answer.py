@@ -19,7 +19,6 @@ from starter_rag.contracts.models import Evidence, SearchRequest
 from starter_rag.contracts.ports import SearchPort
 
 from inheritance.chat.safety import (
-    ABSTAINED,
     SOURCE_UNAVAILABLE,
     SafetyDecision,
     classify_model_error,
@@ -49,6 +48,8 @@ class ChatAnswerResult:
     outcome: AnswerOutcome
     # S6·S9일 때 HTTP 오류 코드(429/503/504 선택용). answered·abstained(S7)는 None이다.
     error_code: ErrorCode | None = None
+    # abstained(S7) 사유(openapi SseResultEvent.reasonCode). 근거 0건·인용 불일치만 값을 둔다.
+    reason_code: ErrorCode | None = None
 
 
 class ChatAnswerService(Protocol):
@@ -114,7 +115,7 @@ class V1ChatAnswerService:
             return _finish(SOURCE_UNAVAILABLE, request_id)
         # 근거 0건이면 최종 생성을 하지 않는다 (INTERFACE 3장).
         if not rag and not laws:
-            return _finish(ABSTAINED, request_id)
+            return _withheld(request_id, ErrorCode.SOURCE_NOT_VERIFIED)
 
         messages = self._prompts.build(question, rag, laws, previous_questions)
         request = GenerationRequest(messages, ANSWER_MODEL_PROFILE, request_id)
@@ -128,7 +129,7 @@ class V1ChatAnswerService:
         try:
             references = self._validator.validate_and_resolve(extract_cited_ids(text), rag, laws)
         except CitationMismatch:
-            return _finish(ABSTAINED, request_id)
+            return _withheld(request_id, ErrorCode.CITATION_MISMATCH)
         return ChatAnswerResult(AnswerOutcome("answered", text, references, request_id))
 
     async def _gather(
@@ -172,6 +173,11 @@ class V1ChatAnswerService:
 
 async def _no_progress(stage: AnswerStage) -> None:
     return None
+
+
+def _withheld(request_id: str, reason: ErrorCode) -> ChatAnswerResult:
+    outcome = AnswerOutcome("abstained", None, (), request_id)
+    return ChatAnswerResult(outcome, None, reason)
 
 
 def _finish(safety: SafetyDecision, request_id: str) -> ChatAnswerResult | None:
