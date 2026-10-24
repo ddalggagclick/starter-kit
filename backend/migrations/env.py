@@ -12,8 +12,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
-from sqlalchemy.engine import make_url
+from sqlalchemy import engine as sqlalchemy_engine, pool
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -29,7 +28,7 @@ def _database_url() -> str:
     if not value:
         raise ValueError("DATABASE_URL is required for explicit Alembic commands")
     try:
-        url = make_url(value)
+        url = sqlalchemy_engine.make_url(value)
     except (ArgumentError, ValueError):
         raise ValueError("DATABASE_URL is not a valid PostgreSQL connection URL") from None
     if url.drivername != "postgresql+asyncpg" or url.port != 5432 or not url.host:
@@ -59,7 +58,7 @@ def _run_migrations(connection) -> None:
 
 
 async def _run_migrations_async() -> None:
-    url = make_url(_database_url())
+    url = sqlalchemy_engine.make_url(_database_url())
     engine = async_engine_from_config(
         {"sqlalchemy.url": url.render_as_string(hide_password=False)},
         prefix="sqlalchemy.",
