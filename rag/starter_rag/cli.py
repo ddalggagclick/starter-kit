@@ -10,7 +10,7 @@ import contextlib
 import json
 import os
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path
 
@@ -49,7 +49,12 @@ from starter_rag.storage.database import (
     database_url_from_environment,
 )
 from starter_rag.storage.models import DEFAULT_COLLECTION_ID, SCHEMA_NAME, TABLE_NAME
-from starter_rag.storage.publication import PostgresPublicationStore
+from starter_rag.storage.publication import (
+    PostgresPublicationStore,
+    PublicationError,
+    PublicationInspection,
+    PublicationOutcome,
+)
 from starter_rag.storage.vector_store import PGVectorStore
 
 
@@ -481,6 +486,534 @@ def _publish(source_id: str, version: str, collection_id: str, db_profile: str =
     return 0
 
 
+@dataclass(frozen=True)
+class _IndexResultItem:
+    source_id: str
+    version: str
+    collection_id: str
+    indexed_state: str
+
+
+class _BatchPublicationInputError(ValueError):
+    pass
+
+
+class _BatchDatabaseUnavailable(RuntimeError):
+    def __init__(
+        self,
+        error: BaseException,
+        *,
+        publication_state: str = "unknown",
+        outcome: str = "failed",
+    ) -> None:
+        self.error_type = type(error).__name__
+        self.sqlstate = _sqlstate(error)
+        self.publication_state = publication_state
+        self.outcome = outcome
+        super().__init__("database unavailable")
+
+
+def _required_index_result_text(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value or value.strip() != value:
+        raise _BatchPublicationInputError(f"index result item requires {field}")
+    return value
+
+
+def _parse_index_result(payload: object) -> tuple[_IndexResultItem, ...]:
+    if not isinstance(payload, dict):
+        raise _BatchPublicationInputError("index result must be a JSON object")
+
+    raw_items: list[tuple[object, object, object, object]] = []
+    if "outcomes" in payload:
+        outcomes = payload.get("outcomes")
+        collection_id = _required_index_result_text(payload.get("collection_id"), "collection_id")
+        indexed_units = payload.get("indexed_units")
+        if (
+            payload.get("published") is not False
+            or not isinstance(outcomes, list)
+            or not outcomes
+            or type(indexed_units) is not int
+            or indexed_units != len(outcomes)
+        ):
+            raise _BatchPublicationInputError("index result outcomes are incomplete or unpublished")
+        for outcome in outcomes:
+            if not isinstance(outcome, dict):
+                raise _BatchPublicationInputError("index result outcome must be an object")
+            raw_items.append(
+                (
+                    outcome.get("source_id"),
+                    outcome.get("version"),
+                    collection_id,
+                    outcome.get("indexed_state"),
+                )
+            )
+    elif {"success", "sourceId", "version", "collectionId", "state"}.issubset(payload):
+        if payload.get("success") is not True:
+            raise _BatchPublicationInputError("standard index result did not succeed")
+        raw_items.append(
+            (
+                payload.get("sourceId"),
+                payload.get("version"),
+                payload.get("collectionId"),
+                payload.get("state"),
+            )
+        )
+    else:
+        raise _BatchPublicationInputError("unsupported index result format")
+
+    items: list[_IndexResultItem] = []
+    source_versions: dict[str, str] = {}
+    for raw_source_id, raw_version, raw_collection_id, raw_state in raw_items:
+        source_id = _required_index_result_text(raw_source_id, "source_id")
+        version = _required_index_result_text(raw_version, "version")
+        item_collection_id = _required_index_result_text(raw_collection_id, "collection_id")
+        if raw_state not in ("indexed", "published"):
+            raise _BatchPublicationInputError(
+                f"index result for {source_id} has an incomplete index state"
+            )
+        if source_id in source_versions:
+            if source_versions[source_id] != version:
+                raise _BatchPublicationInputError(
+                    f"source {source_id} appears with conflicting versions"
+                )
+            raise _BatchPublicationInputError(f"duplicate source {source_id} in index result")
+        source_versions[source_id] = version
+        items.append(_IndexResultItem(source_id, version, item_collection_id, raw_state))
+    if not items:
+        raise _BatchPublicationInputError("index result contains no source units")
+    return tuple(items)
+
+
+def _load_index_result(path: str) -> tuple[_IndexResultItem, ...]:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise _BatchPublicationInputError(
+            "index result file is missing, unreadable or invalid JSON"
+        ) from None
+    return _parse_index_result(payload)
+
+
+def _exception_chain(error: BaseException):
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        yield current
+        for attribute in ("orig", "__cause__", "__context__"):
+            try:
+                nested = getattr(current, attribute, None)
+            except Exception:  # noqa: BLE001 - 드라이버 속성이 예외를 발생시킬 수 있다.
+                nested = None
+            if isinstance(nested, BaseException):
+                pending.append(nested)
+        try:
+            nested_errors = getattr(current, "exceptions", ())
+        except Exception:  # noqa: BLE001 - 드라이버 속성이 예외를 발생시킬 수 있다.
+            nested_errors = ()
+        if isinstance(nested_errors, (tuple, list)):
+            pending.extend(nested for nested in nested_errors if isinstance(nested, BaseException))
+
+
+def _sqlstate(error: BaseException) -> str | None:
+    for current in _exception_chain(error):
+        candidates = [current]
+        try:
+            diagnostic = getattr(current, "diag", None)
+        except Exception:  # noqa: BLE001 - 드라이버 진단 정보가 없을 수 있다.
+            diagnostic = None
+        if diagnostic is not None:
+            candidates.append(diagnostic)
+        for candidate in candidates:
+            for attribute in ("sqlstate", "pgcode"):
+                try:
+                    state = getattr(candidate, attribute, None)
+                except Exception:  # noqa: BLE001 - 드라이버 진단 정보가 없을 수 있다.
+                    state = None
+                if (
+                    isinstance(state, str)
+                    and len(state) == 5
+                    and state.isascii()
+                    and state.isalnum()
+                ):
+                    return state.upper()
+    return None
+
+
+def _is_database_wide_error(error: BaseException) -> bool:
+    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+
+    for current in _exception_chain(error):
+        if isinstance(current, SQLAlchemyTimeoutError):
+            return True
+        if isinstance(current, DBAPIError) and current.connection_invalidated:
+            return True
+    state = _sqlstate(error)
+    return bool(state and (state.startswith("08") or state in {"57P01", "57P02", "57P03"}))
+
+
+def _is_transient_database_error(error: BaseException) -> bool:
+    if _is_database_wide_error(error):
+        return True
+    state = _sqlstate(error)
+    return state in {"40001", "40P01", "55P03"}
+
+
+async def _inspect_with_one_retry(
+    store: PostgresPublicationStore,
+    item: _IndexResultItem,
+) -> PublicationInspection:
+    try:
+        return await store.inspect_version(item.source_id, item.version)
+    except PublicationError:
+        raise
+    except Exception as error:  # noqa: BLE001 - 연결 상세 정보는 출력하지 않는다.
+        if _is_database_wide_error(error) or not _is_transient_database_error(error):
+            raise _BatchDatabaseUnavailable(error) from None
+    try:
+        return await store.inspect_version(item.source_id, item.version)
+    except PublicationError:
+        raise
+    except Exception as error:  # noqa: BLE001 - 사전 조회 재실패 시 배치를 중단한다.
+        raise _BatchDatabaseUnavailable(error) from None
+
+
+async def _database_outage_after_publish(
+    store: PostgresPublicationStore,
+    item: _IndexResultItem,
+    error: BaseException,
+) -> _BatchDatabaseUnavailable:
+    try:
+        inspection = await store.inspect_version(item.source_id, item.version)
+    except PublicationError:
+        return _BatchDatabaseUnavailable(error, publication_state="unconfirmed")
+    except Exception:  # noqa: BLE001 - 재확인 중 드라이버 오류 원문을 출력하지 않는다.
+        return _BatchDatabaseUnavailable(error)
+    if inspection.document.state == "published":
+        return _BatchDatabaseUnavailable(
+            error,
+            publication_state="published",
+            outcome="confirmed_after_error",
+        )
+    return _BatchDatabaseUnavailable(error, publication_state=inspection.document.state)
+
+
+def _validate_replacement_policy(
+    inspection: PublicationInspection,
+    *,
+    allow_version_replacement: bool,
+) -> None:
+    if inspection.document.state not in {"indexed", "published"}:
+        raise PublicationError("only a complete indexed version can be published")
+    if (
+        inspection.document.state == "indexed"
+        and inspection.published_versions
+        and not allow_version_replacement
+    ):
+        raise PublicationError(
+            "a different version is currently published; review the SHA version and "
+            "rerun with --allow-version-replacement to retire it"
+        )
+
+
+async def _publish_with_one_retry(
+    store: PostgresPublicationStore,
+    item: _IndexResultItem,
+    *,
+    allow_version_replacement: bool,
+) -> PublicationOutcome:
+    async def publish() -> PublicationOutcome:
+        return await store.publish_with_outcome(
+            item.source_id,
+            item.version,
+            allow_version_replacement=allow_version_replacement,
+        )
+
+    try:
+        return await publish()
+    except PublicationError:
+        raise
+    except Exception as error:
+        if _is_database_wide_error(error):
+            raise await _database_outage_after_publish(store, item, error) from None
+        if not _is_transient_database_error(error):
+            raise
+        initial_error = error
+
+    try:
+        inspection = await store.inspect_version(item.source_id, item.version)
+    except PublicationError:
+        raise
+    except Exception as error:  # noqa: BLE001 - 상태를 확인할 수 없으면 배치를 중단한다.
+        raise _BatchDatabaseUnavailable(error) from None
+    if inspection.document.state == "published":
+        return PublicationOutcome(
+            inspection.document,
+            "confirmed_after_error",
+            error_type=type(initial_error).__name__,
+            sqlstate=_sqlstate(initial_error),
+        )
+    _validate_replacement_policy(
+        inspection,
+        allow_version_replacement=allow_version_replacement,
+    )
+
+    try:
+        return await publish()
+    except PublicationError:
+        raise
+    except Exception as error:
+        if _is_database_wide_error(error):
+            raise await _database_outage_after_publish(store, item, error) from None
+        if not _is_transient_database_error(error):
+            raise
+        retry_error = error
+
+    try:
+        inspection = await store.inspect_version(item.source_id, item.version)
+    except PublicationError:
+        raise
+    except Exception as error:  # noqa: BLE001 - 확인할 수 없는 상태를 임의로 성공 처리하지 않는다.
+        raise _BatchDatabaseUnavailable(error) from None
+    if inspection.document.state == "published":
+        return PublicationOutcome(
+            inspection.document,
+            "confirmed_after_error",
+            error_type=type(retry_error).__name__,
+            sqlstate=_sqlstate(retry_error),
+        )
+    raise PublicationError(
+        "publication still has not completed after one retry; the version remains unpublished"
+    )
+
+
+def _batch_item_result(
+    item: _IndexResultItem,
+    outcome: str,
+    *,
+    error: str | None = None,
+    retired_versions: tuple[str, ...] = (),
+    publication_state: str | None = None,
+    error_type: str | None = None,
+    sqlstate: str | None = None,
+    database_unavailable: bool = False,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "sourceId": item.source_id,
+        "version": item.version,
+        "outcome": outcome,
+    }
+    if error is not None:
+        result["error"] = error
+    if publication_state is not None:
+        result["publicationState"] = publication_state
+    if error_type is not None:
+        result["errorType"] = error_type
+    if sqlstate is not None:
+        result["sqlstate"] = sqlstate
+    if database_unavailable:
+        result["databaseUnavailable"] = True
+    if retired_versions:
+        result["retiredVersions"] = list(retired_versions)
+    return result
+
+
+def _batch_summary(
+    items: tuple[_IndexResultItem, ...],
+    results: list[dict[str, object] | None],
+    collection_id: str,
+) -> dict[str, object]:
+    completed = [
+        result if result is not None else _batch_item_result(item, "not_attempted")
+        for item, result in zip(items, results, strict=True)
+    ]
+    published_count = sum(result["outcome"] == "published" for result in completed)
+    skipped_count = sum(result["outcome"] == "already_published" for result in completed)
+    confirmed_after_error_count = sum(
+        result["outcome"] == "confirmed_after_error" for result in completed
+    )
+    failed_count = sum(result["outcome"] == "failed" for result in completed)
+    not_attempted_count = sum(result["outcome"] == "not_attempted" for result in completed)
+    database_unavailable_count = sum(
+        result.get("databaseUnavailable") is True for result in completed
+    )
+    return {
+        "success": (
+            failed_count == 0
+            and not_attempted_count == 0
+            and confirmed_after_error_count == 0
+            and database_unavailable_count == 0
+        ),
+        "collectionId": collection_id,
+        "totalCount": len(items),
+        "publishedCount": published_count,
+        "skippedCount": skipped_count,
+        "confirmedAfterErrorCount": confirmed_after_error_count,
+        "failedCount": failed_count,
+        "notAttemptedCount": not_attempted_count,
+        "databaseUnavailableCount": database_unavailable_count,
+        "items": completed,
+    }
+
+
+async def _publish_index_result_items(
+    store: PostgresPublicationStore,
+    items: tuple[_IndexResultItem, ...],
+    collection_id: str,
+    *,
+    allow_version_replacement: bool,
+) -> dict[str, object]:
+    results: list[dict[str, object] | None] = [None] * len(items)
+    inspections: list[PublicationInspection | None] = [None] * len(items)
+
+    # 첫 게시 트랜잭션 전에 모든 대상을 읽고 검증한다.
+    for index, item in enumerate(items):
+        try:
+            inspection = await _inspect_with_one_retry(store, item)
+            _validate_replacement_policy(
+                inspection,
+                allow_version_replacement=allow_version_replacement,
+            )
+            inspections[index] = inspection
+        except PublicationError as error:
+            results[index] = _batch_item_result(item, "failed", error=str(error))
+        except _BatchDatabaseUnavailable as error:
+            results[index] = _batch_item_result(
+                item,
+                error.outcome,
+                error="database unavailable during preflight; no batch items were published",
+                publication_state=error.publication_state,
+                error_type=error.error_type,
+                sqlstate=error.sqlstate,
+                database_unavailable=True,
+            )
+            return _batch_summary(items, results, collection_id)
+        except Exception as error:  # noqa: BLE001 - 예외 원문에 인증정보가 있을 수 있다.
+            results[index] = _batch_item_result(
+                item,
+                "failed",
+                error=f"database preflight failed: {type(error).__name__}",
+            )
+            return _batch_summary(items, results, collection_id)
+
+    for index, (item, inspection) in enumerate(zip(items, inspections, strict=True)):
+        if results[index] is not None:
+            continue
+        if inspection is not None and inspection.document.state == "published":
+            results[index] = _batch_item_result(item, "already_published")
+            continue
+        try:
+            outcome = await _publish_with_one_retry(
+                store,
+                item,
+                allow_version_replacement=allow_version_replacement,
+            )
+            results[index] = _batch_item_result(
+                item,
+                outcome.disposition,
+                retired_versions=outcome.retired_versions,
+                error=(
+                    "publication confirmed after an error; commit attribution is uncertain"
+                    if outcome.disposition == "confirmed_after_error"
+                    else None
+                ),
+                publication_state=(
+                    outcome.document.state
+                    if outcome.disposition == "confirmed_after_error"
+                    else None
+                ),
+                error_type=outcome.error_type,
+                sqlstate=outcome.sqlstate,
+            )
+        except _BatchDatabaseUnavailable as error:
+            results[index] = _batch_item_result(
+                item,
+                error.outcome,
+                error=(
+                    "database outage; publication status is "
+                    f"{error.publication_state}; inspect before rerunning"
+                ),
+                publication_state=error.publication_state,
+                error_type=error.error_type,
+                sqlstate=error.sqlstate,
+                database_unavailable=True,
+            )
+            break
+        except PublicationError as error:
+            results[index] = _batch_item_result(item, "failed", error=str(error))
+        except Exception as error:  # noqa: BLE001 - 예외 원문에 인증정보가 있을 수 있다.
+            results[index] = _batch_item_result(
+                item,
+                "failed",
+                error=f"publication failed: {type(error).__name__}",
+            )
+    return _batch_summary(items, results, collection_id)
+
+
+def _publish_from_index_result(
+    path: str,
+    collection_id: str,
+    db_profile: str = "local",
+    *,
+    allow_version_replacement: bool = False,
+) -> int:
+    try:
+        items = _load_index_result(path)
+        mismatched = [item.source_id for item in items if item.collection_id != collection_id]
+        if mismatched:
+            raise _BatchPublicationInputError(
+                "index result collection_id does not match the selected database collection"
+            )
+    except _BatchPublicationInputError as error:
+        print(f"배치 게시 입력 오류: {error}", file=sys.stderr)
+        return 2
+
+    async def run() -> dict[str, object]:
+        database = await _database_for_profile(db_profile)
+        try:
+            store = PostgresPublicationStore(database, collection_id=collection_id)
+            return await _publish_index_result_items(
+                store,
+                items,
+                collection_id,
+                allow_version_replacement=allow_version_replacement,
+            )
+        finally:
+            await _release_profile_database(database, db_profile)
+
+    try:
+        summary = asyncio.run(run())
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0 if summary["success"] else 1
+    except DatabaseConfigurationError as error:
+        print(f"잘못된 RAG 게시 DB 설정: {type(error).__name__}", file=sys.stderr)
+        return 2
+    except Exception as error:  # noqa: BLE001 - DB 연결정보는 출력하지 않는다.
+        if _is_database_wide_error(error):
+            summary = _batch_summary(items, [None] * len(items), collection_id)
+            summary.update(
+                {
+                    "success": False,
+                    "databaseUnavailable": True,
+                    "databaseUnavailableCount": 1,
+                    "error": "database unavailable before item processing",
+                    "errorType": type(error).__name__,
+                    "publicationState": "unknown",
+                }
+            )
+            state = _sqlstate(error)
+            if state is not None:
+                summary["sqlstate"] = state
+            print(json.dumps(summary, ensure_ascii=False))
+            return 1
+        print(f"배치 게시 실행 실패: {type(error).__name__}", file=sys.stderr)
+        return 1
+
+
 def _search(
     query: str, top_k: int, collection_id: str, allow_synthetic: bool, db_profile: str = "local"
 ) -> int:
@@ -596,10 +1129,28 @@ def main(argv: list[str] | None = None) -> int:
         "--synthetic", action="store_true", help="합성 시험자료로 표시; 별도 collection 필수"
     )
 
-    publish = cmd.add_parser("publish", help="완전히 색인된 문서 버전을 원자적으로 게시")
+    publish = cmd.add_parser(
+        "publish",
+        help="색인 결과의 Source Unit을 검수 후 게시하거나 단일 버전을 게시",
+    )
     publish.add_argument("--db-profile", choices=("local", "supabase"), default="local")
-    publish.add_argument("--source-id", required=True)
-    publish.add_argument("--version", required=True)
+    publish_mode = publish.add_mutually_exclusive_group(required=True)
+    publish_mode.add_argument("--source-id", help="단건 게시 Source ID")
+    publish_mode.add_argument(
+        "--from-index-result",
+        type=_file_argument,
+        metavar="PATH",
+        help="index 명령의 JSON 결과에서 Source Unit을 일괄 게시",
+    )
+    publish.add_argument("--version", help="단건 게시 버전")
+    publish.add_argument(
+        "--allow-version-replacement",
+        action="store_true",
+        help=(
+            "다른 게시 버전을 retired 처리하도록 명시 승인; "
+            "배치 SHA 버전의 최신성은 자동 판별하지 않음"
+        ),
+    )
     publish.add_argument(
         "--collection-id", help="local default: published-guides; supabase: explicit approved ID"
     )
@@ -787,10 +1338,26 @@ def main(argv: list[str] | None = None) -> int:
             return _index_file(args.path, **index_arguments)
         return _index_file(args.path, **index_arguments, db_profile=args.db_profile)
     if args.command == "publish":
+        if args.from_index_result and args.version:
+            parser.error("--from-index-result와 --version은 함께 사용할 수 없습니다")
+        if args.source_id and not args.version:
+            parser.error("단건 게시에는 --version이 필요합니다")
+        if not args.source_id and args.version:
+            parser.error("--version은 --source-id와 함께 사용해야 합니다")
+        if args.source_id and args.allow_version_replacement:
+            parser.error("--allow-version-replacement는 배치 게시에서만 사용할 수 있습니다")
         try:
             collection = _collection_for_profile(args.db_profile, args.collection_id)
         except DatabaseConfigurationError:
+            print("approved RAG_COLLECTION_ID must match --collection-id", file=sys.stderr)
             return 2
+        if args.from_index_result:
+            return _publish_from_index_result(
+                args.from_index_result,
+                collection,
+                args.db_profile,
+                allow_version_replacement=args.allow_version_replacement,
+            )
         if args.db_profile == "local":
             return _publish(args.source_id, args.version, collection)
         return _publish(args.source_id, args.version, collection, args.db_profile)
