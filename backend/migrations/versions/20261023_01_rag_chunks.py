@@ -3,9 +3,11 @@
 # 구현할 기능: 외부에 설치된 pgvector 확장을 사용해 RAG 테이블과 인덱스를 만든다.
 # 완료 기준: 16개 컬럼, 게시 상태 CHECK, B-tree·cosine HNSW 인덱스를 생성한다.
 # 승인: 2026-10-24 통합관리자, revision 구현에 한정.
-# Supabase DDL 실행 및 Source_v2 적재: 0건; 이 revision 구현만 완료.
+# Backend A08 실제 검색 검증: 2026-10-24 로컬 Backend → Supabase → LLM PASS (HTTP 200, answered, 출처 3건).
+# 검증 한계: 배포 Backend, 타 컬렉션 자료 차단, 빈 결과·검색 오류 처리는 별도 검증 필요.
+# Alembic revision 실행 여부와 DB 카탈로그는 이번 검색 검증으로 확인하지 않음.
 # 사용자 제공 SQL 최종 대조: 16개 컬럼·자료형·NULL, PK/CHECK·3 인덱스가 revision과 일치(PASS).
-# C 담당자 검증은 사용자 제공 SQL 증거 기준 완료; 직접 DB 조회는 하지 않음. ERD 문서 개정은 별도 지시 전 보류.
+# DB 카탈로그 직접 조회는 하지 않았으며, SearchPort를 통한 실제 검색은 위 결과로 확인. ERD 문서 개정은 별도 지시 전 보류.
 # 제한사항: pgvector 자동 설치·자료 적재·자동 stamp·파괴적 downgrade 금지.
 """Approved single-table RAG migration; application state is recorded separately from ERD approval.
 
