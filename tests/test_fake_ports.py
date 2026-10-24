@@ -145,9 +145,7 @@ class FakePortTests(unittest.TestCase):
         port_signature = inspect.signature(port_method)
         fake_signature = inspect.signature(fake_method)
 
-        self.assertEqual(
-            tuple(port_signature.parameters)[1:], tuple(fake_signature.parameters)[1:]
-        )
+        self.assertEqual(tuple(port_signature.parameters)[1:], tuple(fake_signature.parameters)[1:])
         self.assertEqual(get_type_hints(port_method), get_type_hints(fake_method))
         self.assertEqual(
             inspect.iscoroutinefunction(port_method),
@@ -207,9 +205,7 @@ class FakePortTests(unittest.TestCase):
         self.assertEqual(model.streamed_requests, [self.generation_request])
         self.assertEqual(received, list(chunks))
 
-    async def _collect(
-        self, chunks: AsyncIterator[GenerationChunk]
-    ) -> list[GenerationChunk]:
+    async def _collect(self, chunks: AsyncIterator[GenerationChunk]) -> list[GenerationChunk]:
         return [chunk async for chunk in chunks]
 
     def test_search_port_allows_zero_evidence_result(self) -> None:
@@ -241,9 +237,7 @@ class FakePortTests(unittest.TestCase):
                 "checklist": ChecklistService,
             },
         )
-        self.assertEqual(
-            get_type_hints(FakeAppServicePorts), get_type_hints(AppServicePorts)
-        )
+        self.assertEqual(get_type_hints(FakeAppServicePorts), get_type_hints(AppServicePorts))
         bundle = FakeAppServicePorts(
             FakeModel(GenerationResult("답", "gemini", "fake-model"), ()),
             FakeSearch(SearchResult(())),
@@ -272,9 +266,7 @@ class FakePortTests(unittest.TestCase):
                     for module in imported
                     if module in ("starter_llm", "starter_rag")
                     or module.startswith(("starter_llm.", "starter_rag."))
-                    and not module.startswith(
-                        ("starter_llm.contracts.", "starter_rag.contracts.")
-                    )
+                    and not module.startswith(("starter_llm.contracts.", "starter_rag.contracts."))
                 )
 
         self.assertEqual(forbidden_modules, [])

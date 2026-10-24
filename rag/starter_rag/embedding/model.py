@@ -121,9 +121,7 @@ class EmbeddingGemma(EmbeddingPort):
             raise EmbeddingGenerationError("EmbeddingGemma encoding failed") from exc
         vectors = _as_vector_rows(output)
         if len(vectors) != len(texts):
-            raise EmbeddingOutputError(
-                f"expected {len(texts)} vectors; got {len(vectors)}"
-            )
+            raise EmbeddingOutputError(f"expected {len(texts)} vectors; got {len(vectors)}")
         return tuple(tuple(vector) for vector in vectors)
 
     async def embed_query(self, text: str) -> tuple[float, ...]:
@@ -132,9 +130,7 @@ class EmbeddingGemma(EmbeddingPort):
         vectors = await asyncio.to_thread(self._encode, (text,), QUERY_PROMPT)
         return vectors[0]
 
-    async def embed_documents(
-        self, texts: tuple[str, ...]
-    ) -> tuple[tuple[float, ...], ...]:
+    async def embed_documents(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
         if not texts:
             return ()
         if any(not text.strip() for text in texts):
