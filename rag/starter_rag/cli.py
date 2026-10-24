@@ -1036,7 +1036,6 @@ def _search(
             ).search(request)
             return {
                 "success": True,
-                "query": request.query,
                 "topK": request.top_k,
                 "collectionId": collection_id,
                 "evidence": [asdict(item) for item in result.evidence],
@@ -1047,7 +1046,7 @@ def _search(
     try:
         print(json.dumps(asyncio.run(run()), ensure_ascii=False))
     except DatabaseConfigurationError as exc:
-        print(str(exc), file=sys.stderr)
+        print(f"RAG 검색 설정 오류: {type(exc).__name__}", file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 - never disclose credentials in exceptions.
         print(f"RAG 검색 실패: {type(exc).__name__}", file=sys.stderr)
