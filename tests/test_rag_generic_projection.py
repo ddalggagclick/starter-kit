@@ -42,7 +42,7 @@ def _chunk(source_id="ID-01", excerpt="text", *, deterministic=True):
     )
 
 
-def test_unrelated_domain_uses_same_generic_projector():
+def test_다른_도메인도_동일한_범용_프로젝터를_사용한다():
     spec = RowProjectionSpec(
         id_field="id",
         row_field="row",
@@ -65,7 +65,7 @@ def test_unrelated_domain_uses_same_generic_projector():
         project_verified_rows((data,), (_chunk(deterministic=False),), spec)
 
 
-def test_url_is_not_included_when_link_is_hidden():
+def test_링크_비공개면_URL을_포함하지_않는다():
     spec = projection_from_mapping(MAPPING)
     fake = {
         "source_id": "ID-01",
@@ -87,7 +87,7 @@ def test_url_is_not_included_when_link_is_hidden():
     assert "https://example.org/private" not in result["ID-01"].text
 
 
-def test_source_v2_actual_workbook_optional(monkeypatch):
+def test_Source_v2_실제_워크북_검증은_선택이다(monkeypatch):
     import os
 
     file = os.environ.get("SOURCE_V2_FILE")

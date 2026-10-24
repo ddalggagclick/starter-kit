@@ -34,8 +34,8 @@ def _database_url() -> str:
         raise ValueError("DATABASE_URL is not a valid PostgreSQL connection URL") from None
     if url.drivername != "postgresql+asyncpg" or url.port != 5432 or not url.host:
         raise ValueError("Alembic DATABASE_URL must use postgresql+asyncpg on port 5432")
-    if os.environ.get("APP_ENV") == "production" and not url.host.endswith(".pooler.supabase.com"):
-        raise ValueError("production Alembic requires the approved Supabase Session Pooler")
+    if not url.host.endswith(".pooler.supabase.com"):
+        raise ValueError("Alembic requires the approved Supabase Session Pooler")
     return value
 
 
@@ -60,12 +60,11 @@ def _run_migrations(connection) -> None:
 
 async def _run_migrations_async() -> None:
     url = make_url(_database_url())
-    connect_args = {"ssl": "require"} if url.host.endswith(".pooler.supabase.com") else {}
     engine = async_engine_from_config(
         {"sqlalchemy.url": url.render_as_string(hide_password=False)},
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        connect_args=connect_args,
+        connect_args={"ssl": "require"},
     )
     try:
         async with engine.connect() as connection:

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 URL = "postgresql+asyncpg://postgres.demo:secret@fake.pooler.supabase.com:5432/postgres"
 
 
-def test_rag_revision_generates_only_approved_domain_table():
+def test_승인된_RAG_도메인_테이블만_생성한다():
     config = Config(str(ROOT / "backend" / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "backend" / "migrations"))
     output = StringIO()
@@ -47,7 +47,7 @@ def test_rag_revision_generates_only_approved_domain_table():
     assert columns.count("\n    ") >= 16
 
 
-def test_rag_revision_rejects_missing_connection_configuration():
+def test_DATABASE_URL_누락을_거부한다():
     config = Config(str(ROOT / "backend" / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "backend" / "migrations"))
     with patch.dict(os.environ, {}, clear=True):
@@ -59,7 +59,7 @@ def test_rag_revision_rejects_missing_connection_configuration():
             raise AssertionError("Alembic must not run without explicit database configuration")
 
 
-def test_rag_revision_does_not_mask_unexpected_url_parser_errors():
+def test_예상하지_못한_URL_파싱_오류를_숨기지_않는다():
     config = Config(str(ROOT / "backend" / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "backend" / "migrations"))
     with (
