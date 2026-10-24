@@ -37,24 +37,21 @@ def model_factory_from_env() -> ModelFactory | None:
     return factory
 
 
-# 운영 SearchPort는 DB 검증을 거쳐 lifespan에서 비동기로 만든다.
-def search_from_env() -> SearchPort | None:
-    return None
-
-
 def build_app(
     model_factory: Callable[[], ModelFactory | None] = model_factory_from_env,
-    search: Callable[[], SearchPort | None] = search_from_env,
+    search: Callable[[], SearchPort | None] | None = None,
 ) -> object:
-    service = build_chat_service(model_factory(), search(), law_from_env())
+    """Build the app shell; production SearchPort creation belongs to lifespan."""
+    search_port = search() if search is not None else None
+    service = build_chat_service(model_factory(), search_port, law_from_env())
     return create_app(chat_service=service)
 
 
 app = build_app()
 
 
-# [통합] Composition root only. Preserve build_app/search_from_env and the
-# existing main.py lifespan contract; the operational SearchPort is async.
+# [통합] Composition root only. Production SearchPort creation is async and
+# owned by this lifespan, which preserves the existing main.py lifespan contract.
 _original_lifespan_context = app.router.lifespan_context
 
 
