@@ -48,7 +48,9 @@ class PgVectorIntegrationTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         raw_url = os.environ.get("RAG_DATABASE_URL", "").strip()
         if not raw_url:
-            raise unittest.SkipTest("RAG_DATABASE_URL is not set; real pgvector checks were not run")
+            raise unittest.SkipTest(
+                "RAG_DATABASE_URL is not set; real pgvector checks were not run"
+            )
         try:
             cls.database_url = database_url_from_environment()
         except DatabaseConfigurationError as exc:
@@ -114,17 +116,16 @@ class PgVectorIntegrationTests(unittest.TestCase):
         return self._run(operation)
 
     def test_t01_real_embedding_is_768_dimensions(self) -> None:
-        query_vector = asyncio.run(self.embedding.embed_query("How can heirs find financial accounts?"))
+        query_vector = asyncio.run(
+            self.embedding.embed_query("How can heirs find financial accounts?")
+        )
         document_vectors = asyncio.run(
             self.embedding.embed_documents(("Heirs can search for financial accounts.",))
         )
         self.assertEqual(len(query_vector), 768)
         self.assertEqual(len(document_vectors[0]), 768)
         self.assertTrue(
-            all(
-                math.isfinite(value)
-                for value in (*query_vector, *document_vectors[0])
-            )
+            all(math.isfinite(value) for value in (*query_vector, *document_vectors[0]))
         )
         print(f"T01 model={EMBEDDING_MODEL_ID}@{EMBEDDING_MODEL_REVISION} dimensions=768")
 
@@ -133,9 +134,13 @@ class PgVectorIntegrationTests(unittest.TestCase):
         chunk = self._chunk(source, "dimension rejection fixture")
 
         async def operation(database):
-            store = PGVectorStore(database, _WrongDimensionEmbedding(), collection_id=self.collection_id)
+            store = PGVectorStore(
+                database, _WrongDimensionEmbedding(), collection_id=self.collection_id
+            )
             with self.assertRaises(VectorIntegrityError):
-                await store.index_document(self._document(source, chunk), (chunk,), is_synthetic=True)
+                await store.index_document(
+                    self._document(source, chunk), (chunk,), is_synthetic=True
+                )
             async with database.sql_engine.connect() as connection:
                 query = await connection.execute(
                     text("SELECT count(*) FROM rag_test.chunks WHERE chunk_id=:chunk_id"),
@@ -223,14 +228,16 @@ class PgVectorIntegrationTests(unittest.TestCase):
         async def operation(database):
             store = PGVectorStore(database, self.embedding, collection_id=self.collection_id)
             publication = PostgresPublicationStore(database, collection_id=self.collection_id)
-            await store.index_document(self._document(old, old_chunk), (old_chunk,), is_synthetic=True)
+            await store.index_document(
+                self._document(old, old_chunk), (old_chunk,), is_synthetic=True
+            )
             await publication.publish(old.source_id, "v1")
-            await store.index_document(self._document(new, new_chunk), (new_chunk,), is_synthetic=True)
+            await store.index_document(
+                self._document(new, new_chunk), (new_chunk,), is_synthetic=True
+            )
             async with database.sql_engine.connect() as connection:
                 before = await connection.execute(
-                    text(
-                        "SELECT publication_state FROM rag_test.chunks WHERE chunk_id=:chunk_id"
-                    ),
+                    text("SELECT publication_state FROM rag_test.chunks WHERE chunk_id=:chunk_id"),
                     {"chunk_id": old_chunk.chunk_id},
                 )
                 self.assertEqual(before.scalar_one(), "published")
@@ -268,7 +275,9 @@ class PgVectorIntegrationTests(unittest.TestCase):
             store = PGVectorStore(database, self.embedding, collection_id=collection)
             publication = PostgresPublicationStore(database, collection_id=collection)
             for source, chunk in ((relevant, relevant_chunk), (unrelated, unrelated_chunk)):
-                await store.index_document(self._document(source, chunk), (chunk,), is_synthetic=True)
+                await store.index_document(
+                    self._document(source, chunk), (chunk,), is_synthetic=True
+                )
                 await publication.publish(source.source_id, source.version)
             search = PGVectorSearch(store, self.embedding, allow_synthetic=True)
             result = await search.search(SearchRequest(query))
@@ -333,17 +342,23 @@ class PgVectorIntegrationTests(unittest.TestCase):
             )
             async with database.sql_engine.begin() as connection:
                 await connection.execute(
-                    text("UPDATE rag_test.chunks SET publication_state='failed' WHERE chunk_id=:id"),
+                    text(
+                        "UPDATE rag_test.chunks SET publication_state='failed' WHERE chunk_id=:id"
+                    ),
                     {"id": failed_chunk.chunk_id},
                 )
 
             old = self._source(f"{source_key}-published", "v1")
             old_chunk = self._chunk(old, "state gate retired sentinel version one")
-            await store.index_document(self._document(old, old_chunk), (old_chunk,), is_synthetic=True)
+            await store.index_document(
+                self._document(old, old_chunk), (old_chunk,), is_synthetic=True
+            )
             await publication.publish(old.source_id, old.version)
             new = self._source(f"{source_key}-published", "v2")
             new_chunk = self._chunk(new, "state gate published sentinel version two")
-            await store.index_document(self._document(new, new_chunk), (new_chunk,), is_synthetic=True)
+            await store.index_document(
+                self._document(new, new_chunk), (new_chunk,), is_synthetic=True
+            )
             await publication.publish(new.source_id, new.version)
 
             result = await PGVectorSearch(store, self.embedding, allow_synthetic=True).search(

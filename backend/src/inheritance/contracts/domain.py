@@ -83,18 +83,12 @@ class GuidanceResult:
     content_version: str
 
     def __post_init__(self):
-        if (
-            not isinstance(self.content_version, str)
-            or not self.content_version.strip()
-        ):
+        if not isinstance(self.content_version, str) or not self.content_version.strip():
             raise ValueError("content version must be a nonempty string")
         if not isinstance(self.procedures, tuple) or any(
             not isinstance(item, ProcedureGuidance) for item in self.procedures
         ):
             raise ValueError("procedures must contain procedure guidance")
         procedure_ids = tuple(procedure.procedure_id for procedure in self.procedures)
-        if (
-            len(procedure_ids) != len(PROCEDURE_IDS)
-            or set(procedure_ids) != PROCEDURE_IDS
-        ):
+        if len(procedure_ids) != len(PROCEDURE_IDS) or set(procedure_ids) != PROCEDURE_IDS:
             raise ValueError("guidance result must contain each procedure exactly once")

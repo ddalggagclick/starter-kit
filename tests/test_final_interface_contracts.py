@@ -72,9 +72,7 @@ class FinalInterfaceTests(unittest.TestCase):
             GuidanceInput(i, (a, a))
 
     def test_checklist_and_kakao_share_guidance_input(self):
-        self.assertEqual(
-            get_type_hints(ChecklistService.build_guidance)["request"], GuidanceInput
-        )
+        self.assertEqual(get_type_hints(ChecklistService.build_guidance)["request"], GuidanceInput)
         self.assertEqual(get_type_hints(KakaoInputAdapter.parse)["return"], GuidanceInput)
 
     def test_app_ports_keep_checklist_service(self):

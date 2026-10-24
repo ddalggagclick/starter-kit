@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from urllib.parse import urlsplit
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -21,13 +22,16 @@ from .config import Settings
 
 def create_db_engine(settings: Settings) -> AsyncEngine:
     """Server-side Supavisor Session Pooler + conservative app connection pool."""
+    # Supabase 연결은 로컬 APP_ENV에서도 TLS를 강제한다.
+    hostname = urlsplit(settings.database_url).hostname or ""
+    require_tls = settings.production or hostname.endswith(".pooler.supabase.com")
     return create_async_engine(
         settings.database_url,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout_seconds,
         pool_pre_ping=True,
-        connect_args={"ssl": "require"} if settings.production else {},
+        connect_args={"ssl": "require"} if require_tls else {},
     )
 
 

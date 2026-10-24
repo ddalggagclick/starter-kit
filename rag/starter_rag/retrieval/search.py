@@ -42,9 +42,10 @@ class PGVectorSearch(SearchPort):
             publisher = metadata.get("publisher")
             version = metadata.get("version")
             location = metadata.get("location")
-            if not all(isinstance(value, str) and value.strip() for value in (
-                source_id, title, publisher, version, location, hit.text
-            )):
+            if not all(
+                isinstance(value, str) and value.strip()
+                for value in (source_id, title, publisher, version, location, hit.text)
+            ):
                 continue
             score = 1.0 - hit.cosine_distance
             if not math.isfinite(score):
@@ -68,5 +69,7 @@ class PGVectorSearch(SearchPort):
                 # 누락되거나 유효하지 않은 출처 정보는 만들어내지 않는다.
                 continue
             evidence.append(item)
-        evidence.sort(key=lambda item: item.score if item.score is not None else -math.inf, reverse=True)
+        evidence.sort(
+            key=lambda item: item.score if item.score is not None else -math.inf, reverse=True
+        )
         return SearchResult(evidence=tuple(evidence[: request.top_k]))

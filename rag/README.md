@@ -226,3 +226,47 @@ uv run --locked starter-rag chunk \
 | EBCDIC | 입력 파일에 맞는 record layout |
 
 잘못되었거나 잘린 HTML은 Docling이 복구해 성공 상태로 반환할 수 있습니다. XLSX/PDF처럼 모든 불완전 입력이 변환 오류로 분류되는 것은 아닙니다.
+
+## 범용 XLSX 행 매핑 / Supabase 운영 경로
+
+XLSX 검수·색인은 기존 RAG CLI에서 실행한다. `mapped-xlsx`는 헤더 이름과
+식별자 직렬화 규칙을 JSON 구성으로 받으며, 상속 관련 상수는 범용 로직에 없다.
+기존 `source-v2` 모드는 기존 호출자·평가 테스트의 호환성을 위해 유지한다.
+
+- 범용 예제: `rag/examples/source_v2_mapping.json` (특정 데이터셋 규칙은 코드가 아닌 구성 파일)
+- 새로운 도메인은 이 파일을 복사하고 `sheet`, `fields`, `projection`,
+  `boolean_fields`, `split_fields`, `approval`, `docling`을 해당 데이터에 맞게 작성한다.
+- `--db-profile local` (기본): `RAG_DATABASE_URL`을 통한 기존 로컬 연결만 허용한다.
+- `--db-profile supabase`: 명시적 `DATABASE_URL` (Supabase Session Pooler:5432),
+  `RAG_DB_SCHEMA=rag`, `RAG_VECTOR_TABLE=chunks`, `RAG_COLLECTION_ID`를 요구한다.
+  `.env`는 자동 로드하지 않으며 실행 셸이 공급한다. `db-init`은 로컬 전용이다.
+- pgvector가 이미 `extensions` 스키마에 설치된 이후에만 Alembic을 명시적으로 실행한다.
+  서버 시작 시 DDL/색인/게시를 실행하지 않는다.
+
+```bash
+# 1. 명시적 Alembic 준비 (DB 작업 승인 후에만; 예시)
+uv run alembic -c backend/alembic.ini upgrade head --sql   # 먼저 SQL 검토
+# uv run alembic -c backend/alembic.ini upgrade head        # 별도 운영 DB 승인 후
+
+# 2. 운영 색인. RAG_TOKENIZER_PATH 또는 --tokenizer-path를 지정한다.
+uv run --project rag --locked starter-rag index Source_v2.xlsx \
+  --type mapped-xlsx --mapping rag/examples/source_v2_mapping.json \
+  --db-profile supabase --collection-id "$RAG_COLLECTION_ID" \
+  --tokenizer-path "$RAG_TOKENIZER_PATH" > source_v2_index_result.json
+
+# 3. 검수 후 개별 버전만 명시적으로 게시한다.
+#    예: 아래 ID/버전은 2번의 outcomes에서 확인하고 실행한다.
+uv run --project rag --locked starter-rag publish \
+  --db-profile supabase --collection-id "$RAG_COLLECTION_ID" \
+  --source-id '<approved source ID>' --version '<index result version>'
+
+# 4. 게시된 근거만 검색 (Backend 역시 SearchPort만 사용)
+uv run --project rag --locked starter-rag search '절차 안내' \
+  --db-profile supabase --collection-id "$RAG_COLLECTION_ID" --top-k 3
+```
+
+Source_v2는 31개 Unit을 별도 문서 버전으로 색인한다. 색인은 게시가 아니므로
+게시되지 않은 자료는 검색에 노출되지 않는다. 출처 URL이 없을 때는 `None`을
+유지하고, 화면 URL 비표시 자료의 내부 URL을 Evidence에 노출하지 않는다.
+`RAG_COLLECTION_ID`는 로컬 실험값을 운영 기본값으로 사용하지 말고 승인된 값을
+명시해야 한다. 운영 접속 결과·적재 행 수·Golden Truth 재평가는 별도 기록한다.

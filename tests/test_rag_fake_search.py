@@ -62,18 +62,10 @@ class FakeSearchEvidenceTests(unittest.TestCase):
         fake_signature = inspect.signature(FakeSearchPort.search)
         port_signature = inspect.signature(SearchPort.search)
         self.assertEqual(
-            tuple(
-                (name, parameter.kind)
-                for name, parameter in fake_signature.parameters.items()
-            ),
-            tuple(
-                (name, parameter.kind)
-                for name, parameter in port_signature.parameters.items()
-            ),
+            tuple((name, parameter.kind) for name, parameter in fake_signature.parameters.items()),
+            tuple((name, parameter.kind) for name, parameter in port_signature.parameters.items()),
         )
-        self.assertEqual(
-            get_type_hints(FakeSearchPort.search), get_type_hints(SearchPort.search)
-        )
+        self.assertEqual(get_type_hints(FakeSearchPort.search), get_type_hints(SearchPort.search))
 
     def test_검색_결과는_요청한_top_k를_초과하지_않는다(self) -> None:
         # 계약 허용값인 top_k 1, 3, 10에서 검색 결과 수 상한을 확인한다.
