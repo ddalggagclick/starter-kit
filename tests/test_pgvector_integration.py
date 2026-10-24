@@ -384,6 +384,50 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
+    def test_t09_search_is_isolated_to_the_configured_collection(self) -> None:
+        collection = f"{self.collection_id}-isolation"
+        foreign_collection = f"{collection}-foreign"
+        source = self._source("collection-isolation-local")
+        foreign_source = self._source("collection-isolation-foreign")
+        text_value = "A published guide with the collection isolation marker."
+        chunk = self._chunk(source, text_value)
+        foreign_chunk = self._chunk(foreign_source, text_value)
+
+        async def operation(database):
+            publication = PostgresPublicationStore(database, collection_id=collection)
+            foreign_publication = PostgresPublicationStore(
+                database, collection_id=foreign_collection
+            )
+            store = PGVectorStore(database, self.embedding, collection_id=collection)
+            foreign_store = PGVectorStore(
+                database, self.embedding, collection_id=foreign_collection
+            )
+            await store.index_document(self._document(source, chunk), (chunk,), is_synthetic=True)
+            await publication.publish(source.source_id, source.version)
+            await foreign_store.index_document(
+                self._document(foreign_source, foreign_chunk),
+                (foreign_chunk,),
+                is_synthetic=True,
+            )
+            await foreign_publication.publish(foreign_source.source_id, foreign_source.version)
+
+            search = PGVectorSearch(store, self.embedding, allow_synthetic=True)
+            result = await search.search(SearchRequest("collection isolation marker"))
+            self.assertEqual(
+                {item.evidence_id for item in result.evidence},
+                {chunk.chunk_id},
+            )
+
+            mismatched = PGVectorStore(
+                database, self.embedding, collection_id=f"{collection}-misspelled"
+            )
+            mismatch_result = await PGVectorSearch(
+                mismatched, self.embedding, allow_synthetic=True
+            ).search(SearchRequest("collection isolation marker"))
+            self.assertEqual(mismatch_result.evidence, ())
+
+        self._run(operation)
+
     def test_실제_모델과_DB로_CLI_재색인_게시_검색을_검증한다(self) -> None:
         try:
             import openpyxl

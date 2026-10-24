@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
 from sqlalchemy import text
 
 from starter_rag.contracts.models import DocumentVersion, SourceRef
@@ -17,6 +20,25 @@ from starter_rag.storage.models import DEFAULT_COLLECTION_ID
 
 class PublicationError(RuntimeError):
     """문서 버전이 원자적 게시 조건을 만족하지 않는다."""
+
+
+class ReplacementApprovalRequired(PublicationError):
+    pass
+
+
+@dataclass(frozen=True)
+class PublicationInspection:
+    document: DocumentVersion
+    published_versions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PublicationOutcome:
+    document: DocumentVersion
+    disposition: Literal["published", "already_published", "confirmed_after_error"]
+    retired_versions: tuple[str, ...] = ()
+    error_type: str | None = None
+    sqlstate: str | None = None
 
 
 class PostgresPublicationStore(PublicationPort):
@@ -33,6 +55,61 @@ class PostgresPublicationStore(PublicationPort):
         self.table_name = database.target.qualified_name
 
     async def publish(self, source_id: str, version: str) -> DocumentVersion:
+        outcome = await self.publish_with_outcome(
+            source_id,
+            version,
+            allow_version_replacement=True,
+        )
+        return outcome.document
+
+    async def inspect_version(self, source_id: str, version: str) -> PublicationInspection:
+        async with self.database.sql_engine.connect() as connection:
+            result = await connection.execute(
+                text(
+                    f"""SELECT source_id, version, content_sha256, publication_state,
+                    source_title, source_url, publisher, is_synthetic, location
+                    FROM {self.table_name}
+                    WHERE collection_id = :collection_id AND source_id = :source_id
+                      AND (version = :version OR publication_state = 'published')"""
+                ),
+                {
+                    "collection_id": self.collection_id,
+                    "source_id": source_id,
+                    "version": version,
+                },
+            )
+            rows = list(result.mappings().all())
+
+        target_rows = [row for row in rows if row["version"] == version]
+        if not target_rows:
+            raise PublicationError("document version has no indexed chunks")
+        states = {row["publication_state"] for row in target_rows}
+        if states == {"published"}:
+            document = _document_version(target_rows[0], "published", len(target_rows))
+        elif states == {"indexed"}:
+            _validate_indexed_rows(target_rows, self.collection_id)
+            document = _document_version(target_rows[0], "indexed", len(target_rows))
+        else:
+            raise PublicationError("only a complete indexed version can be published")
+
+        published_versions = tuple(
+            sorted(
+                {
+                    row["version"]
+                    for row in rows
+                    if row["publication_state"] == "published" and row["version"] != version
+                }
+            )
+        )
+        return PublicationInspection(document, published_versions)
+
+    async def publish_with_outcome(
+        self,
+        source_id: str,
+        version: str,
+        *,
+        allow_version_replacement: bool,
+    ) -> PublicationOutcome:
         async with self.database.sql_engine.begin() as connection:
             # 같은 출처·collection의 동시 게시 전환을 직렬화한다.
             await connection.execute(
@@ -59,31 +136,33 @@ class PostgresPublicationStore(PublicationPort):
                 raise PublicationError("document version has no indexed chunks")
             states = {row["publication_state"] for row in rows}
             if states == {"published"}:
-                return _document_version(rows[0], "published", len(rows))
+                return PublicationOutcome(
+                    _document_version(rows[0], "published", len(rows)),
+                    "already_published",
+                )
             if states != {"indexed"}:
                 raise PublicationError("only a complete indexed version can be published")
-            if not _has_publishable_provenance(rows):
-                raise PublicationError(
-                    "publication requires valid source metadata and an optional HTTPS source URL"
-                )
-            if self.collection_id == DEFAULT_COLLECTION_ID and any(
-                row["is_synthetic"] for row in rows
-            ):
-                raise PublicationError(
-                    "synthetic test material cannot enter the published-guides collection"
-                )
+            _validate_indexed_rows(rows, self.collection_id)
 
-            reference = rows[0]
-            inconsistent = any(
-                row["content_sha256"] != reference["content_sha256"]
-                or row["source_title"] != reference["source_title"]
-                or row["source_url"] != reference["source_url"]
-                or row["publisher"] != reference["publisher"]
-                or row["is_synthetic"] != reference["is_synthetic"]
-                for row in rows
+            published_result = await connection.execute(
+                text(
+                    f"""SELECT DISTINCT version FROM {self.table_name}
+                    WHERE collection_id = :collection_id AND source_id = :source_id
+                      AND publication_state = 'published' AND version <> :version
+                    ORDER BY version"""
+                ),
+                {
+                    "collection_id": self.collection_id,
+                    "source_id": source_id,
+                    "version": version,
+                },
             )
-            if inconsistent:
-                raise PublicationError("document version metadata is inconsistent across chunks")
+            retired_versions = tuple(row[0] for row in published_result.all())
+            if retired_versions and not allow_version_replacement:
+                raise ReplacementApprovalRequired(
+                    "a different version is currently published; rerun with "
+                    "--allow-version-replacement after reviewing the indexed version"
+                )
 
             await connection.execute(
                 text(
@@ -111,7 +190,34 @@ class PostgresPublicationStore(PublicationPort):
             )
             if updated.rowcount != len(rows):
                 raise PublicationError("publication state changed during transition")
-            return _document_version(reference, "published", len(rows))
+            return PublicationOutcome(
+                _document_version(rows[0], "published", len(rows)),
+                "published",
+                retired_versions,
+            )
+
+
+def _validate_indexed_rows(rows, collection_id: str) -> None:
+    if not _has_publishable_provenance(rows):
+        raise PublicationError(
+            "publication requires valid source metadata and an optional HTTPS source URL"
+        )
+    if collection_id == DEFAULT_COLLECTION_ID and any(row["is_synthetic"] for row in rows):
+        raise PublicationError(
+            "synthetic test material cannot enter the published-guides collection"
+        )
+
+    reference = rows[0]
+    inconsistent = any(
+        row["content_sha256"] != reference["content_sha256"]
+        or row["source_title"] != reference["source_title"]
+        or row["source_url"] != reference["source_url"]
+        or row["publisher"] != reference["publisher"]
+        or row["is_synthetic"] != reference["is_synthetic"]
+        for row in rows
+    )
+    if inconsistent:
+        raise PublicationError("document version metadata is inconsistent across chunks")
 
 
 def _has_publishable_provenance(rows) -> bool:

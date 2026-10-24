@@ -21,8 +21,8 @@ uv pip install --python .venv/bin/python .
 `uv run --project rag --locked starter-rag ...`를 사용합니다.
 
 이 설치는 PostgreSQL 서버, pgvector 확장, 임베딩 모델 가중치를 설치하지 않습니다. DB와 모델은
-각각 별도로 준비해야 합니다. 현재 이슈 #62의 RAG DB 어댑터는 로컬 `starter_rag_integration`만
-허용하며, Supabase 운영 연결은 Backend의 SearchPort 통합 작업 범위입니다.
+각각 별도로 준비해야 합니다. 기본 DB 프로필은 로컬 `starter_rag_integration`이며, Supabase는
+`--db-profile supabase`와 승인된 Session Pooler URL·collection ID를 명시할 때만 사용합니다.
 
 ## CLI 명령 목록
 
@@ -36,7 +36,7 @@ CLI는 사용자가 명시적으로 호출한 작업만 실행하며, 앱 시작
 | `starter-rag chunk PATH` | 파싱·청킹 결과와 처리 상태를 JSON으로 출력합니다. `--source-id`, `--version`(기본 `cli-test`), `--target-tokens`(기본 512)을 선택할 수 있습니다. | DB에 쓰지 않습니다. 일반 문서는 청킹 모델을 사용할 수 있고 XLSX 표 행은 결정적으로 처리합니다. |
 | `starter-rag db-init` | 승인된 로컬 DB에 `vector` 확장과 `rag_test.chunks` 테이블을 준비합니다. | 스키마를 변경합니다. |
 | `starter-rag index PATH` | 일반 자료는 `--source-id`, `--version`, `--source-title`, `--publisher`가 필요합니다. `--source-url`은 선택이며 HTTPS만 허용합니다. `--type source-v2`는 Source_v2 전용 색인을 실행합니다. `--target-tokens` 기본값은 512입니다. | DB에 색인하지만 게시하지 않습니다. 일반 기본 collection은 `published-guides`, Source_v2는 `rag-test-source-v2-e2e`입니다. |
-| `starter-rag publish --source-id ID --version VERSION` | 완전히 색인된 버전을 게시합니다. 새 버전 게시 시 이전 게시 버전을 원자적으로 `retired` 처리합니다. | 게시 상태를 변경합니다. 기본 collection은 `published-guides`입니다. |
+| `starter-rag publish --source-id ID --version VERSION` | 기존 단건 게시 계약입니다. `--from-index-result PATH`는 index JSON의 모든 Source Unit을 검증한 뒤 배치 게시합니다. | 게시 상태를 변경합니다. Source Unit마다 원자 전환하며 배치 전체는 원자적이지 않습니다. 기본 collection은 `published-guides`입니다. |
 | `starter-rag search "QUERY"` | 게시된 자료를 검색하고 기존 Evidence JSON을 반환합니다. `--top-k` 허용 범위는 1–10, 기본값은 3입니다. `--collection-id`, `--allow-synthetic`을 선택할 수 있습니다. | 게시 자료를 읽고 질의 임베딩을 만듭니다. 기본 collection은 `published-guides`, 합성 자료는 기본 검색에서 제외됩니다. |
 | `starter-rag check PATH` | Source_v2 승인 상태, 필수값, URL 정책, 원본 행 참조와 31개 Unit 기준을 확인합니다. `--rows`를 추가하면 Docling 결과와 원본 XLSX 행의 일대일 대응도 확인합니다. | DB에 쓰지 않습니다. 비표시 내부 URL은 출력하지 않으며 결정적 `table_row` 청킹에서 모델 호출은 0회입니다. |
 | `starter-rag test` | Golden Truth v1.2 기반 26문항 검색 품질 평가를 실행합니다. `--dataset`, `--out`, `--mode`(`clarified`/`title`, 기본 `clarified`), `--group`(`all`/`direct`/`partial`/`safety_context`, 기본 `all`)을 지원합니다. | `--validate-only`는 DB를 사용하지 않습니다. 실제 평가는 검색만 하며 DB를 수정하지 않습니다. |
@@ -50,6 +50,163 @@ CLI는 사용자가 명시적으로 호출한 작업만 실행하며, 앱 시작
 별도 collection에 `--synthetic`으로 색인하고, 검색할 때 `--allow-synthetic`을 지정해야 합니다.
 Source_v2의 URL 없는 Unit도 게시·검색할 수 있으며 Evidence에는 URL 외의 출처·버전·본문·위치·점수가
 반환됩니다.
+
+## Fork 개발자 재현 절차
+
+### 1. 환경 준비
+
+Python 3.13과 `uv`를 준비합니다.
+
+### 2. RAG 설치
+
+아래 workspace 명령은 저장소 루트에서 실행합니다. 독립 설치를 선택했다면 이후 `uv run` 명령 대신
+`rag/.venv/bin/starter-rag` 실행 파일을 사용합니다.
+
+```bash
+uv sync
+uv run --project rag --locked starter-rag status
+```
+
+독립 설치를 선택하면 `rag/`에서 별도 가상환경에 설치합니다.
+
+```bash
+cd /path/to/starter-kit/rag
+uv venv .venv
+uv pip install --python .venv/bin/python .
+.venv/bin/starter-rag status
+```
+
+### 3. 로컬 테스트 환경변수 설정
+
+아래 예시는 로컬 DB와 로컬 토크나이저를 사용합니다. `.env`는 자동으로 읽히지 않으므로 셸에서
+환경변수를 설정합니다.
+
+```bash
+export RAG_DATABASE_URL='postgresql+asyncpg://<local-user>@/starter_rag_integration?host=%2Ftmp'
+export RAG_TOKENIZER_PATH=/path/to/local/tokenizer
+export RAG_CHUNKING_PROVIDER=ollama
+export RAG_CHUNKING_MODEL=qwen3:4b-instruct
+export RAG_CHUNKING_OLLAMA_BASE_URL=http://127.0.0.1:11434
+```
+
+로컬 DB가 준비되지 않은 경우에만 `starter-rag db-init`으로 로컬 테스트 스키마를 준비합니다.
+이 명령은 운영 프로필에서 지원되지 않으며 운영 DB 준비 절차로 사용하지 않습니다.
+
+### 4. Source Unit 검증
+
+검수한 Source_v2 파일의 승인 상태와 행 대응을 확인합니다. `--rows`는 로컬 토크나이저가 필요하며
+DB에 쓰지 않습니다.
+
+```bash
+SOURCE_XLSX=/path/to/reviewed/Source_v2.xlsx
+uv run --project rag --locked starter-rag check "$SOURCE_XLSX"
+uv run --project rag --locked starter-rag check "$SOURCE_XLSX" --rows
+```
+
+### 5. 색인
+
+검증 후 색인 결과를 표준 출력에서 JSON 파일로 저장합니다. 색인은 DB에 색인 상태를 저장하지만
+게시하지 않습니다.
+
+```bash
+uv run --project rag --locked starter-rag index "$SOURCE_XLSX" \
+  --type source-v2 --db-profile local \
+  --collection-id rag-test-source-v2-e2e \
+  > source-v2-index-result.json
+uv run --project rag --locked python -m json.tool source-v2-index-result.json
+```
+
+### 6. 검토 후 배치 게시
+
+JSON을 검토한 관리자가 명시적으로 게시 명령을 실행합니다. JSON의 Source ID·버전·색인 상태만
+믿지 않고, CLI는 게시 전에 DB collection과 실제 버전 상태도 확인합니다.
+
+```bash
+uv run --project rag --locked starter-rag publish \
+  --from-index-result source-v2-index-result.json \
+  --db-profile local \
+  --collection-id rag-test-source-v2-e2e \
+  > source-v2-publication-result.json
+```
+
+성공한 항목은 `published`, 이미 게시된 동일 버전은 `already_published`로 출력됩니다. 다른 버전이
+현재 게시 중이면 SHA-256 버전만으로 최신성을 판정할 수 없어 기본적으로 해당 항목을 거부합니다.
+검수자가 새 버전을 대체 대상으로 승인한 경우에만 `--allow-version-replacement`를 추가하세요.
+이 옵션은 기존 게시 버전을 `retired`로 전환합니다.
+
+Source_v2 외 `standard`와 `mapped-xlsx`의 기존 index 결과도 지원합니다. Standard는 단일 결과 객체,
+Source_v2와 mapped-xlsx는 `outcomes` 배열을 입력으로 사용합니다. mapped-xlsx는 예시 매핑 파일을
+Fork의 데이터 구조에 맞게 검토한 뒤 색인합니다.
+
+```bash
+uv run --project rag --locked starter-rag index ./path/to/guide.pdf \
+  --source-id guide-001 \
+  --version "$(shasum -a 256 ./path/to/guide.pdf | awk '{print $1}')" \
+  --source-title '공식 안내자료' --publisher '발행기관' \
+  --collection-id published-guides > guide-index-result.json
+uv run --project rag --locked starter-rag publish \
+  --from-index-result guide-index-result.json --collection-id published-guides \
+  > guide-publication-result.json
+
+uv run --project rag --locked starter-rag index ./path/to/guides.xlsx \
+  --type mapped-xlsx --mapping rag/examples/source_v2_mapping.json \
+  --collection-id local-guides --tokenizer-path "$RAG_TOKENIZER_PATH" \
+  > mapped-index-result.json
+uv run --project rag --locked starter-rag publish \
+  --from-index-result mapped-index-result.json --collection-id local-guides \
+  > mapped-publication-result.json
+```
+
+각 Source Unit은 별도 트랜잭션으로 처리되므로 배치 중 일부가 실패할 수 있습니다. 실패가 있으면
+종료 코드는 1이고 JSON 결과의 `items`에 Source ID·버전·실패 항목이 표시됩니다. 수정 후 같은
+index 결과로 재실행하면 이미 게시된 동일 버전은 건너뛰고 나머지를 재검증합니다. 입력·collection
+불일치는 DB 쓰기 전에 종료 코드 2로 거부됩니다. 연결 장애가 게시 중 확인되면 남은 항목은
+`not_attempted`로 남습니다. 결과 JSON에는 처리 총건수, 게시, 건너뜀, 실패, 미시도 건수가 있습니다.
+
+### 7. 게시 결과 검색
+
+```bash
+uv run --project rag --locked starter-rag search '사망신고 절차' \
+  --collection-id rag-test-source-v2-e2e --top-k 3
+```
+
+검색은 `published` 상태만 반환합니다. 색인 성공만으로 검색에 노출되지 않습니다.
+
+### 8. 오류 확인 및 복구
+
+종료 코드 2는 입력 JSON·옵션·collection 불일치 또는 DB 프로필 설정 오류입니다. 입력과 환경변수를
+고친 뒤 다시 실행합니다. 종료 코드 1은 DB 오류나 항목별 게시 실패입니다. 저장한 publication
+결과의 `items`에서 실패 Source ID·버전을 확인하고, `not_attempted` 항목은 DB 복구 후 같은 index
+결과 파일로 다시 실행합니다. 게시 여부를 확인할 수 없는 연결 장애 메시지가 있으면 재실행 전에
+해당 Source ID·버전의 DB 상태를 확인합니다.
+
+### 운영 Supabase 게시
+
+운영 경로는 로컬 테스트와 별개입니다. 운영 담당자가 승인한 Session Pooler 연결정보와 collection
+ID를 비밀 환경변수로 설정하고, 해당 collection을 명시합니다. Supabase 대상에는 `db-init`이나
+자동 마이그레이션을 실행하지 않습니다.
+
+```bash
+export DATABASE_URL='<approved Supabase Session Pooler URL on port 5432>'
+export RAG_DB_SCHEMA=rag
+export RAG_VECTOR_TABLE=chunks
+export RAG_COLLECTION_ID='<approved collection ID>'
+export RAG_TOKENIZER_PATH=/path/to/local/tokenizer
+
+uv run --project rag --locked starter-rag index ./path/to/reviewed.xlsx \
+  --type mapped-xlsx --mapping rag/examples/source_v2_mapping.json \
+  --db-profile supabase --collection-id "$RAG_COLLECTION_ID" \
+  --tokenizer-path "$RAG_TOKENIZER_PATH" > reviewed-index-result.json
+# JSON을 검토하고 별도로 승인한 뒤에만 다음 명령을 실행합니다.
+uv run --project rag --locked starter-rag publish \
+  --from-index-result reviewed-index-result.json \
+  --db-profile supabase --collection-id "$RAG_COLLECTION_ID" \
+  > reviewed-publication-result.json
+```
+
+Supabase 색인·게시 명령은 명시적 DB 프로필, `DATABASE_URL`, `RAG_DB_SCHEMA=rag`,
+`RAG_VECTOR_TABLE=chunks`, `RAG_COLLECTION_ID` 일치를 요구합니다. 이 설명은 실제 운영 게시를
+승인하지 않으며, 운영 실행은 별도 승인을 받아야 합니다.
 
 성공 종료 코드는 `0`, 잘못된 옵션·입력 또는 허용되지 않은 DB 설정은 `2`, DB·모델·임베딩·저장 중
 실패는 `1`입니다. 오류 출력은 DB URL·비밀번호·토큰을 표시하지 않습니다.
@@ -115,7 +272,7 @@ uv run --project rag --locked starter-rag search \
 ## Source_v2 관리자 CLI
 
 Source_v2 원본 검증과 Docling 행 검증은 DB를 변경하지 않습니다. 색인과 게시는 별도 명령으로
-실행하며, `index` 결과에 포함된 Source ID와 버전을 기존 `publish` 명령에 전달합니다.
+실행합니다. 31개 Unit의 게시에는 `index` JSON을 검토한 뒤 `--from-index-result`를 사용합니다.
 
 ```bash
 export RAG_TOKENIZER_PATH=/path/to/local/tokenizer
@@ -124,11 +281,12 @@ uv run --project rag --locked starter-rag check ./rag/data/Source_v2.xlsx
 uv run --project rag --locked starter-rag check ./rag/data/Source_v2.xlsx --rows
 
 uv run --project rag --locked starter-rag index \
-  ./rag/data/Source_v2.xlsx --type source-v2
+  ./rag/data/Source_v2.xlsx --type source-v2 \
+  --collection-id rag-test-source-v2-e2e \
+  > source-v2-index-result.json
 
 uv run --project rag --locked starter-rag publish \
-  --source-id U-01-DEATH-REPORT \
-  --version <index-결과의-version> \
+  --from-index-result source-v2-index-result.json \
   --collection-id rag-test-source-v2-e2e
 
 uv run --project rag --locked starter-rag search \
@@ -254,11 +412,10 @@ uv run --project rag --locked starter-rag index Source_v2.xlsx \
   --db-profile supabase --collection-id "$RAG_COLLECTION_ID" \
   --tokenizer-path "$RAG_TOKENIZER_PATH" > source_v2_index_result.json
 
-# 3. 검수 후 개별 버전만 명시적으로 게시한다.
-#    예: 아래 ID/버전은 2번의 outcomes에서 확인하고 실행한다.
+# 3. 결과 JSON을 검토한 뒤 모든 Source Unit을 명시적으로 게시한다.
 uv run --project rag --locked starter-rag publish \
-  --db-profile supabase --collection-id "$RAG_COLLECTION_ID" \
-  --source-id '<approved source ID>' --version '<index result version>'
+  --from-index-result source_v2_index_result.json \
+  --db-profile supabase --collection-id "$RAG_COLLECTION_ID"
 
 # 4. 게시된 근거만 검색 (Backend 역시 SearchPort만 사용)
 uv run --project rag --locked starter-rag search '절차 안내' \
