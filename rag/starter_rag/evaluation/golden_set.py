@@ -621,23 +621,27 @@ def _matches_label(evidence: Evidence, label: RelevantEvidence, label_level: Lab
     )
 
 
-def _matched_label_indexes(
-    evidence: Sequence[Evidence], labels: tuple[RelevantEvidence, ...], label_level: LabelLevel
-) -> set[int]:
-    return {
-        label_index
-        for label_index, label in enumerate(labels)
-        if any(_matches_label(item, label, label_level) for item in evidence)
-    }
-
-
-def _reciprocal_rank(
-    evidence: Sequence[Evidence], labels: tuple[RelevantEvidence, ...], label_level: LabelLevel
-) -> float:
-    for rank, item in enumerate(evidence, start=1):
-        if any(_matches_label(item, label, label_level) for label in labels):
-            return 1 / rank
-    return 0.0
+def _ranked_relevance_metrics(
+    ranked_matches: Sequence[set[int]], label_count: int, cutoffs: Sequence[int]
+) -> dict[int, dict[str, float | bool]]:
+    """Calculate recall, reciprocal rank, and complete coverage from matched labels."""
+    if label_count < 1:
+        raise ValueError("label_count must be positive")
+    metrics: dict[int, dict[str, float | bool]] = {}
+    for cutoff in cutoffs:
+        if cutoff < 1:
+            raise ValueError("cutoffs must be positive")
+        top_matches = ranked_matches[:cutoff]
+        matched = set().union(*top_matches) if top_matches else set()
+        first_match = next(
+            (rank for rank, indexes in enumerate(top_matches, start=1) if indexes), None
+        )
+        metrics[cutoff] = {
+            "recall": len(matched) / label_count,
+            "mrr": 1 / first_match if first_match is not None else 0.0,
+            "complete": len(matched) == label_count,
+        }
+    return metrics
 
 
 def _mean(values: Sequence[float]) -> float | None:
@@ -743,12 +747,19 @@ async def evaluate_golden_set(
     for query in scoreable_queries:
         retrieved = retrieved_by_query[query.query_id]
         labels = mapped_by_query[query.query_id]
+        ranked_matches = [
+            {
+                label_index
+                for label_index, label in enumerate(labels)
+                if _matches_label(item, label, dataset.label_level)
+            }
+            for item in retrieved
+        ]
+        query_metrics_by_cutoff = _ranked_relevance_metrics(ranked_matches, len(labels), (3, 10))
         query_metrics: dict[str, float] = {}
         for k in (3, 10):
-            top_results = retrieved[:k]
-            matched_labels = _matched_label_indexes(top_results, labels, dataset.label_level)
-            recall = len(matched_labels) / len(labels)
-            reciprocal_rank = _reciprocal_rank(top_results, labels, dataset.label_level)
+            recall = float(query_metrics_by_cutoff[k]["recall"])
+            reciprocal_rank = float(query_metrics_by_cutoff[k]["mrr"])
             recalls[k].append(recall)
             reciprocal_ranks[k].append(reciprocal_rank)
             query_metrics[f"recall_at_{k}"] = round(recall, 4)
@@ -1092,11 +1103,7 @@ def evaluate_source_v2_golden(
         if dataset_path is not None
         else Path(__file__).resolve().parents[2] / "evaluation" / "source_v2_golden_v1_2.json"
     )
-    output = (
-        Path(out_path)
-        if out_path is not None
-        else Path("/tmp/source_v2_retrieval_expanded_26_results.json")
-    )
+    output = Path(out_path) if out_path is not None else None
     phase = "validation"
     try:
         data = json.loads(dataset.read_text(encoding="utf-8"))
@@ -1116,7 +1123,8 @@ def evaluate_source_v2_golden(
 
         phase = "evaluation"
         results = []
-        output.parent.mkdir(parents=True, exist_ok=True)
+        if output is not None:
+            output.parent.mkdir(parents=True, exist_ok=True)
         for index, question in enumerate(questions, 1):
             result = _evaluate_source_v2_query(question, mode)
             results.append(result)
@@ -1126,19 +1134,20 @@ def evaluate_source_v2_golden(
                 f"hit@3={result['hit_at_3']} hit@10={result['hit_at_10']}",
                 flush=True,
             )
-            snapshot = {
-                "status": "in_progress",
-                "collection_id": SOURCE_V2_GOLDEN_COLLECTION,
-                "query_mode": mode,
-                "dataset_id": data["metadata"]["dataset_id"],
-                "completed": len(results),
-                "planned": len(questions),
-                "results": results,
-            }
-            output.write_text(
-                json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            if output is not None:
+                snapshot = {
+                    "status": "in_progress",
+                    "collection_id": SOURCE_V2_GOLDEN_COLLECTION,
+                    "query_mode": mode,
+                    "dataset_id": data["metadata"]["dataset_id"],
+                    "completed": len(results),
+                    "planned": len(questions),
+                    "results": results,
+                }
+                output.write_text(
+                    json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
 
         summary = {
             "status": "measured_retrieval_relevance_only",
@@ -1159,13 +1168,15 @@ def evaluate_source_v2_golden(
                 "source freshness, or unanswerable detection. Clarified queries use the GT answer."
             ),
         }
-        output.write_text(
-            json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        if output is not None:
+            output.write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
         print("OVERALL:", json.dumps(summary["overall"], ensure_ascii=False), flush=True)
         print("BY GROUP:", json.dumps(summary["by_group"], ensure_ascii=False), flush=True)
-        print("RESULT:", output, flush=True)
+        if output is not None:
+            print("RESULT:", output, flush=True)
         return 0
     except GoldenSearchCommandError as error:
         print(f"ERROR: {error}", file=sys.stderr)

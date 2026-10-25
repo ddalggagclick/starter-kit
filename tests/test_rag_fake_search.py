@@ -143,7 +143,7 @@ class PublishedEvidenceAdapterTests(unittest.IsolatedAsyncioTestCase):
         store = Store()
         result = await PGVectorSearch(store, Embedding()).search(SearchRequest("절차 안내"))
 
-        self.assertEqual(store.assert_args, (768, 3, False))
+        self.assertEqual(store.assert_args, (768, 10, False))
         self.assertEqual(len(result.evidence), 1)
         evidence = result.evidence[0]
         self.assertEqual(evidence.evidence_id, "guide-chunk-1")

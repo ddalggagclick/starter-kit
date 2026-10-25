@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -15,6 +15,7 @@ from starter_rag.contracts.models import Evidence, SearchRequest, SearchResult, 
 from starter_rag.evaluation.golden_set import (
     GoldenSearchCommandError,
     GoldenSetValidationError,
+    _ranked_relevance_metrics,
     _same_url,
     evaluate_golden_set,
     evaluate_source_v2_golden,
@@ -75,6 +76,62 @@ class SourceV2EvaluationCliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, expected_exit_code)
             self.assertIn("RAG search failed", stderr.getvalue())
+
+    def test_평가_결과는_기본_표준출력으로_출력하고_지정한_경로에만_저장한다(self) -> None:
+        dataset = Path(__file__).resolve().parents[1] / "rag/evaluation/source_v2_golden_v1_2.json"
+
+        def evaluate(question, _mode):
+            return {
+                "query_id": question["query_id"],
+                "group": question["group"],
+                "first_relevant_rank": 1,
+                "hit_at_3": 1,
+                "hit_at_10": 1,
+                "recall_at_3": 1.0,
+                "recall_at_10": 1.0,
+                "mrr_at_3": 1.0,
+                "mrr_at_10": 1.0,
+            }
+
+        stdout = StringIO()
+        with (
+            patch.dict(os.environ, {"RAG_DATABASE_URL": "configured"}, clear=True),
+            patch(
+                "starter_rag.evaluation.golden_set._evaluate_source_v2_query", side_effect=evaluate
+            ),
+            patch.object(
+                Path, "mkdir", side_effect=AssertionError("unexpected directory creation")
+            ) as mkdir,
+            patch.object(
+                Path, "write_text", side_effect=AssertionError("unexpected result file")
+            ) as write_text,
+            redirect_stdout(stdout),
+        ):
+            self.assertEqual(evaluate_source_v2_golden(dataset_path=dataset), 0)
+        mkdir.assert_not_called()
+        write_text.assert_not_called()
+        self.assertIn("OVERALL:", stdout.getvalue())
+        self.assertIn("BY GROUP:", stdout.getvalue())
+        self.assertNotIn("RESULT:", stdout.getvalue())
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "nested" / "evaluation.json"
+            stdout = StringIO()
+            with (
+                patch.dict(os.environ, {"RAG_DATABASE_URL": "configured"}, clear=True),
+                patch(
+                    "starter_rag.evaluation.golden_set._evaluate_source_v2_query",
+                    side_effect=evaluate,
+                ),
+                redirect_stdout(stdout),
+            ):
+                self.assertEqual(
+                    evaluate_source_v2_golden(dataset_path=dataset, out_path=output), 0
+                )
+            self.assertEqual(
+                json.loads(output.read_text())["status"], "measured_retrieval_relevance_only"
+            )
+            self.assertIn(f"RESULT: {output}", stdout.getvalue())
 
 
 def _retrieved_evidence(
@@ -185,6 +242,13 @@ def _chunk_record(evidence_id: str, **overrides: object) -> dict[str, object]:
 
 
 class GoldenSetValidationTests(unittest.TestCase):
+    def test_순위_지표는_중복_결과에서_정답_라벨을_한번만_센다(self) -> None:
+        metrics = _ranked_relevance_metrics([{0}, {0}, {1}], 2, (1, 2, 3))
+
+        self.assertEqual(metrics[1], {"recall": 0.5, "mrr": 1.0, "complete": False})
+        self.assertEqual(metrics[2], {"recall": 0.5, "mrr": 1.0, "complete": False})
+        self.assertEqual(metrics[3], {"recall": 1.0, "mrr": 1.0, "complete": True})
+
     def test_json_파일에서_데이터셋을_불러온다(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_path = Path(temp_dir) / "golden_set.json"

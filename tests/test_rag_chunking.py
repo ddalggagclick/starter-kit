@@ -22,8 +22,9 @@ sys.path.insert(0, str(ROOT / "rag"))
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from starter_rag.ingestion import chunking_model, service
+from starter_rag.ingestion import chunking, chunking_model, service
 from starter_rag.ingestion.chunking import (
+    ChunkingError,
     ChunkIntegrityError,
     DocumentChunk,
     UnresolvedCellTextError,
@@ -259,6 +260,105 @@ def _validate_chunks(structure: DocumentStructure, chunks: tuple[DocumentChunk, 
 
 
 class AgenticDocumentChunkingTests(unittest.TestCase):
+    def test_단일_문단이_모델_입력_예산을_넘으면_호출_전에_안전하게_실패한다(self) -> None:
+        structure = _structure(_element("ordinary paragraph " * 300))
+        model = _MockChatModel((_response(("e000001",)),))
+
+        with self.assertRaisesRegex(ChunkingError, "모델 입력 예산") as raised:
+            asyncio.run(
+                chunk_document(
+                    structure,
+                    source_id="guide-1",
+                    version="v1",
+                    model=model,
+                    count_tokens=_tokens,
+                    prompt_token_budget=100,
+                )
+            )
+
+        self.assertEqual(model.calls, 0)
+        self.assertNotIn("ordinary paragraph", str(raised.exception))
+
+    def test_공백없는_한글_장문도_모델_호출_전에_입력_예산을_검사한다(self) -> None:
+        text = "한글문장" * 2000
+        structure = _structure(_element(text))
+        model = _MockChatModel((_response(("e000001",)),))
+
+        with self.assertRaisesRegex(ChunkingError, "모델 입력 예산"):
+            asyncio.run(
+                chunk_document(
+                    structure,
+                    source_id="guide-1",
+                    version="v1",
+                    model=model,
+                    count_tokens=len,
+                    prompt_token_budget=1000,
+                )
+            )
+
+        self.assertEqual(model.calls, 0)
+
+    def test_모델_입력_예산의_경계값은_허용하고_한_토큰_초과는_거부한다(self) -> None:
+        structure = _structure(_element("짧은 문단"))
+        count_tokens = len
+        segments = chunking._validate_structure(structure)
+        messages = chunking._prompt_messages(
+            segments, None, count_tokens=count_tokens, target_tokens=512
+        )
+        exact_budget = sum(len(str(message.content)) for message in messages)
+        accepted_model = _MockChatModel((_response(("e000001",)),))
+
+        chunks = asyncio.run(
+            chunk_document(
+                structure,
+                source_id="guide-1",
+                version="v1",
+                model=accepted_model,
+                count_tokens=count_tokens,
+                prompt_token_budget=exact_budget,
+            )
+        )
+        self.assertEqual(accepted_model.calls, 1)
+        self.assertEqual(chunks[0].text, "짧은 문단")
+
+        rejected_model = _MockChatModel((_response(("e000001",)),))
+        with self.assertRaisesRegex(ChunkingError, "모델 입력 예산"):
+            asyncio.run(
+                chunk_document(
+                    structure,
+                    source_id="guide-1",
+                    version="v1",
+                    model=rejected_model,
+                    count_tokens=count_tokens,
+                    prompt_token_budget=exact_budget - 1,
+                )
+            )
+        self.assertEqual(rejected_model.calls, 0)
+
+    def test_재시도_문구가_예산을_넘으면_추가_호출하지_않는다(self) -> None:
+        structure = _structure(_element("짧은 문단"))
+        count_tokens = len
+        segments = chunking._validate_structure(structure)
+        first_messages = chunking._prompt_messages(
+            segments, None, count_tokens=count_tokens, target_tokens=512
+        )
+        first_budget = sum(len(str(message.content)) for message in first_messages)
+        model = _MockChatModel(("{}", _response(("e000001",))))
+
+        with self.assertRaisesRegex(ChunkingError, "재시도 입력"):
+            asyncio.run(
+                chunk_document(
+                    structure,
+                    source_id="guide-1",
+                    version="v1",
+                    model=model,
+                    count_tokens=count_tokens,
+                    prompt_token_budget=first_budget,
+                )
+            )
+
+        self.assertEqual(model.calls, 1)
+
     def test_인접_요소_ID_그룹과_원문_공백을_보존한다(self) -> None:
         structure = _structure(
             _element("문서 제목 ", kind="document_title"),
@@ -337,7 +437,7 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
         )
         self.assertEqual([chunk.token_count for chunk in chunks], [2, 1])
 
-    def test_ID_누락_중복_순서변경을_거부하고_결정적_fallback을_기록한다(self) -> None:
+    def test_요소_ID_누락_중복_순서변경을_거부하고_결정적_fallback을_기록한다(self) -> None:
         structure = _structure(_element("가"), _element("나"), _element("다"))
         invalid = (
             _response(("e000001",), ("e000003",)),
@@ -374,7 +474,56 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
         self.assertTrue(all(chunk.fallback_used for chunk in chunks))
         self.assertTrue(all(chunk.model_failure for chunk in chunks))
 
-    def test_HTTP_429는_재시도하지_않고_실패와_fallback을_기록한다(self) -> None:
+    def test_긴_문서는_토큰_예산별_요청으로_나누고_순서를_보존한다(self) -> None:
+        structure = _structure(*(_element(f"문단{i} " + "내용 " * 180) for i in range(3)))
+        model = _MockChatModel(tuple(_response((f"e{i:06d}",)) for i in range(1, 4)))
+        chunks = asyncio.run(
+            chunk_document(
+                structure,
+                source_id="guide-1",
+                version="v1",
+                model=model,
+                count_tokens=_tokens,
+                target_tokens=512,
+                prompt_token_budget=300,
+            )
+        )
+        self.assertEqual(model.calls, 3)
+        self.assertEqual(
+            [chunk.element_ids for chunk in chunks], [(f"e{i:06d}",) for i in range(1, 4)]
+        )
+        _validate_chunks(structure, chunks)
+
+    def test_한_윈도_실패는_다른_윈도의_모델_결과를_막지_않는다(self) -> None:
+        structure = _structure(*(_element(f"문단{i} " + "내용 " * 180) for i in range(3)))
+        model = _MockChatModel(
+            (
+                _response(("e000001",)),
+                "{}",
+                "{}",
+                "{}",
+                "{}",
+                _response(("e000003",)),
+            )
+        )
+        chunks = asyncio.run(
+            chunk_document(
+                structure,
+                source_id="guide-1",
+                version="v1",
+                model=model,
+                count_tokens=_tokens,
+                target_tokens=512,
+                prompt_token_budget=300,
+            )
+        )
+        self.assertEqual(
+            [chunk.model_status for chunk in chunks], ["succeeded", "failed", "succeeded"]
+        )
+        self.assertEqual([chunk.fallback_used for chunk in chunks], [False, True, False])
+        _validate_chunks(structure, chunks)
+
+    def test_응답_오류_429는_재시도하지_않고_실패와_fallback을_기록한다(self) -> None:
         structure = _structure(_element("가"), _element("나"))
         model = _MockChatModel((_RateLimitError("429 rate limited"),))
 
@@ -455,7 +604,7 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
         with self.assertRaises(ChunkIntegrityError):
             _validate_chunks(structure, tampered)
 
-    def test_fallback_used가_불리언이_아니면_무결성_검증에서_거부한다(self) -> None:
+    def test_대체사용여부가_불리언이_아니면_무결성_검증에서_거부한다(self) -> None:
         document_structure = _structure(_element("본문"))
         agentic_chunk = _chunk(
             document_structure,
@@ -484,7 +633,7 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
         self.assertEqual(chunks, ())
         self.assertEqual(model.calls, 0)
 
-    def test_self_ref가_없어도_내부_요소_ID가_충돌하지_않는다(self) -> None:
+    def test_원본참조가_없어도_내부_요소_ID가_충돌하지_않는다(self) -> None:
         structure = _structure(_element("같음", self_ref=None), _element("같음", self_ref=None))
         model = _MockChatModel((_response(("e000001",), ("e000002",)),))
 
@@ -520,6 +669,29 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
 
 
 class XlsxRowChunkingTests(unittest.TestCase):
+    def test_큰_표_요소는_모델_예산과_무관하게_원문과_위치를_보존한다(self) -> None:
+        text = "cell value " * 1000
+        table = _table_element(1, 1, (_cell(text, 0, 0),))
+        structure = _structure(table)
+        model = _MockChatModel(())
+
+        chunks = asyncio.run(
+            chunk_document(
+                structure,
+                source_id="guide-1",
+                version="v1",
+                model=model,
+                count_tokens=_tokens,
+                prompt_token_budget=1,
+            )
+        )
+
+        self.assertEqual(model.calls, 0)
+        self.assertEqual(len(chunks), 1)
+        self.assertIn(text.strip(), chunks[0].text)
+        self.assertEqual(chunks[0].locations, (table.location,))
+        _validate_chunks(structure, chunks)
+
     def test_실제_행_범위보다_큰_row_span을_거부한다(self) -> None:
         table = _table_element(2, 1, (_cell("범위 오류", 0, 0, row_span=2),))
 
@@ -597,7 +769,9 @@ class XlsxRowChunkingTests(unittest.TestCase):
 
     def test_3행_표는_행별_독립_청크_세_개를_만든다(self) -> None:
         table = _table_element(
-            3, 1, (_cell("상속포기", 0, 0), _cell("한정승인", 1, 0), _cell("신청기한", 2, 0))
+            3,
+            1,
+            (_cell("First option", 0, 0), _cell("Second option", 1, 0), _cell("Deadline", 2, 0)),
         )
         model = _MockChatModel(())
 
@@ -629,8 +803,8 @@ class XlsxRowChunkingTests(unittest.TestCase):
             (
                 _cell("항목", 0, 0, column_header=True),
                 _cell("내용", 0, 1, column_header=True),
-                _cell("한정승인", 1, 0),
-                _cell("상속재산 범위에서 책임", 1, 1),
+                _cell("Second option", 1, 0),
+                _cell("Responsibility within the item scope", 1, 1),
             ),
         )
 
@@ -713,7 +887,7 @@ class XlsxRowChunkingTests(unittest.TestCase):
         cells = (
             _cell("분류", 0, 0, end_row=2, row_span=2, row_header=True),
             _cell("항목", 0, 1, column_header=True),
-            _cell("상속포기", 1, 1),
+            _cell("First option", 1, 1),
         )
         table_element = _table_element(2, 2, cells)
 
@@ -766,7 +940,7 @@ class XlsxRowChunkingTests(unittest.TestCase):
 
         self.assertNotEqual(first.chunk_id, changed.chunk_id)
 
-    def test_self_ref가_없는_서로_다른_표의_행_ID는_충돌하지_않는다(self) -> None:
+    def test_원본참조가_없는_서로_다른_표의_행_ID는_충돌하지_않는다(self) -> None:
         structure = _structure(
             _table_element(1, 1, (_cell("첫 표", 0, 0),), self_ref=None),
             _table_element(1, 1, (_cell("둘째 표", 0, 0),), self_ref=None),
@@ -844,7 +1018,26 @@ class XlsxRowChunkingTests(unittest.TestCase):
 
 
 class ChunkingModelProviderTests(unittest.TestCase):
-    def test_ollama_설정으로_모델을_생성한다(self) -> None:
+    def test_설정한_모델_컨텍스트에서_응답_예산을_빼고_윈도를_만든다(self) -> None:
+        structure = _structure(*(_element(f"문단{i} " + "내용 " * 180) for i in range(3)))
+        model = _MockChatModel(tuple(_response((f"e{i:06d}",)) for i in range(1, 4)))
+        chunks = asyncio.run(
+            service.chunk_document_with_config(
+                structure,
+                source_id="guide-1",
+                version="v1",
+                count_tokens=_tokens,
+                environ={
+                    "RAG_CHUNKING_CONTEXT_TOKENS": "1300",
+                    "RAG_CHUNKING_RESPONSE_RESERVE_TOKENS": "1000",
+                },
+                model_factory=lambda _: model,
+            )
+        )
+        self.assertEqual(model.calls, 3)
+        self.assertEqual(len(chunks), 3)
+
+    def test_로컬_Ollama_설정으로_모델을_생성한다(self) -> None:
         settings = chunking_model.load_chunking_model_settings(
             {
                 "RAG_CHUNKING_PROVIDER": "ollama",
@@ -859,10 +1052,13 @@ class ChunkingModelProviderTests(unittest.TestCase):
 
         self.assertIs(result, model)
         ollama_factory.assert_called_once_with(
-            model="qwen3:4b-instruct", base_url="http://127.0.0.1:11434"
+            model="qwen3:4b-instruct",
+            base_url="http://127.0.0.1:11434",
+            temperature=0,
+            num_ctx=4096,
         )
 
-    def test_gemini_설정은_RAG_인증값을_명시적으로_전달한다(self) -> None:
+    def test_공급자_설정은_RAG_인증값을_명시적으로_전달한다(self) -> None:
         settings = chunking_model.load_chunking_model_settings(
             {
                 "RAG_CHUNKING_PROVIDER": "gemini",
@@ -921,7 +1117,7 @@ class ChunkingModelProviderTests(unittest.TestCase):
 
         self.assertNotIn("legacy-secret", str(raised.exception))
 
-    def test_ollama는_Gemini_인증값이_없어도_생성한다(self) -> None:
+    def test_로컬_Ollama는_외부_인증값이_없어도_생성한다(self) -> None:
         settings = chunking_model.load_chunking_model_settings(
             {"RAG_CHUNKING_PROVIDER": "ollama", "RAG_CHUNKING_MODEL": "qwen3:4b-instruct"}
         )
@@ -953,7 +1149,7 @@ class ChunkingModelProviderTests(unittest.TestCase):
         self.assertEqual(model.calls, 1)
         self.assertEqual(chunks[0].generation_method, "agentic")
 
-    def test_HTTP_429에서_다른_공급자를_생성하거나_전환하지_않는다(self) -> None:
+    def test_응답_오류_429에서_다른_공급자를_생성하거나_전환하지_않는다(self) -> None:
         model = _MockChatModel((_RateLimitError("429 rate limited"),))
         gemini_factory = Mock(return_value=_MockChatModel(()))
 
@@ -1069,7 +1265,7 @@ class ChunkingModelProviderTests(unittest.TestCase):
         self.assertEqual(chunks[0].model_status, "failed")
         self.assertIn("404 model not found", chunks[0].model_failure)
 
-    def test_Gemini_실행_오류의_인증값을_fallback_메타데이터에서_숨긴다(self) -> None:
+    def test_공급자_실행_오류의_인증값을_fallback_메타데이터에서_숨긴다(self) -> None:
         secret = "rag/a+b"
         encoded = quote(secret, safe="")
         mixed_case = encoded.replace("%2F", "%2f")
@@ -1110,7 +1306,7 @@ class ChunkingModelProviderTests(unittest.TestCase):
         self.assertEqual(model.calls, 1)
         ollama_factory.assert_not_called()
 
-    def test_Gemini_중첩된_숫자_code_429도_정상화한다(self) -> None:
+    def test_공급자_중첩된_숫자_오류코드_429도_정상화한다(self) -> None:
         secret = "rag/a+b"
         provider_error = RuntimeError(f"wrapped provider failure: {secret}")
         provider_error.__cause__ = _RateLimitCause(f"HTTP 429: {secret}")
@@ -1131,7 +1327,7 @@ class ChunkingModelProviderTests(unittest.TestCase):
         self.assertNotIn(secret, str(raised.exception))
         self.assertEqual(inner_model.calls, 1)
 
-    def test_Gemini_실행_예외_traceback에_원본_키와_예외_체인을_남기지_않는다(self) -> None:
+    def test_공급자_실행_예외_traceback에_원본_키와_예외_체인을_남기지_않는다(self) -> None:
         secret = "rag/a+b"
         encoded = quote(secret, safe="")
         mixed_case = encoded.replace("%2F", "%2f")

@@ -116,14 +116,22 @@ inheritance/
 | 위치 | 책임 |
 |---|---|
 | `contracts/{ports,models}.py` | `SearchPort.search`, Evidence·SourceRef |
-| `ingestion/{parser,chunking,service,cli}.py` | Docling 파싱·청킹·적재·검수 |
+| `ingestion/{parser,chunking,service}.py` | Docling 파싱·청킹·적재 |
+| `ingestion/cli.py` | 적재·검수 명령과 대화형 HITL 검토 |
+| `ingestion/review.py` | HITL 검토 데이터 무결성·원문 보존·승인 해시 |
 | `embedding/model.py` | EmbeddingGemma 2 임베딩 |
 | `storage/{vector_store,publication,models}.py` | pgvector, 문서 메타·게시 상태 |
-| `retrieval/{search,pipeline}.py` | `published` 문서만 검색 |
+| `retrieval/{search,pipeline,display}.py` | `published` 문서 검색과 Evidence 터미널 표시 |
 | `evaluation/golden_set.py` | 검색 평가용 Golden Set |
+| `rag/evaluation/*.json` | 공통 코드와 분리된 도메인별 재사용성 평가 자료 |
+| `batch.py` | 다중 문서 작업의 제한 병렬 준비·순차 게시·재개 |
+| `local_config.py`, `diagnostics.py`, `progress.py` | CLI 로컬 설정, 안전 진단, 진행 상태 |
 | `cli.py` | 독립 CLI 진입점, `starter-rag status` |
 
 **금지:** 서버 시작 시 자동 적재하지 않는다. 법령 원문을 벡터 색인하지 않는다. 미게시 자료를 검색에 넣지 않는다.
+
+RAG 공통 단위 테스트 fixture는 `tests/rag_test_fixtures.py`에 둔다. 공통 fixture는 도메인 중립으로 유지하고,
+도메인별 재사용성 평가 자료는 공통 fixture와 분리한다.
 
 ## 3. 소유권 — 직접 수정할 수 있는 경로
 

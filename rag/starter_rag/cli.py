@@ -15,6 +15,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from starter_rag.contracts.models import DocumentVersion, SearchRequest, SourceRef
+from starter_rag.diagnostics import diagnose
 from starter_rag.embedding.model import (
     EMBEDDING_DIMENSION,
     EMBEDDING_MODEL_ID,
@@ -27,7 +28,9 @@ from starter_rag.ingestion.chunking_model import (
     ChunkingModelConfigurationError,
     ChunkingModelInitializationError,
 )
+from starter_rag.ingestion.cli import assist_review
 from starter_rag.ingestion.parser import (
+    DocumentConversionError,
     DocumentReadError,
     DocumentStructure,
     SourceV2Error,
@@ -36,6 +39,14 @@ from starter_rag.ingestion.parser import (
     inspect_source_v2,
     parse_document,
 )
+from starter_rag.ingestion.review import (
+    ReviewError,
+    approve_review,
+    create_review,
+    detect_table_issues,
+    read_review,
+    write_review,
+)
 from starter_rag.ingestion.service import (
     SOURCE_V2_TEST_COLLECTION,
     chunk_document_with_config,
@@ -43,6 +54,17 @@ from starter_rag.ingestion.service import (
     index_source_v2,
     verify_source_rows,
 )
+from starter_rag.local_config import (
+    CONFIG_KEYS,
+    ConfigError,
+    config_path,
+    display_config,
+    effective_config,
+    save_config_from_environment,
+    validate_config,
+)
+from starter_rag.progress import run_with_heartbeat
+from starter_rag.retrieval.display import format_evidence
 from starter_rag.storage.database import (
     DatabaseConfigurationError,
     PostgresRagDatabase,
@@ -71,12 +93,33 @@ def _tokenizer_path(cli_path: str | None) -> str:
     return path
 
 
+def _progress(message: str) -> None:
+    if os.environ.get("RAG_PROGRESS") == "1" or sys.stderr.isatty():
+        print(message, file=sys.stderr, flush=True)
+
+
+def _parsed_page_count(structure: DocumentStructure, document: object | None = None) -> int:
+    pages = getattr(document, "pages", None)
+    if pages is not None:
+        try:
+            return len(pages)
+        except TypeError:
+            pass
+    return max(
+        (page for element in structure.elements for page in element.location.page_numbers),
+        default=0,
+    )
+
+
 def _parse_file(path: str) -> int:
     source = Path(path)
     try:
         with contextlib.redirect_stdout(sys.stderr):
-            document = parse_document(source)
+            document = run_with_heartbeat(lambda: parse_document(source), "PDF 파싱")
             structure = extract_document_structure(document, source)
+        pages = _parsed_page_count(structure, document)
+        if pages:
+            _progress(f"PDF 파싱: {pages}/{pages}페이지 완료")
         payload = {
             "input_file": path,
             "success": True,
@@ -90,11 +133,172 @@ def _parse_file(path: str) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 - 파서 오류는 CLI 사용자에게 표시한다.
-        print(f"문서 파싱에 실패했습니다: {exc}", file=sys.stderr)
+        print(f"문서 파싱에 실패했습니다: {diagnose(exc, 'parse')}", file=sys.stderr)
         return 1
 
     print(output)
     return 0
+
+
+def _review_command(
+    action: str,
+    path: str,
+    *,
+    output: str | None = None,
+    source_id: str | None = None,
+    version: str = "cli-test",
+) -> int:
+    try:
+        if action in {"scan", "export"}:
+            source = Path(path)
+            with contextlib.redirect_stdout(sys.stderr):
+                document = run_with_heartbeat(lambda: parse_document(source), "PDF 파싱")
+                structure = extract_document_structure(document, source)
+            pages = _parsed_page_count(structure, document)
+            if pages:
+                _progress(f"PDF 파싱: {pages}/{pages}페이지 완료")
+            report = create_review(
+                source, structure, source_id=source_id or source.name, version=version
+            )
+            if action == "export":
+                if output is None:
+                    raise ReviewError("--output 경로가 필요합니다.")
+                write_review(Path(output), report)
+            payload = {
+                "success": True,
+                "source_id": report["source"]["source_id"],
+                "version": version,
+                "issue_count": len(report["issues"]),
+                "issues": [
+                    {
+                        key: issue[key]
+                        for key in (
+                            "table_id",
+                            "problem",
+                            "page_numbers",
+                            "invalid_cells",
+                            "collisions",
+                        )
+                        if key in issue
+                    }
+                    for issue in report["issues"]
+                ],
+                "review_file": output if action == "export" else None,
+            }
+        elif action == "validate":
+            data, result = read_review(Path(path))
+            approval = data.get("approval")
+            if not isinstance(approval, dict):
+                raise ReviewError("승인 기록 형식이 올바르지 않습니다.")
+            approval_state = approval.get("state")
+            if approval_state == "approved":
+                # Reuse the same approval hash check used before indexing and publishing.
+                data, result = read_review(Path(path), require_approved=True)
+            elif approval_state != "draft":
+                raise ReviewError("검토 파일 승인 상태가 올바르지 않습니다.")
+            payload = {
+                "success": True,
+                "issue_count": len(data["issues"]),
+                "corrected_elements": len(result.elements),
+                "approval": approval_state,
+            }
+            if approval_state == "approved":
+                payload["review_sha256"] = data["approval"]["content_sha256"]
+        elif action == "approve":
+            data = approve_review(Path(path))
+            payload = {
+                "success": True,
+                "approval": "approved",
+                "source_id": data["source"]["source_id"],
+                "version": data["source"]["version"],
+                "review_sha256": data["approval"]["content_sha256"],
+            }
+        else:
+            raise ReviewError("지원하지 않는 검토 명령입니다.")
+    except DocumentConversionError as exc:
+        print(f"HITL 검토 실패: {diagnose(exc, 'parse')}", file=sys.stderr)
+        return 2
+    except (ReviewError, ValueError, FileNotFoundError, OSError, KeyError, TypeError) as exc:
+        print(f"HITL 검토 실패: {type(exc).__name__}", file=sys.stderr)
+        return 2
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
+def _guided_review_command(args: argparse.Namespace) -> int:
+    try:
+        if args.review_action == "wizard":
+            source = Path(args.path)
+            review_path = Path(args.output)
+            with contextlib.redirect_stdout(sys.stderr):
+                document = run_with_heartbeat(lambda: parse_document(source), "PDF 파싱")
+                structure = extract_document_structure(document, source)
+            pages = _parsed_page_count(structure, document)
+            if pages:
+                _progress(f"PDF 파싱: {pages}/{pages}페이지 완료")
+            write_review(
+                review_path,
+                create_review(
+                    source,
+                    structure,
+                    source_id=args.source_id or source.stem,
+                    version=args.version,
+                ),
+            )
+            approved = assist_review(review_path)
+        else:
+            review_path = Path(args.path)
+            approved = assist_review(review_path) if args.review_action == "assist" else True
+        if not approved:
+            return 0
+        if not (getattr(args, "index", False) or args.publish or args.review_action == "load"):
+            return 0
+        report, _ = read_review(review_path, require_approved=True)
+        source = Path(report["source"]["path"])
+        source_id = report["source"]["source_id"]
+        version = report["source"]["version"]
+        publisher = args.publisher or input("발행처: ").strip()
+        tokenizer_path = (
+            args.tokenizer_path
+            or os.environ.get("RAG_TOKENIZER_PATH")
+            or input("로컬 토크나이저 경로: ").strip()
+        )
+        if not publisher or not tokenizer_path:
+            raise ReviewError("발행처와 토크나이저 경로가 필요합니다.")
+        status = _index_file(
+            str(source),
+            tokenizer_path=tokenizer_path,
+            source_id=source_id,
+            version=version,
+            source_title=args.source_title or source.stem,
+            source_url=args.source_url,
+            publisher=publisher,
+            collection_id=args.collection_id,
+            target_tokens=args.target_tokens,
+            is_synthetic=False,
+            db_profile=args.db_profile,
+            review_file=str(review_path),
+        )
+        if status:
+            return status
+        if args.publish:
+            return _publish(
+                source_id,
+                version,
+                args.collection_id,
+                args.db_profile,
+                review_file=str(review_path),
+            )
+        return 0
+    except DocumentConversionError as exc:
+        print(f"HITL 안내 실행 실패: {diagnose(exc, 'parse')}", file=sys.stderr)
+        return 2
+    except (ReviewError, ValueError, KeyError, FileNotFoundError, OSError, TypeError) as exc:
+        print(f"HITL 안내 실행 실패: {type(exc).__name__}", file=sys.stderr)
+        return 2
+    except (EOFError, KeyboardInterrupt):
+        print("입력이 중단됐습니다. review assist로 재개하세요.", file=sys.stderr)
+        return 130
 
 
 def _positive_integer(value: str) -> int:
@@ -160,12 +364,26 @@ def _chunk_file(
     source_id: str | None,
     version: str,
     target_tokens: int,
+    review_file: str | None = None,
 ) -> int:
     source = Path(path)
     try:
         with contextlib.redirect_stdout(sys.stderr):
-            document = parse_document(source)
-            structure: DocumentStructure = extract_document_structure(document, source)
+            document = None
+            if review_file:
+                _, structure = read_review(
+                    Path(review_file),
+                    require_approved=True,
+                    source=source,
+                    source_id=source_id or source.name,
+                    version=version,
+                )
+            else:
+                document = run_with_heartbeat(lambda: parse_document(source), "PDF 파싱")
+                structure: DocumentStructure = extract_document_structure(document, source)
+            pages = _parsed_page_count(structure, document)
+            if pages:
+                _progress(f"PDF 파싱: {pages}/{pages}페이지 완료")
             try:
                 tokenizer = _load_tokenizer(tokenizer_path)
             except ValueError:
@@ -176,17 +394,24 @@ def _chunk_file(
                 return len(tokenizer.encode(text, add_special_tokens=False))
 
             try:
-                chunks = asyncio.run(
-                    chunk_document_with_config(
-                        structure,
-                        source_id=source_id or source.name,
-                        version=version,
-                        count_tokens=count_tokens,
-                        target_tokens=target_tokens,
-                    )
+                chunks = run_with_heartbeat(
+                    lambda: asyncio.run(
+                        chunk_document_with_config(
+                            structure,
+                            source_id=source_id or source.name,
+                            version=version,
+                            count_tokens=count_tokens,
+                            target_tokens=target_tokens,
+                            progress=lambda done, total: _progress(
+                                f"청킹: {done}/{total}윈도 완료"
+                            ),
+                        )
+                    ),
+                    "청킹",
                 )
+                _progress(f"청킹: {len(chunks)}/{len(chunks)}청크 완료")
             except (ChunkingModelConfigurationError, ChunkingModelInitializationError) as exc:
-                print(str(exc), file=sys.stderr)
+                print(diagnose(exc, "chunk"), file=sys.stderr)
                 return 2
             except ValueError:
                 print("RAG 공급자 설정 또는 청킹 입력이 올바르지 않습니다.", file=sys.stderr)
@@ -209,7 +434,7 @@ def _chunk_file(
         print("문서 청킹 입력이 올바르지 않습니다.", file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 - 공급자 인증 정보가 있을 수 있어 예외 원문을 출력하지 않는다.
-        print(f"청킹 실행에 실패했습니다: {type(exc).__name__}", file=sys.stderr)
+        print(diagnose(exc, "chunk"), file=sys.stderr)
         return 1
 
     print(output)
@@ -335,27 +560,50 @@ def _index_file(
     target_tokens: int,
     is_synthetic: bool,
     db_profile: str = "local",
+    review_file: str | None = None,
 ) -> int:
     source_path = Path(path)
     try:
         with contextlib.redirect_stdout(sys.stderr):
             source_bytes = source_path.read_bytes()
-            document = parse_document(source_path)
-            structure = extract_document_structure(document, source_path)
+            review_digest = None
+            document = None
+            if review_file:
+                review_data, structure = read_review(
+                    Path(review_file),
+                    require_approved=True,
+                    source=source_path,
+                    source_id=source_id,
+                    version=version,
+                )
+                review_digest = review_data["approval"]["content_sha256"]
+            else:
+                document = run_with_heartbeat(lambda: parse_document(source_path), "PDF 파싱")
+                structure = extract_document_structure(document, source_path)
+                if detect_table_issues(structure):
+                    raise ReviewError("표 구조 충돌이 있습니다. review export로 검토하세요.")
+            pages = _parsed_page_count(structure, document)
+            if pages:
+                _progress(f"PDF 파싱: {pages}/{pages}페이지 완료")
             tokenizer = _load_tokenizer(tokenizer_path)
 
             def count_tokens(value: str) -> int:
                 return len(tokenizer.encode(value, add_special_tokens=False))
 
-            chunks = asyncio.run(
-                chunk_document_with_config(
-                    structure,
-                    source_id=source_id,
-                    version=version,
-                    count_tokens=count_tokens,
-                    target_tokens=target_tokens,
-                )
+            chunks = run_with_heartbeat(
+                lambda: asyncio.run(
+                    chunk_document_with_config(
+                        structure,
+                        source_id=source_id,
+                        version=version,
+                        count_tokens=count_tokens,
+                        target_tokens=target_tokens,
+                        progress=lambda done, total: _progress(f"청킹: {done}/{total}윈도 완료"),
+                    )
+                ),
+                "청킹",
             )
+            _progress(f"청킹: {len(chunks)}/{len(chunks)}청크 완료")
         source = SourceRef(
             source_id=source_id,
             title=source_title,
@@ -382,6 +630,7 @@ def _index_file(
                     document_version,
                     chunks,
                     is_synthetic=is_synthetic,
+                    **({"review_sha256": review_digest} if review_digest else {}),
                 )
                 return {
                     "success": True,
@@ -406,14 +655,15 @@ def _index_file(
         return 2
     except (
         DatabaseConfigurationError,
+        ReviewError,
         ValueError,
         ChunkingModelConfigurationError,
         ChunkingModelInitializationError,
     ) as exc:
-        print(f"잘못된 RAG 적재 요청: {type(exc).__name__}", file=sys.stderr)
+        print(diagnose(exc, "index"), file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 - exception text may contain credentials.
-        print(f"RAG 적재 실패: {type(exc).__name__}", file=sys.stderr)
+        print(diagnose(exc, "index"), file=sys.stderr)
         return 1
 
 
@@ -456,14 +706,44 @@ def _index_mapped_file(
         return 1
 
 
-def _publish(source_id: str, version: str, collection_id: str, db_profile: str = "local") -> int:
+def _publish(
+    source_id: str,
+    version: str,
+    collection_id: str,
+    db_profile: str = "local",
+    *,
+    review_file: str | None = None,
+) -> int:
+    try:
+        review_digest = None
+        source_digest = None
+        if review_file:
+            review_data, _ = read_review(
+                Path(review_file),
+                require_approved=True,
+                source_id=source_id,
+                version=version,
+            )
+            review_digest = review_data["approval"]["content_sha256"]
+            source_digest = review_data["source"]["sha256"]
+    except (ReviewError, OSError, ValueError, KeyError, TypeError):
+        print("게시 검토 실패: 승인 기록 또는 원본을 확인하세요.", file=sys.stderr)
+        return 2
+
     async def run() -> dict[str, object]:
         database = await _database_for_profile(db_profile)
         try:
             document = await PostgresPublicationStore(
-                database,
-                collection_id=collection_id,
-            ).publish(source_id, version)
+                database, collection_id=collection_id
+            ).publish(
+                source_id,
+                version,
+                **(
+                    {"review_sha256": review_digest, "expected_source_sha256": source_digest}
+                    if review_digest
+                    else {}
+                ),
+            )
             return {
                 "success": True,
                 "sourceId": document.source.source_id,
@@ -478,10 +758,10 @@ def _publish(source_id: str, version: str, collection_id: str, db_profile: str =
     try:
         print(json.dumps(asyncio.run(run()), ensure_ascii=False))
     except DatabaseConfigurationError as exc:
-        print(str(exc), file=sys.stderr)
+        print(f"게시 설정 오류: {type(exc).__name__} · {diagnose(exc, 'publish')}", file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 - database details can include connection data.
-        print(f"게시 전환 실패: {type(exc).__name__}", file=sys.stderr)
+        print(diagnose(exc, "publish"), file=sys.stderr)
         return 1
     return 0
 
@@ -1015,15 +1295,27 @@ def _publish_from_index_result(
 
 
 def _search(
-    query: str, top_k: int, collection_id: str, allow_synthetic: bool, db_profile: str = "local"
+    query: str,
+    top_k: int,
+    collection_id: str,
+    allow_synthetic: bool,
+    db_profile: str = "local",
+    output_format: str = "json",
 ) -> int:
     try:
         request = SearchRequest(query=query, top_k=top_k)
     except ValueError as exc:
         print(f"잘못된 RAG 검색 요청: {exc}", file=sys.stderr)
         return 2
+    try:
+        candidate_count = int(os.environ.get("RAG_SEARCH_CANDIDATE_COUNT", "10"))
+    except ValueError:
+        candidate_count = 0
+    if not 1 <= candidate_count <= 10:
+        print("RAG_SEARCH_CANDIDATE_COUNT는 1~10 범위의 정수여야 합니다.", file=sys.stderr)
+        return 2
 
-    async def run() -> dict[str, object]:
+    async def run():
         database = await _database_for_profile(db_profile)
         try:
             store = PGVectorStore(database, EmbeddingGemma(), collection_id=collection_id)
@@ -1033,8 +1325,9 @@ def _search(
                 store,
                 store.embedding,
                 allow_synthetic=allow_synthetic,
+                candidate_count=candidate_count,
             ).search(request)
-            return {
+            return result, {
                 "success": True,
                 "topK": request.top_k,
                 "collectionId": collection_id,
@@ -1044,17 +1337,79 @@ def _search(
             await _release_profile_database(database, db_profile)
 
     try:
-        print(json.dumps(asyncio.run(run()), ensure_ascii=False))
+        result, payload = asyncio.run(run())
+        print(
+            format_evidence(result.evidence)
+            if output_format == "text"
+            else json.dumps(payload, ensure_ascii=False)
+        )
     except DatabaseConfigurationError as exc:
-        print(f"RAG 검색 설정 오류: {type(exc).__name__}", file=sys.stderr)
+        print(
+            f"RAG 검색 설정 오류: {type(exc).__name__} · {diagnose(exc, 'search')}", file=sys.stderr
+        )
         return 2
     except Exception as exc:  # noqa: BLE001 - never disclose credentials in exceptions.
-        print(f"RAG 검색 실패: {type(exc).__name__}", file=sys.stderr)
+        print(f"RAG 검색 실패: {type(exc).__name__} · {diagnose(exc, 'search')}", file=sys.stderr)
         return 1
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def _config_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="starter-rag config")
+    actions = parser.add_subparsers(dest="action", required=True)
+    actions.add_parser("setup", help="현재 환경변수의 로컬 설정을 비공개 파일에 저장")
+    actions.add_parser("show", help="효과적인 설정을 비밀값 없이 표시")
+    validate = actions.add_parser("validate", help="설정과 선택적 DB 연결 확인")
+    validate.add_argument("--connect", action="store_true", help="로컬 DB에 읽기 전용 연결 검사")
+    args = parser.parse_args(argv)
+    path = config_path()
+    try:
+        if args.action == "setup":
+            save_config_from_environment(path, os.environ)
+            print(json.dumps({"success": True, "configPath": str(path)}, ensure_ascii=False))
+            return 0
+        settings = effective_config(path)
+        if args.action == "show":
+            print(
+                json.dumps(
+                    {"success": True, "settings": display_config(settings)}, ensure_ascii=False
+                )
+            )
+            return 0
+        validate_config(settings)
+        if args.connect:
+            from sqlalchemy import text
+            from sqlalchemy.ext.asyncio import create_async_engine
+
+            async def check() -> None:
+                from starter_rag.storage.database import database_url_from_environment
+
+                engine = create_async_engine(
+                    database_url_from_environment(settings), pool_pre_ping=True
+                )
+                try:
+                    async with engine.connect() as connection:
+                        await connection.execute(text("SET TRANSACTION READ ONLY"))
+                        await connection.execute(text("SELECT 1"))
+                finally:
+                    await engine.dispose()
+
+            asyncio.run(check())
+        print(
+            json.dumps(
+                {"success": True, "databaseConnected": bool(args.connect)}, ensure_ascii=False
+            )
+        )
+        return 0
+    except ConfigError as exc:
+        print(f"RAG 설정 오류: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - connection exceptions can contain credentials.
+        print(f"RAG DB 연결 실패: {type(exc).__name__}", file=sys.stderr)
+        return 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="starter-rag",
         description="문서 파싱·청킹·색인·게시·검색과 Source_v2 검증 CLI",
@@ -1081,6 +1436,50 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_TARGET_TOKENS,
         help=f"일반 문서 청크 목표 토큰 수 (기본값: {DEFAULT_TARGET_TOKENS})",
     )
+    chunk.add_argument("--review-file", help="승인된 HITL 검토 JSON")
+
+    review = cmd.add_parser("review", help="PDF 표 검토·보정·승인")
+    review_actions = review.add_subparsers(dest="review_action", required=True)
+    for action in ("scan", "export", "validate", "approve"):
+        action_cmd = review_actions.add_parser(action)
+        action_cmd.add_argument("path", metavar="PATH")
+        if action in {"scan", "export"}:
+            action_cmd.add_argument("--source-id")
+            action_cmd.add_argument("--version", default="cli-test")
+        if action == "export":
+            action_cmd.add_argument("--output", required=True)
+    for action in ("wizard", "assist", "load"):
+        action_cmd = review_actions.add_parser(action)
+        action_cmd.add_argument("path", metavar="PDF" if action == "wizard" else "REVIEW_JSON")
+        if action == "wizard":
+            action_cmd.add_argument("--source-id")
+            action_cmd.add_argument("--version", default="cli-test")
+            action_cmd.add_argument(
+                "--output", type=Path, required=True, help="검토 JSON 저장 경로"
+            )
+        if action != "load":
+            action_cmd.add_argument("--index", action="store_true")
+        action_cmd.add_argument("--publish", action="store_true")
+        action_cmd.add_argument("--source-title")
+        action_cmd.add_argument("--publisher")
+        action_cmd.add_argument("--source-url", type=_https_url)
+        action_cmd.add_argument("--tokenizer-path")
+        action_cmd.add_argument("--db-profile", choices=("local", "supabase"), default="local")
+        action_cmd.add_argument("--collection-id", default=DEFAULT_COLLECTION_ID)
+        action_cmd.add_argument(
+            "--target-tokens", type=_positive_integer, default=DEFAULT_TARGET_TOKENS
+        )
+
+    cmd.add_parser("config", help="로컬 설정 저장·조회·검증")
+
+    batch = cmd.add_parser("batch", help="다중 PDF HITL 검토·순차 색인·게시·검색 평가")
+    batch.add_argument("manifest", type=Path, help="일괄 검증 manifest JSON")
+    batch.add_argument("--state", type=Path, required=True, help="재개 가능한 상태 JSON")
+    batch.add_argument(
+        "--evaluation-out", type=Path, help="평가 보고서 JSON 저장 경로 (기본값: stdout)"
+    )
+    batch.add_argument("--phase", choices=("all", "prepare", "load", "evaluate"), default="all")
+    batch.add_argument("--prepare-workers", type=int, choices=(1, 2), default=2)
 
     cmd.add_parser("db-init", help="승인된 로컬 DB 스키마 준비 (DB 변경)")
 
@@ -1105,6 +1504,7 @@ def main(argv: list[str] | None = None) -> int:
         help="필요: CLI 경로 우선, 없으면 RAG_TOKENIZER_PATH 사용 (로컬 전용)",
     )
     index.add_argument("--mapping", type=_file_argument, help="mapped-xlsx schema JSON")
+    index.add_argument("--review-file", help="승인된 HITL 검토 JSON (standard 전용)")
     index.add_argument("--db-profile", choices=("local", "supabase"), default="local")
     index.add_argument("--source-id", help="standard 필수 출처 ID")
     index.add_argument("--version", help="standard 필수 문서 버전")
@@ -1133,6 +1533,7 @@ def main(argv: list[str] | None = None) -> int:
         help="색인 결과의 Source Unit을 검수 후 게시하거나 단일 버전을 게시",
     )
     publish.add_argument("--db-profile", choices=("local", "supabase"), default="local")
+    publish.add_argument("--review-file", help="승인된 HITL 검토 JSON (단건 게시)")
     publish_mode = publish.add_mutually_exclusive_group(required=True)
     publish_mode.add_argument("--source-id", help="단건 게시 Source ID")
     publish_mode.add_argument(
@@ -1159,6 +1560,9 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--db-profile", choices=("local", "supabase"), default="local")
     search.add_argument("--top-k", type=int, default=3, help="검색 결과 수 1~10 (기본값: 3)")
     search.add_argument(
+        "--format", choices=("json", "text"), default="json", help="출력 형식 (기본값: json)"
+    )
+    search.add_argument(
         "--collection-id", help="local default: published-guides; supabase: explicit approved ID"
     )
     search.add_argument(
@@ -1180,7 +1584,7 @@ def main(argv: list[str] | None = None) -> int:
 
     evaluate = cmd.add_parser("test", help="Golden Truth v1.2 검색 품질 평가 (DB 쓰기 없음)")
     evaluate.add_argument("--dataset", type=Path, help="평가 JSON (기본값: Golden Truth v1.2)")
-    evaluate.add_argument("--out", type=Path, help="평가 결과 JSON 경로")
+    evaluate.add_argument("--out", type=Path, help="평가 결과 JSON 저장 경로 (기본값: stdout만)")
     evaluate.add_argument(
         "--mode",
         choices=("clarified", "title"),
@@ -1197,6 +1601,32 @@ def main(argv: list[str] | None = None) -> int:
         "--validate-only", action="store_true", help="평가 자료만 검증 (DB 사용 안 함)"
     )
     args = parser.parse_args(argv)
+
+    if args.command == "batch":
+        from starter_rag.batch import BatchError, run_batch
+
+        try:
+            return run_batch(
+                args.manifest,
+                args.state,
+                phase=args.phase,
+                prepare_workers=args.prepare_workers,
+                evaluation_output_path=args.evaluation_out,
+            )
+        except (BatchError, DatabaseConfigurationError, OSError, ValueError) as exc:
+            print(f"일괄 검증 설정 오류: {type(exc).__name__}", file=sys.stderr)
+            return 2
+
+    if args.command == "review":
+        if args.review_action in {"wizard", "assist", "load"}:
+            return _guided_review_command(args)
+        return _review_command(
+            args.review_action,
+            args.path,
+            output=getattr(args, "output", None),
+            source_id=getattr(args, "source_id", None),
+            version=getattr(args, "version", "cli-test"),
+        )
 
     if args.command == "status":
         print(
@@ -1227,6 +1657,7 @@ def main(argv: list[str] | None = None) -> int:
             source_id=args.source_id,
             version=args.version,
             target_tokens=args.target_tokens,
+            **({"review_file": args.review_file} if args.review_file else {}),
         )
     if args.command == "db-init":
         return _database_init()
@@ -1247,6 +1678,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
         elif args.synthetic:
             parser.error("Source_v2 색인에는 --synthetic을 사용할 수 없습니다")
+        if args.type != "standard" and args.review_file:
+            parser.error("--review-file은 standard 색인에만 사용할 수 있습니다")
 
         try:
             default_collection = (
@@ -1333,10 +1766,14 @@ def main(argv: list[str] | None = None) -> int:
             "target_tokens": args.target_tokens,
             "is_synthetic": args.synthetic,
         }
+        if args.review_file:
+            index_arguments["review_file"] = args.review_file
         if args.db_profile == "local":
             return _index_file(args.path, **index_arguments)
         return _index_file(args.path, **index_arguments, db_profile=args.db_profile)
     if args.command == "publish":
+        if args.from_index_result and args.review_file:
+            parser.error("배치 게시에서 --review-file을 사용할 수 없습니다")
         if args.from_index_result and args.version:
             parser.error("--from-index-result와 --version은 함께 사용할 수 없습니다")
         if args.source_id and not args.version:
@@ -1358,8 +1795,19 @@ def main(argv: list[str] | None = None) -> int:
                 allow_version_replacement=args.allow_version_replacement,
             )
         if args.db_profile == "local":
-            return _publish(args.source_id, args.version, collection)
-        return _publish(args.source_id, args.version, collection, args.db_profile)
+            return _publish(
+                args.source_id,
+                args.version,
+                collection,
+                **({"review_file": args.review_file} if args.review_file else {}),
+            )
+        return _publish(
+            args.source_id,
+            args.version,
+            collection,
+            args.db_profile,
+            **({"review_file": args.review_file} if args.review_file else {}),
+        )
     if args.command == "search":
         if args.db_profile == "supabase" and args.allow_synthetic:
             parser.error("synthetic search not supported on Supabase")
@@ -1368,8 +1816,23 @@ def main(argv: list[str] | None = None) -> int:
         except DatabaseConfigurationError:
             return 2
         if args.db_profile == "local":
-            return _search(args.query, args.top_k, collection, args.allow_synthetic)
-        return _search(args.query, args.top_k, collection, args.allow_synthetic, args.db_profile)
+            if args.format == "json":
+                return _search(args.query, args.top_k, collection, args.allow_synthetic)
+            return _search(
+                args.query, args.top_k, collection, args.allow_synthetic, output_format="text"
+            )
+        if args.format == "json":
+            return _search(
+                args.query, args.top_k, collection, args.allow_synthetic, args.db_profile
+            )
+        return _search(
+            args.query,
+            args.top_k,
+            collection,
+            args.allow_synthetic,
+            args.db_profile,
+            output_format="text",
+        )
     if args.command == "check":
         try:
             report = inspect_source_v2(args.path)
@@ -1419,6 +1882,30 @@ def main(argv: list[str] | None = None) -> int:
             validate_only=args.validate_only,
         )
     parser.error("지원하지 않는 명령입니다")
+
+
+def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] == "config":
+        return _config_command(arguments[1:])
+    if "--help" in arguments or "-h" in arguments:
+        return _main(arguments)
+    try:
+        settings = effective_config(config_path())
+    except ConfigError as exc:
+        print(f"RAG 설정 오류: {exc}", file=sys.stderr)
+        return 2
+    inserted = {
+        key: value
+        for key, value in settings.items()
+        if key in CONFIG_KEYS and key not in os.environ
+    }
+    try:
+        os.environ.update(inserted)
+        return _main(arguments)
+    finally:
+        for key in inserted:
+            os.environ.pop(key, None)
 
 
 if __name__ == "__main__":

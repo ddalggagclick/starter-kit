@@ -34,4 +34,4 @@ async def create_postgres_search_port(
     await database.validate_existing_table()
     embedding = EmbeddingGemma()
     vector_store = PGVectorStore(database, embedding, collection_id=collection_id)
-    return PGVectorSearch(vector_store, embedding)
+    return PGVectorSearch(vector_store, embedding, candidate_count=10)

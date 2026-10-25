@@ -174,6 +174,7 @@ class ChunkingModelSettings:
     model: str
     ollama_base_url: str | None = None
     gemini_api_key: str | None = field(default=None, repr=False)
+    ollama_context_tokens: int = 4096
 
 
 def _validate_ollama_base_url(base_url: str) -> None:
@@ -225,11 +226,25 @@ def load_chunking_model_settings(
             )
         return ChunkingModelSettings(provider="gemini", model=model, gemini_api_key=api_key)
 
+    try:
+        context_tokens = int(values.get("RAG_CHUNKING_CONTEXT_TOKENS", "4096"))
+    except ValueError:
+        raise ChunkingModelConfigurationError(
+            "RAG_CHUNKING_CONTEXT_TOKENS must be an integer."
+        ) from None
+    if context_tokens <= 0:
+        raise ChunkingModelConfigurationError("RAG_CHUNKING_CONTEXT_TOKENS must be positive.")
+
     base_url = values.get("RAG_CHUNKING_OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL).strip()
     if not base_url:
         base_url = DEFAULT_OLLAMA_BASE_URL
     _validate_ollama_base_url(base_url)
-    return ChunkingModelSettings(provider="ollama", model=model, ollama_base_url=base_url)
+    return ChunkingModelSettings(
+        provider="ollama",
+        model=model,
+        ollama_base_url=base_url,
+        ollama_context_tokens=context_tokens,
+    )
 
 
 def create_chunking_model(
@@ -257,6 +272,8 @@ def create_chunking_model(
             provider="Ollama",
             model=settings.model,
             base_url=base_url,
+            temperature=0,
+            num_ctx=settings.ollama_context_tokens,
         )
     elif settings.provider == "gemini":
         if not settings.model.startswith("gemini-"):

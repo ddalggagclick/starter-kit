@@ -80,7 +80,7 @@ npm run typecheck
 npm run lint
 npm run test
 
-# 루트 CLI (외부 모델/RAG 기능은 아직 미구현)
+# 루트 workspace CLI: 패키지별 상태 명령. 기능 범위와 실행 조건은 각 패키지 문서를 따른다.
 uv run starter-llm status
 uv run starter-rag status
 ```

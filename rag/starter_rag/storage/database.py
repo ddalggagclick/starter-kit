@@ -1,10 +1,12 @@
 # 담당: [D] | 책임: 로컬 RAG PostgreSQL 준비와 주입된 테이블의 읽기 전용 검증.
 # PRD: E6 / 스토리 6-1 / 태스크 6-1-3
-# 제한사항: DDL은 starter_rag_integration.rag_test.chunks에만 실행한다.
+# 제한사항: DDL은 명시적으로 선택한 로컬 RAG DB의 rag_test.chunks에만 실행한다.
 """Local RAG setup and read-only validation for caller-provisioned tables."""
 
 from __future__ import annotations
 
+import os
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -30,15 +32,23 @@ class DatabaseSchemaError(RuntimeError):
     """The approved vector table exists but does not satisfy the required shape."""
 
 
-def validate_local_database_url(raw_url: str | URL) -> URL:
+def validate_local_database_url(
+    raw_url: str | URL,
+    *,
+    approved_database_name: str = DATABASE_NAME,
+) -> URL:
     """Accept only the approved local database; reject postgres and Supabase URLs."""
+    if not re.fullmatch(
+        r"[A-Za-z_][A-Za-z0-9_]*", approved_database_name
+    ) or approved_database_name.lower() in {"postgres", "template0", "template1"}:
+        raise DatabaseConfigurationError("RAG_LOCAL_DATABASE_NAME is not a safe database name")
     try:
         url = raw_url if isinstance(raw_url, URL) else make_url(raw_url)
     except Exception as exc:
         raise DatabaseConfigurationError("RAG_DATABASE_URL is not a valid PostgreSQL URL") from exc
-    if url.drivername != "postgresql+asyncpg" or url.database != DATABASE_NAME:
+    if url.drivername != "postgresql+asyncpg" or url.database != approved_database_name:
         raise DatabaseConfigurationError(
-            f"RAG_DATABASE_URL must target local database {DATABASE_NAME} with asyncpg"
+            f"RAG_DATABASE_URL must target local database {approved_database_name} with asyncpg"
         )
     socket_host = url.query.get("host")
     local_host = url.host in {None, "localhost", "127.0.0.1", "::1"}
@@ -51,20 +61,24 @@ def validate_local_database_url(raw_url: str | URL) -> URL:
 def database_url_from_environment(
     environ: Mapping[str, str] | None = None,
 ) -> URL:
-    import os
-
     values = os.environ if environ is None else environ
     raw_url = values.get("RAG_DATABASE_URL", "").strip()
     if not raw_url:
         raise DatabaseConfigurationError("RAG_DATABASE_URL is required")
-    return validate_local_database_url(raw_url)
+    return validate_local_database_url(
+        raw_url,
+        approved_database_name=values.get("RAG_LOCAL_DATABASE_NAME", DATABASE_NAME).strip(),
+    )
 
 
 class PostgresRagDatabase:
     """RAG database access with explicit local or borrowed-engine ownership."""
 
     def __init__(self, url: URL | str) -> None:
-        self.url = validate_local_database_url(url)
+        self.url = validate_local_database_url(
+            url,
+            approved_database_name=os.environ.get("RAG_LOCAL_DATABASE_NAME", DATABASE_NAME).strip(),
+        )
         self.sql_engine: AsyncEngine = create_async_engine(self.url)
         self.target = RagTableTarget(SCHEMA_NAME, TABLE_NAME)
         self._owns_engine = True

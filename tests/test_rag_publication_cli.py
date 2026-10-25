@@ -547,10 +547,12 @@ class PublicationStoreOutcomeIntegrationTests(unittest.TestCase):
                 "RAG_DATABASE_URL does not target the approved local test DB"
             ) from error
 
-    def test_publication_outcome_reuse_replacement_and_retired_rejection(self) -> None:
+    def test_게시_결과_재사용_버전교체_폐기자료_거부를_검증한다(self) -> None:
         async def run() -> None:
             database = PostgresRagDatabase(self.database_url)
-            collection_id = f"rag-test-publication-{uuid.uuid4().hex[:12]}"
+            run_id = uuid.uuid4().hex[:12]
+            collection_id = f"rag-test-publication-{run_id}"
+            source_id = f"batch-outcome-{run_id}"
             vector_store = PGVectorStore(database, _FixedEmbedding(), collection_id=collection_id)
             publication_store = PostgresPublicationStore(database, collection_id=collection_id)
 
@@ -574,32 +576,32 @@ class PublicationStoreOutcomeIntegrationTests(unittest.TestCase):
 
             try:
                 await database.initialize()
-                await index_version("batch-outcome", "sha-old")
+                await index_version(source_id, "sha-old")
                 first = await publication_store.publish_with_outcome(
-                    "batch-outcome", "sha-old", allow_version_replacement=True
+                    source_id, "sha-old", allow_version_replacement=True
                 )
                 repeated = await publication_store.publish_with_outcome(
-                    "batch-outcome", "sha-old", allow_version_replacement=False
+                    source_id, "sha-old", allow_version_replacement=False
                 )
                 self.assertEqual(first.disposition, "published")
                 self.assertEqual(repeated.disposition, "already_published")
 
-                await index_version("batch-outcome", "sha-new")
-                inspection = await publication_store.inspect_version("batch-outcome", "sha-new")
+                await index_version(source_id, "sha-new")
+                inspection = await publication_store.inspect_version(source_id, "sha-new")
                 self.assertEqual(inspection.document.state, "indexed")
                 self.assertEqual(inspection.published_versions, ("sha-old",))
                 with self.assertRaises(ReplacementApprovalRequired):
                     await publication_store.publish_with_outcome(
-                        "batch-outcome", "sha-new", allow_version_replacement=False
+                        source_id, "sha-new", allow_version_replacement=False
                     )
                 replaced = await publication_store.publish_with_outcome(
-                    "batch-outcome", "sha-new", allow_version_replacement=True
+                    source_id, "sha-new", allow_version_replacement=True
                 )
                 self.assertEqual(replaced.disposition, "published")
                 self.assertEqual(replaced.retired_versions, ("sha-old",))
                 with self.assertRaises(PublicationError):
                     await publication_store.publish_with_outcome(
-                        "batch-outcome", "sha-old", allow_version_replacement=True
+                        source_id, "sha-old", allow_version_replacement=True
                     )
             finally:
                 await database.close()

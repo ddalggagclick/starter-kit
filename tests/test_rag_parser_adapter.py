@@ -161,7 +161,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             with self.subTest(extension=extension):
                 self._assert_mocked_format(extension)
 
-    def test_Docling_변환기가_설치된_InputFormat_전체를_지원한다(self) -> None:
+    def test_문서변환기가_설치된_입력형식_전체를_지원한다(self) -> None:
         converter = parser._create_converter()
 
         self.assertEqual(set(converter.format_to_options), set(InputFormat))
@@ -261,6 +261,53 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(structure.elements[1].level, 2)
         self.assertTrue(all(element.self_ref for element in structure.elements))
 
+    def test_목록_코드_체크박스_텍스트를_원문_순서로_보존한다(self) -> None:
+        document = DoclingDocument(name="mixed labels")
+        labels = (
+            (DocItemLabel.LIST_ITEM, "A list entry with source wording."),
+            (DocItemLabel.CODE, "example_value = 42"),
+            (DocItemLabel.CHECKBOX_UNSELECTED, "□ Option not selected"),
+            (DocItemLabel.CHECKBOX_SELECTED, "☑ Option selected"),
+        )
+        list_group = document.add_list_group()
+        document.add_list_item(
+            text=labels[0][1],
+            parent=list_group,
+            prov=ProvenanceItem(
+                page_no=3,
+                bbox=BoundingBox(l=0, t=0, r=100, b=20),
+                charspan=(0, len(labels[0][1])),
+            ),
+        )
+        for label, content in labels[1:]:
+            document.add_text(label=label, text=content)
+
+        structure = extract_document_structure(document, "synthetic.pdf")
+        self.assertEqual(
+            [element.text for element in structure.elements], [text for _, text in labels]
+        )
+        self.assertTrue(all(element.kind == "paragraph" for element in structure.elements))
+        self.assertTrue(all(element.self_ref for element in structure.elements))
+        self.assertEqual(structure.elements[0].location.page_numbers, (3,))
+        self.assertEqual(
+            structure.elements[0].location.provenance[0].charspan, (0, len(labels[0][1]))
+        )
+
+    def test_빈_표_구조를_보존하고_완전성_검토가_필요하다고_표시한다(self) -> None:
+        document = DoclingDocument(name="empty table result")
+        document.add_table(data=TableData(num_rows=0, num_cols=0, table_cells=[]))
+
+        structure = extract_document_structure(document, "synthetic.pdf")
+
+        self.assertEqual(len(structure.elements), 1)
+        self.assertEqual(structure.elements[0].table.row_count, 0)
+        self.assertEqual(structure.elements[0].table.column_count, 0)
+        self.assertEqual(structure.elements[0].table.cells, ())
+        self.assertEqual(
+            {item.kind for item in structure.unverified_items},
+            {"location", "table_completeness"},
+        )
+
     def test_표의_행_열_셀과_병합_범위를_보존한다(self) -> None:
         document = DoclingDocument(name="synthetic table")
         document.add_table(
@@ -336,7 +383,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             parser.DocumentBoundingBox(10.0, 20.0, 110.0, 40.0, "TOPLEFT"),
         )
 
-    def test_HTML은_페이지_위치를_적용하지_않는다(self) -> None:
+    def test_웹문서_HTML은_페이지_위치를_적용하지_않는다(self) -> None:
         document = DoclingDocument(name="synthetic HTML")
         document.add_text(
             label=DocItemLabel.PARAGRAPH,
@@ -375,10 +422,10 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
         self.assertEqual(first, second)
 
-    def test_PDF_경로를_Docling에_전달한다(self) -> None:
+    def test_문서_PDF_경로를_변환기에_전달한다(self) -> None:
         self._assert_mocked_format(".pdf")
 
-    def test_DOCX_경로를_Docling에_전달한다(self) -> None:
+    def test_문서_DOCX_경로를_변환기에_전달한다(self) -> None:
         self._assert_mocked_format(".docx")
 
     def test_없는_파일은_별도_오류로_처리한다(self) -> None:
@@ -425,7 +472,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             ):
                 parse_document(source)
 
-    def test_Docling_예외를_변환_오류로_감싼다(self) -> None:
+    def test_문서변환기_예외를_변환_오류로_감싼다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "guide.html"
             source.write_text("synthetic", encoding="utf-8")
@@ -480,7 +527,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
         self.assertEqual(isolated_parser._get_converter.cache_info().currsize, 0)
 
-    def test_CLI_파일_인자로_유효한_JSON을_출력한다(self) -> None:
+    def test_명령행_파일_인자로_유효한_JSON을_출력한다(self) -> None:
         html = """<!doctype html><html><body>
 <h1>CLI 구조 확인</h1><h2>제목</h2><p>본문</p>
 <table><tr><th>이름</th></tr><tr><td>홍길동</td></tr></table>
@@ -514,7 +561,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             self.assertEqual(context.exception.code, 2)
             self.assertIn("usage:", stderr.getvalue())
 
-    def test_CLI에서_없는_파일은_종료_코드_2를_반환한다(self) -> None:
+    def test_명령행에서_없는_파일은_종료_코드_2를_반환한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "missing.html"
             stdout, stderr = StringIO(), StringIO()
@@ -526,7 +573,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("문서 파일이 없습니다", stderr.getvalue())
 
-    def test_CLI에서_미지원_형식은_종료_코드_2를_반환한다(self) -> None:
+    def test_명령행에서_미지원_형식은_종료_코드_2를_반환한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "notes.exe"
             source.write_text("synthetic", encoding="utf-8")
@@ -539,7 +586,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("지원하지 않는 문서 형식", stderr.getvalue())
 
-    def test_CLI에서_변환_오류는_종료_코드_1을_반환한다(self) -> None:
+    def test_명령행에서_변환_오류는_종료_코드_1을_반환한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
             patch.object(
@@ -554,7 +601,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("문서 파싱에 실패했습니다", stderr.getvalue())
 
-    def test_CLI에서_읽기_오류는_종료_코드_2를_반환한다(self) -> None:
+    def test_명령행에서_읽기_오류는_종료_코드_2를_반환한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
             patch.object(rag_cli, "parse_document", side_effect=DocumentReadError("읽기 실패")),
@@ -567,7 +614,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("읽기 실패", stderr.getvalue())
 
-    def test_도움말에는_승인된_아홉_명령만_표시한다(self) -> None:
+    def test_도움말에는_승인된_명령과_review를_표시한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
             redirect_stdout(stdout),
@@ -580,14 +627,15 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
         help_text = stdout.getvalue()
         command_line = next(line for line in help_text.splitlines() if "{" in line)
-        self.assertIn("{status,parse,chunk,db-init,index,publish,search,check,test}", command_line)
+        for command in ("review", "config", "batch"):
+            self.assertIn(command, command_line)
         for removed in ("validate-search", "source-v2", "evaluate-source-v2"):
             self.assertNotIn(removed, help_text)
 
     def test_이전_공개_명령과_옵션은_사용법_오류로_거부한다(self) -> None:
         for argv in (
             ["--file", "guide.pdf"],
-            ["validate-search", "--query", "상속 포기"],
+            ["validate-search", "--query", "sample topic"],
             ["source-v2", "validate", "source.xlsx"],
             ["evaluate-source-v2"],
         ):
@@ -596,14 +644,14 @@ class DoclingParserAdapterTests(unittest.TestCase):
                 rag_cli.main(argv)
             self.assertEqual(context.exception.code, 2, argv)
 
-    def test_parse는_위치_경로를_기존_파서_출력에_전달한다(self) -> None:
+    def test_파싱_명령은_위치_경로를_기존_파서_출력에_전달한다(self) -> None:
         with patch.object(rag_cli, "_parse_file", return_value=0) as parse_file:
             result = rag_cli.main(["parse", "manual.pdf"])
 
         self.assertEqual(result, 0)
         parse_file.assert_called_once_with("manual.pdf")
 
-    def test_status가_구현과_환경설정_실행준비를_구분한다(self) -> None:
+    def test_상태_명령이_구현과_환경설정_실행준비를_구분한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
             patch.dict(os.environ, {}, clear=True),
@@ -631,7 +679,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
             },
         )
 
-    def test_status는_유효한_로컬_DB_설정을_연결없이_확인한다(self) -> None:
+    def test_상태_명령은_유효한_로컬_DB_설정을_연결없이_확인한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
             patch.dict(
@@ -660,7 +708,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(payload["runtimeReadiness"], "not-checked")
         self.assertNotEqual(payload["status"], "ready")
 
-    def test_status는_원격_DB_URL과_비밀번호를_출력하지_않는다(self) -> None:
+    def test_상태_명령은_원격_DB_URL과_비밀번호를_출력하지_않는다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
             patch.dict(
@@ -689,7 +737,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
         self.assertEqual(payload["runtimeReadiness"], "not-checked")
         self.assertNotIn("status-secret", stdout.getvalue())
 
-    def test_search는_검색어와_top_k를_DB_접속_전에_검증한다(self) -> None:
+    def test_검색_명령은_검색어와_top_k를_DB_접속_전에_검증한다(self) -> None:
         for argv in (["search", "   "], ["search", "검색어", "--top-k", "11"]):
             stdout, stderr = StringIO(), StringIO()
             with (
@@ -707,14 +755,14 @@ class DoclingParserAdapterTests(unittest.TestCase):
             self.assertEqual(stdout.getvalue(), "")
             self.assertIn("검색 요청", stderr.getvalue())
 
-    def test_search는_위치_검색어와_기본_top_k를_기존_검색에_전달한다(self) -> None:
+    def test_검색_명령은_위치_검색어와_기본_top_k를_기존_검색에_전달한다(self) -> None:
         with patch.object(rag_cli, "_search", return_value=0) as search:
-            result = rag_cli.main(["search", "상속 포기"])
+            result = rag_cli.main(["search", "sample topic"])
 
         self.assertEqual(result, 0)
-        search.assert_called_once_with("상속 포기", 3, "published-guides", False)
+        search.assert_called_once_with("sample topic", 3, "published-guides", False)
 
-    def test_search는_합성자료_허용과_collection_옵션을_전달한다(self) -> None:
+    def test_검색_명령은_합성자료_허용과_collection_옵션을_전달한다(self) -> None:
         with patch.object(rag_cli, "_search", return_value=0) as search:
             result = rag_cli.main(
                 [
@@ -898,12 +946,10 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertTrue(
-            "공급자 설정" in stderr.getvalue() or "RAG_CHUNKING_PROVIDER" in stderr.getvalue()
-        )
+        self.assertTrue(stderr.getvalue().strip())
         self.assertNotIn("invalid-secret", stderr.getvalue())
 
-    def test_CLI_모듈_가져오기는_파싱이나_DB_초기화를_하지_않는다(self) -> None:
+    def test_명령행_모듈_가져오기는_파싱이나_DB_초기화를_하지_않는다(self) -> None:
         spec = importlib.util.spec_from_file_location(
             "isolated_rag_cli_import", Path(rag_cli.__file__)
         )

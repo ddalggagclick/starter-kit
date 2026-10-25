@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from starter_rag.storage.vector_store import IndexOutcome
 
 from starter_rag.ingestion.chunking import (
+    DEFAULT_PROMPT_TOKEN_BUDGET,
     DEFAULT_TARGET_TOKENS,
     DocumentChunk,
     chunk_document,
@@ -47,9 +49,24 @@ async def chunk_document_with_config(
     target_tokens: int = DEFAULT_TARGET_TOKENS,
     environ: Mapping[str, str] | None = None,
     model_factory: Callable[[Mapping[str, str] | None], BaseChatModel] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> tuple[DocumentChunk, ...]:
     configured_model_factory = model_factory or create_chunking_model_from_environment
     model = configured_model_factory(environ)
+    values = os.environ if environ is None else environ
+    try:
+        context_tokens = int(values.get("RAG_CHUNKING_CONTEXT_TOKENS", "4096"))
+        reserve_tokens = int(values.get("RAG_CHUNKING_RESPONSE_RESERVE_TOKENS", "1024"))
+    except ValueError:
+        raise ValueError("RAG 청킹 컨텍스트와 응답 예산은 정수여야 합니다.") from None
+    if context_tokens <= 0 or reserve_tokens < 0 or reserve_tokens >= context_tokens:
+        raise ValueError("RAG 청킹 컨텍스트는 응답 예산보다 커야 합니다.")
+    prompt_token_budget = context_tokens - reserve_tokens
+    if (
+        "RAG_CHUNKING_CONTEXT_TOKENS" not in values
+        and "RAG_CHUNKING_RESPONSE_RESERVE_TOKENS" not in values
+    ):
+        prompt_token_budget = DEFAULT_PROMPT_TOKEN_BUDGET
     return await chunk_document(
         structure,
         source_id=source_id,
@@ -57,6 +74,8 @@ async def chunk_document_with_config(
         model=model,
         count_tokens=count_tokens,
         target_tokens=target_tokens,
+        prompt_token_budget=prompt_token_budget,
+        progress=progress,
     )
 
 
