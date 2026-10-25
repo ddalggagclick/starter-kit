@@ -32,6 +32,7 @@ import { ChatPage } from "@/features/chat/chat-page"
 import { ChecklistPage } from "@/features/checklist/checklist-page"
 import { InitialQuestionsPage } from "@/features/checklist/initial-questions-page"
 import { LandingPage } from "@/features/checklist/landing-page"
+import { useServerChecklistSync } from "@/features/checklist/server-checklist"
 import { useChecklistPersistence } from "@/features/checklist/use-checklist-persistence"
 import { RelationshipGuidePage, TaxGuidePage } from "@/features/law/guide-page"
 import { ProcedureDetailPage } from "@/features/procedures/procedure-detail"
@@ -119,6 +120,8 @@ function AppLayout() {
   useSessionRestore()
   // 동의한 경우에만 체크리스트를 이 기기에 저장·복원한다(4-2-1). 어느 화면에서 바꿔도 저장되도록 레이아웃에서 시작한다.
   useChecklistPersistence()
+  // 로그인 사용자의 서버 체크리스트 저장(A17). 비로그인이면 요청하지 않는다.
+  useServerChecklistSync()
   return (
     <div className="flex min-h-svh flex-col">
       <SiteHeader />

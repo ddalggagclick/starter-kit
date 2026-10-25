@@ -30,6 +30,7 @@ import { countGuidance, useInheritanceStore } from "@/shared/state/inheritance-s
 import { ChecklistConsentBand } from "./checklist-consent-band"
 import { ChecklistStorageControls } from "./checklist-storage-controls"
 import { RiskQuestions } from "./risk-questions"
+import { ServerSaveBand } from "./server-save-band"
 
 const labelOf = <T extends string>(options: { value: T; label: string }[], value: T) =>
   options.find((option) => option.value === value)?.label ?? value
@@ -216,6 +217,7 @@ export function ChecklistPage() {
           <AnswerSummary answers={answers} />
           <ChecklistConsentBand />
           <ChecklistStorageControls />
+          <ServerSaveBand />
         </CardContent>
       </Card>
 
