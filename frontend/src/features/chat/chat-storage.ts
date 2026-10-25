@@ -4,17 +4,20 @@
  * 구현: 체크리스트 동의와 따로 받는다. 동의 기록과 지금 화면의 대화를 한 트랜잭션으로 저장하고,
  *   이후 질문이 끝날 때마다 순서대로 저장한다. 표시 상태는 실제 저장 결과로만 정한다.
  *   저장 규칙: 검증된 답변(S3)은 본문·출처, 판단 유보(S7)는 질문만(답변 빈 값), 기술 오류(S6)·사용 제한(S9)은 저장하지 않는다.
+ *   [대화 기록 삭제]는 이 기기의 대화를 모두 지우고 동의를 유지하며, 동의 철회는 대화와 동의를 함께 지운다(4-3-2·4-3-3).
+ *   둘 다 저장 순서 큐에서 처리해 대기 중이던 저장이 삭제 뒤에 다시 쓰지 않게 한다.
  * 제한사항: 저장은 shared/storage의 동의 확인 함수로만 한다. 서버에 대화 원문을 보내 저장하지 않는다.
- *   [대화 기록 삭제] 전체 삭제·동의 철회 UI(4-3)는 후속 이슈다.
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { SseResultEvent } from "@/shared/api/types"
 import type { StorageStatus } from "@/shared/contracts/ui"
 import {
   type ChatWriteInput,
+  deleteScopeData,
   grantChatConsentWithConversation,
   loadConsentStatuses,
   type NewMessage,
+  revokeConsent,
   saveChatWithConsent,
 } from "@/shared/storage/consent"
 import {
@@ -150,6 +153,8 @@ export const useChatStorage = (db: InheritanceDb, namespace: StorageNamespace) =
   const queue = useRef<Promise<void>>(Promise.resolve())
   // namespace가 바뀐 뒤 도착한 이전 영역의 결과를 버린다.
   const generation = useRef(0)
+  // 전체 삭제·철회를 시작한 시점까지의 대화. 그 뒤에 끝난 답변이 삭제된 대화를 다시 만들지 않게 저장을 건너뛴다.
+  const invalidated = useRef(new Set<string>())
 
   const refreshList = useCallback(
     async (gen: number) => {
@@ -224,6 +229,7 @@ export const useChatStorage = (db: InheritanceDb, namespace: StorageNamespace) =
       const gen = generation.current
       queue.current = queue.current.then(async () => {
         if (!consented.current || gen !== generation.current) return
+        if (invalidated.current.has(meta.id)) return
         const messages = turnToMessages(meta.id, turn, Date.now())
         if (!messages) return
         const input: ChatWriteInput = savedIds.current.has(meta.id)
@@ -270,6 +276,58 @@ export const useChatStorage = (db: InheritanceDb, namespace: StorageNamespace) =
     [db, namespace, refreshList],
   )
 
+  // 저장 순서 큐에서 실행하고 결과를 돌려준다.
+  const runInQueue = useCallback(<T>(task: () => Promise<T>): Promise<T> => {
+    const run = queue.current.then(task)
+    queue.current = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }, [])
+
+  // 삭제를 시작하는 즉시(큐를 기다리기 전에) 저장된 대화와 지금 화면의 대화를 무효로 표시한다.
+  const invalidate = useCallback((currentIds: string[]) => {
+    for (const id of savedIds.current) invalidated.current.add(id)
+    for (const id of currentIds) invalidated.current.add(id)
+  }, [])
+
+  // [대화 기록 삭제](4-3-2): 이 계정의 대화를 모두 지우고 동의는 유지한다. 실패하면 그대로 두고 false.
+  // currentIds: 화면에서 진행 중인 대화(아직 저장 전일 수 있음). 그 대화의 늦은 답변도 저장하지 않는다.
+  const removeAll = useCallback(
+    (currentIds: string[] = []): Promise<boolean> => {
+      const gen = generation.current
+      invalidate(currentIds)
+      return runInQueue(async () => {
+        const result = await deleteScopeData(db, namespace, "chat")
+        if (!result.ok || gen !== generation.current) return result.ok
+        savedIds.current = new Set()
+        setConversations([])
+        return true
+      })
+    },
+    [db, namespace, runInQueue, invalidate],
+  )
+
+  // AI 대화 저장 동의 철회(4-3-3): 대화와 동의를 함께 지운다. 실패하면 둘 다 남고 false(4-3-4).
+  const revoke = useCallback(
+    (currentIds: string[] = []): Promise<boolean> => {
+      const gen = generation.current
+      invalidate(currentIds)
+      return runInQueue(async () => {
+        const result = await revokeConsent(db, namespace, "chat")
+        if (!result.ok || gen !== generation.current) return result.ok
+        consented.current = false
+        savedIds.current = new Set()
+        setConversations([])
+        setDeclined(false)
+        setStatus("not-consented")
+        return true
+      })
+    },
+    [db, namespace, runInQueue, invalidate],
+  )
+
   const isSaved = useCallback((conversationId: string) => savedIds.current.has(conversationId), [])
 
   return {
@@ -281,6 +339,8 @@ export const useChatStorage = (db: InheritanceDb, namespace: StorageNamespace) =
     saveTurn,
     open,
     remove,
+    removeAll,
+    revoke,
     isSaved,
     // 테스트·화면 이탈 전 대기용
     flush: () => queue.current,

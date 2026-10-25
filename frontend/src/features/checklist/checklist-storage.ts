@@ -1,19 +1,24 @@
 /*
  * 담당: [A] | 책임: W-02 체크리스트의 저장 동의 상태와 IndexedDB 저장·복원 연결.
- * PRD: E4 / 태스크 4-2-1, 2-5-3, 4-1-2, 4-2-3, 4-2-4, 2-4-3, 2-4-4. 화면정의서 D-02·D-09·D-10·D-12. 정책 S04-A·S10-A.
+ * PRD: E4 / 태스크 4-2-1, 2-5-3, 4-1-2, 4-2-3, 4-2-4, 2-4-3, 2-4-4, 4-3-2, 4-3-3, 4-3-4.
+ *   화면정의서 D-02·D-04·D-09·D-10·D-12. 정책 S04-A·S07-C·S10-A·T07-A.
  * 구현: 시작할 때 동의를 확인해 동의했으면 같은 namespace 기록을 복원한다. 동의 상태에서는 체크리스트(Zustand)가
  *   바뀔 때마다 순서대로 저장한다. 동의하는 순간 현재 메모리 상태를 바로 저장한다.
  * 완료 기준: 미동의면 IndexedDB 기록 0건, 저장 성공 전에는 '저장 중'을 표시하지 않고, 실패해도 메모리 이용은 계속된다.
  * 제한사항: 저장은 shared/storage의 동의 확인 함수로만 한다(Dexie 테이블 직접 조작 금지).
- *   계정별 namespace 전환(4-2-2)은 인증 이슈에서 namespace 인자로 연결한다. 삭제·철회 UI(4-3)는 후속 이슈다.
+ *   [체크리스트 삭제]는 기록만 지우고 동의를 유지하며 화면 데이터도 비운다(곧바로 다시 저장되지 않게).
+ *   동의 철회는 기록과 동의를 함께 지우고 메모리를 초기화한다(T07-A). 둘 다 저장 순서 큐에서 처리한다.
  *   저장 기록과 새 카카오 응답이 충돌할 때의 선택 UI(T06-B)는 없다. 메모리에 답이 있으면 복원하지 않는다.
  */
 import { create } from "zustand"
+import type { StorageActionResult } from "@/components/ui/storage-controls"
 import type { StorageStatus } from "@/shared/contracts/ui"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import {
+  deleteScopeData,
   grantChecklistConsentWithSnapshot,
   loadConsentStatuses,
+  revokeConsent,
   saveChecklistWithConsent,
 } from "@/shared/storage/consent"
 import {
@@ -32,12 +37,16 @@ type ChecklistStorageState = {
   status: ChecklistStorageStatus
   // [저장 안 함]을 누르면 이번 방문 동안 동의 띠를 접는다. 저장하지 않으므로 다음 방문에 다시 묻는다.
   declined: boolean
+  // 마지막 삭제·철회 결과. 성공하면 화면 데이터가 비워져 W-02가 다른 화면으로 바뀌므로 여기서 보관한다.
+  // 요청한 계정(namespace)과 함께 보관해 다른 계정 화면에는 보이지 않게 한다.
+  lastAction: (StorageActionResult & { namespace: StorageNamespace }) | null
 }
 
 export const useChecklistStorageStore = create<ChecklistStorageState>()(() => ({
   namespace: GUEST_NAMESPACE,
   status: "checking",
   declined: false,
+  lastAction: null,
 }))
 
 const setStatus = (status: ChecklistStorageStatus) => useChecklistStorageStore.setState({ status })
@@ -59,8 +68,13 @@ export type ChecklistPersistence = {
   stop: () => void
 }
 
-// 지금 실행 중인 저장 연결. [저장] 버튼이 동의 직후의 후속 저장을 같은 순서 큐에 넣을 때 쓴다.
-type ActivePersistence = { namespace: StorageNamespace; enableAndSave: () => Promise<void> }
+// 지금 실행 중인 저장 연결. [저장]·[삭제]·[철회] 버튼이 같은 순서 큐에 작업을 넣을 때 쓴다.
+type ActivePersistence = {
+  namespace: StorageNamespace
+  enableAndSave: () => Promise<void>
+  deleteData: () => Promise<boolean>
+  revoke: () => Promise<boolean>
+}
 let activePersistence: ActivePersistence | null = null
 
 // 앱 레이아웃에서 한 번 시작한다. namespace가 바뀌면 stop 후 다시 시작한다.
@@ -73,7 +87,12 @@ export const startChecklistPersistence = (
   // 표시 상태(ready)로 판단하면 동의 처리·시작 확인 중에 바뀐 내용이 저장되지 않는다.
   let consented = false
   let queue: Promise<void> = Promise.resolve()
-  useChecklistStorageStore.setState({ namespace, status: "checking", declined: false })
+  useChecklistStorageStore.setState({
+    namespace,
+    status: "checking",
+    declined: false,
+    lastAction: null,
+  })
 
   // 저장은 이전 저장이 끝난 뒤 그 순간의 최신 상태로 한다. 저장 중에 바뀐 내용은 다음 저장이 담는다.
   // 표시 상태는 실제 저장 결과로만 정한다(D-10).
@@ -112,7 +131,42 @@ export const startChecklistPersistence = (
     consented = true
     return save()
   }
-  const self: ActivePersistence = { namespace, enableAndSave }
+
+  // 삭제·철회는 저장과 같은 순서 큐에서 처리한다. 대기 중이던 저장이 삭제 뒤에 기록을 다시 쓰지 않게 한다.
+  const runInQueue = <T>(task: () => Promise<T>): Promise<T> => {
+    const run = queue.then(task)
+    queue = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  // [체크리스트 삭제](4-3-2): 기록만 지우고 동의는 유지한다. 실패하면 기록·화면을 그대로 두고 false.
+  const deleteData = () =>
+    runInQueue(async () => {
+      const result = await deleteScopeData(db, namespace, "checklist")
+      if (!result.ok) return false
+      // 동의가 유지되므로 화면 데이터를 남기면 다음 조작 때 바로 다시 저장된다. 함께 비운다.
+      if (active) useInheritanceStore.getState().reset()
+      return true
+    })
+
+  // 동의 철회(4-3-3): 기록과 동의를 함께 지운다. 실패하면 둘 다 남고 false(4-3-4).
+  const revoke = () =>
+    runInQueue(async () => {
+      const result = await revokeConsent(db, namespace, "checklist")
+      if (!result.ok) return false
+      // 메모리를 비우기 전에 자동 저장을 끈다. 그래야 초기화가 저장으로 이어지지 않는다.
+      consented = false
+      if (active) {
+        useInheritanceStore.getState().reset()
+        useChecklistStorageStore.setState({ status: "not-consented", declined: false })
+      }
+      return true
+    })
+
+  const self: ActivePersistence = { namespace, enableAndSave, deleteData, revoke }
   activePersistence = self
 
   const ready = (async () => {
@@ -163,3 +217,15 @@ export const grantChecklistStorage = async (db: InheritanceDb): Promise<void> =>
 }
 
 export const declineChecklistStorage = () => useChecklistStorageStore.setState({ declined: true })
+
+// 요청한 계정의 저장 연결이 지금 실행 중일 때만 돌려준다. 계정이 바뀌었으면 다른 계정 기록을 건드리지 않도록 null.
+const persistenceFor = (namespace: StorageNamespace) =>
+  activePersistence?.namespace === namespace ? activePersistence : null
+
+// [체크리스트 삭제]. 요청한 계정(namespace)에만 실행하고 성공 여부를 돌려준다. 그 계정이 저장 중이 아니면 false.
+export const deleteChecklistRecords = (namespace: StorageNamespace): Promise<boolean> =>
+  persistenceFor(namespace)?.deleteData() ?? Promise.resolve(false)
+
+// 체크리스트 저장 동의 철회. 요청한 계정에만 실행하고 성공 여부를 돌려준다.
+export const revokeChecklistStorage = (namespace: StorageNamespace): Promise<boolean> =>
+  persistenceFor(namespace)?.revoke() ?? Promise.resolve(false)

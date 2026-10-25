@@ -2,7 +2,8 @@
 // AI 대화 저장 변환 단위 테스트(3-6-1, D-14): 제목, 저장 규칙(답변·판단 유보·오류), 저장 기록 → 화면 복원.
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { loadConsentStatuses } from "@/shared/storage/consent"
 import { GUEST_NAMESPACE, InheritanceDb, type MessageRecord } from "@/shared/storage/db"
 import {
   type ChatTurn,
@@ -117,6 +118,99 @@ describe("useChatStorage 동의 중 완료된 답변 (리뷰 회귀 P2)", () => 
 
     expect(await db.messages.count()).toBe(2)
     expect((await db.conversations.get([GUEST_NAMESPACE, "c1"]))?.title).toBe(meta.title)
+    db.close()
+  })
+})
+
+describe("useChatStorage 삭제·철회 (4-3-2, 4-3-3, 4-3-4)", () => {
+  const meta = { id: "c1", title: "질문", createdAt: 1 }
+
+  const savingHook = async (name: string) => {
+    const db = new InheritanceDb(name, { indexedDB: new IDBFactory(), IDBKeyRange })
+    const hook = renderHook(() => useChatStorage(db, GUEST_NAMESPACE))
+    await waitFor(() => expect(hook.result.current.status).toBe("not-consented"))
+    await act(async () => {
+      await hook.result.current.grant(meta, [answered])
+    })
+    await waitFor(() => expect(hook.result.current.conversations).toHaveLength(1))
+    return { db, hook }
+  }
+
+  it("[대화 기록 삭제]는 대화만 지우고 동의는 유지해 이후 질문은 다시 저장된다", async () => {
+    const { db, hook } = await savingHook("chat-remove-all")
+
+    let ok = false
+    await act(async () => {
+      ok = await hook.result.current.removeAll()
+    })
+
+    expect(ok).toBe(true)
+    expect(await db.conversations.count()).toBe(0)
+    expect(hook.result.current.status).toBe("ready")
+    await act(async () => {
+      await hook.result.current.saveTurn({ ...meta, id: "c2" }, answered)
+    })
+    expect(await db.conversations.count()).toBe(1)
+    db.close()
+  })
+
+  it("동의 철회는 대화와 동의를 지우고, 이후 질문은 저장하지 않는다", async () => {
+    const { db, hook } = await savingHook("chat-revoke")
+
+    await act(async () => {
+      await hook.result.current.revoke()
+    })
+
+    expect(hook.result.current.status).toBe("not-consented")
+    expect((await loadConsentStatuses(db, GUEST_NAMESPACE)).chat).toBe("not-consented")
+    await act(async () => {
+      await hook.result.current.saveTurn({ ...meta, id: "c2" }, answered)
+    })
+    expect(await db.messages.count()).toBe(0)
+    db.close()
+  })
+
+  it("삭제가 실패하면 false이고 대화와 동의가 그대로다", async () => {
+    const { db, hook } = await savingHook("chat-remove-fail")
+    vi.spyOn(db.messages, "where").mockImplementation(() => {
+      throw new Error("삭제 실패")
+    })
+
+    let removed = true
+    let revoked = true
+    await act(async () => {
+      removed = await hook.result.current.removeAll()
+      revoked = await hook.result.current.revoke()
+    })
+
+    vi.restoreAllMocks()
+    expect([removed, revoked]).toEqual([false, false])
+    expect(await db.conversations.count()).toBe(1)
+    expect((await loadConsentStatuses(db, GUEST_NAMESPACE)).chat).toBe("ready")
+    db.close()
+  })
+})
+
+describe("리뷰 회귀 P2: 삭제 중 끝난 답변", () => {
+  it("대화 전체 삭제를 시작한 뒤 끝난 이전 대화의 답변은 다시 저장하지 않는다", async () => {
+    const db = new InheritanceDb("chat-remove-race", { indexedDB: new IDBFactory(), IDBKeyRange })
+    const { result } = renderHook(() => useChatStorage(db, GUEST_NAMESPACE))
+    await waitFor(() => expect(result.current.status).toBe("not-consented"))
+    const meta = { id: "c1", title: "질문", createdAt: 1 }
+    await act(async () => {
+      await result.current.grant(meta, [answered])
+    })
+
+    // 삭제를 시작한 직후, 같은 대화의 진행 중이던 답변이 끝나 저장을 요청한다.
+    await act(async () => {
+      const removing = result.current.removeAll([meta.id])
+      const saving = result.current.saveTurn(meta, { ...answered, id: 101 })
+      await removing
+      await saving
+    })
+
+    expect(await db.conversations.count()).toBe(0)
+    expect(await db.messages.count()).toBe(0)
     db.close()
   })
 })

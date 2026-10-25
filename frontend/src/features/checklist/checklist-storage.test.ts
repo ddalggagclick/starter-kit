@@ -5,11 +5,19 @@ import { IDBFactory, IDBKeyRange } from "fake-indexeddb"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { InitialAnswers } from "@/shared/contracts/domain"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
-import { GUEST_NAMESPACE, InheritanceDb, loadChecklist } from "@/shared/storage/db"
+import { grantConsent, loadConsentStatuses } from "@/shared/storage/consent"
+import {
+  accountNamespace,
+  GUEST_NAMESPACE,
+  InheritanceDb,
+  loadChecklist,
+} from "@/shared/storage/db"
 import {
   type ChecklistPersistence,
   declineChecklistStorage,
+  deleteChecklistRecords,
   grantChecklistStorage,
+  revokeChecklistStorage,
   startChecklistPersistence,
   useChecklistStorageStore,
 } from "./checklist-storage"
@@ -227,5 +235,90 @@ describe("리뷰 회귀: 저장 중 변경·실패 표시", () => {
     expect(status()).toBe("failed")
     // 복원한 내용으로 메모리 이용은 계속된다.
     expect(store().answers).toEqual(ANSWERS)
+  })
+})
+
+describe("삭제·철회 (4-3-2, 4-3-3, 4-3-4)", () => {
+  const startSaving = async () => {
+    await start()
+    store().setInitialAnswers(ANSWERS, "direct")
+    store().setGuidanceRead("p01", true)
+    await grantChecklistStorage(db)
+    await persistence.flush()
+  }
+
+  it("[체크리스트 삭제]는 기록과 화면 데이터를 지우고 동의는 유지해 이후 내용은 다시 저장된다", async () => {
+    await startSaving()
+
+    expect(await deleteChecklistRecords(GUEST_NAMESPACE)).toBe(true)
+
+    expect(await loadChecklist(db, GUEST_NAMESPACE)).toEqual({ ok: true, value: null })
+    expect(store().answers).toBeNull()
+    expect((await loadConsentStatuses(db, GUEST_NAMESPACE)).checklist).toBe("ready")
+    store().setInitialAnswers({ ...ANSWERS, relationship: "sibling" }, "direct")
+    await persistence.flush()
+    const saved = await loadChecklist(db, GUEST_NAMESPACE)
+    expect(saved.ok && saved.value?.answers?.relationship).toBe("sibling")
+  })
+
+  it("대기 중이던 저장이 삭제 뒤에 기록을 다시 쓰지 않는다", async () => {
+    await startSaving()
+
+    store().setGuidanceRead("p02", true) // 저장이 큐에 들어간다
+    await deleteChecklistRecords(GUEST_NAMESPACE)
+    await persistence.flush()
+
+    expect(await loadChecklist(db, GUEST_NAMESPACE)).toEqual({ ok: true, value: null })
+  })
+
+  it("동의 철회는 기록·동의를 지우고 메모리를 비우며, 이후 변경은 저장하지 않는다. AI 대화 동의는 그대로다", async () => {
+    await grantConsent(db, GUEST_NAMESPACE, "chat")
+    await startSaving()
+
+    expect(await revokeChecklistStorage(GUEST_NAMESPACE)).toBe(true)
+
+    expect(status()).toBe("not-consented")
+    expect(store().answers).toBeNull()
+    expect(await loadConsentStatuses(db, GUEST_NAMESPACE)).toEqual({
+      checklist: "not-consented",
+      chat: "ready",
+    })
+    store().setInitialAnswers(ANSWERS, "direct")
+    await persistence.flush()
+    expect(await db.checklists.count()).toBe(0)
+  })
+
+  it("삭제가 실패하면 false이고 기록·화면 데이터·동의가 모두 그대로다", async () => {
+    await startSaving()
+    vi.spyOn(db.checklists, "delete").mockRejectedValue(new Error("삭제 실패"))
+
+    expect(await deleteChecklistRecords(GUEST_NAMESPACE)).toBe(false)
+    expect(await revokeChecklistStorage(GUEST_NAMESPACE)).toBe(false)
+
+    vi.restoreAllMocks()
+    expect(store().answers).toEqual(ANSWERS)
+    const saved = await loadChecklist(db, GUEST_NAMESPACE)
+    expect(saved.ok && saved.value?.answers).toEqual(ANSWERS)
+    expect((await loadConsentStatuses(db, GUEST_NAMESPACE)).checklist).toBe("ready")
+    expect(status()).toBe("ready")
+  })
+})
+
+describe("리뷰 회귀 P1: 요청한 계정에 고정", () => {
+  it("A 계정으로 요청한 삭제·철회는 지금 B 계정 저장 영역에 실행되지 않는다", async () => {
+    const B = accountNamespace("user-b")
+    persistence = startChecklistPersistence(db, B)
+    await persistence.ready
+    store().setInitialAnswers(ANSWERS, "direct")
+    await grantChecklistStorage(db)
+    await persistence.flush()
+
+    const A = accountNamespace("user-a")
+    expect(await deleteChecklistRecords(A)).toBe(false)
+    expect(await revokeChecklistStorage(A)).toBe(false)
+
+    const saved = await loadChecklist(db, B)
+    expect(saved.ok && saved.value?.answers).toEqual(ANSWERS)
+    expect((await loadConsentStatuses(db, B)).checklist).toBe("ready")
   })
 })
