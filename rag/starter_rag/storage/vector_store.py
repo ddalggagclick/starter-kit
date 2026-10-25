@@ -97,8 +97,9 @@ def _chunk_metadata(
     is_synthetic: bool,
     chunk: object,
     state: str = "staging",
+    review_sha256: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    metadata = {
         "source_id": source_id,
         "version": version,
         "publication_state": state,
@@ -114,6 +115,9 @@ def _chunk_metadata(
         "chunk_kind": getattr(chunk, "kind", None),
         "element_ids": list(getattr(chunk, "element_ids", ())),
     }
+    if review_sha256 is not None:
+        metadata["hitl_review_sha256"] = review_sha256
+    return metadata
 
 
 def _validate_vectors(vectors: Sequence[Sequence[float]], expected: int) -> None:
@@ -134,7 +138,7 @@ class PGVectorStore(VectorPort):
     def __init__(
         self,
         database: PostgresRagDatabase,
-        embedding: EmbeddingPort,
+        embedding: EmbeddingPort | None = None,
         *,
         collection_id: str = DEFAULT_COLLECTION_ID,
     ) -> None:
@@ -153,6 +157,11 @@ class PGVectorStore(VectorPort):
         if self.database is None:
             raise VectorStoreError("a PostgreSQL RAG database is required for storage operations")
         return self.database
+
+    def _require_embedding(self) -> EmbeddingPort:
+        if self.embedding is None:
+            raise VectorStoreError("an embedding port is required for vector operations")
+        return self.embedding
 
     async def _vectorstore(self) -> AsyncPGVectorStore:
         if self._store is None:
@@ -182,7 +191,7 @@ class PGVectorStore(VectorPort):
         self._require_database()
         self._validate_chunk_identity(chunks)
         texts = tuple(chunk.text for chunk in chunks)
-        vectors = await self.embedding.embed_documents(texts)
+        vectors = await self._require_embedding().embed_documents(texts)
         _validate_vectors(vectors, len(chunks))
         metadata = [
             _chunk_metadata(
@@ -212,6 +221,7 @@ class PGVectorStore(VectorPort):
         chunks: tuple[object, ...],
         *,
         is_synthetic: bool = False,
+        review_sha256: str | None = None,
     ) -> IndexOutcome:
         """Embed and stage a complete document version, then mark it indexed."""
         if is_synthetic and self.collection_id == DEFAULT_COLLECTION_ID:
@@ -258,6 +268,7 @@ class PGVectorStore(VectorPort):
                     or row["source_url"] != document.source.url
                     or row["publisher"] != document.source.publisher
                     or row["is_synthetic"] != is_synthetic
+                    or (row.get("metadata") or {}).get("hitl_review_sha256") != review_sha256
                 ):
                     raise DocumentVersionConflictError(
                         "same source/version was indexed with different content or provenance"
@@ -299,7 +310,7 @@ class PGVectorStore(VectorPort):
                 )
 
         texts = tuple(str(chunk.text) for chunk in chunks)
-        vectors = await self.embedding.embed_documents(texts)
+        vectors = await self._require_embedding().embed_documents(texts)
         _validate_vectors(vectors, len(chunks))
         metadatas = [
             _chunk_metadata(
@@ -313,6 +324,7 @@ class PGVectorStore(VectorPort):
                 publisher=document.source.publisher,
                 is_synthetic=is_synthetic,
                 chunk=chunk,
+                review_sha256=review_sha256,
             )
             for chunk in chunks
         ]
@@ -385,7 +397,7 @@ class PGVectorStore(VectorPort):
         allow_synthetic: bool = False,
     ) -> tuple[DenseVectorHit, ...]:
         if not 1 <= top_k <= 10:
-            raise ValueError("search top_k must be within 1..10")
+            raise ValueError("internal search candidate count must be within 1..10")
         if allow_synthetic and self.collection_id == DEFAULT_COLLECTION_ID:
             raise ValueError("synthetic search is available only in an isolated test collection")
         self._require_database()
@@ -418,7 +430,7 @@ class PGVectorStore(VectorPort):
     async def search_dense(self, request: SearchRequest):
         from starter_rag.retrieval.search import PGVectorSearch
 
-        return await PGVectorSearch(self, self.embedding).search(request)
+        return await PGVectorSearch(self, self._require_embedding()).search(request)
 
     async def get_by_id(self, chunk_id: str) -> ChunkRecord | None:
         database = self._require_database()
@@ -441,6 +453,15 @@ class PGVectorStore(VectorPort):
             text=row["content"],
             location=row["location"],
         )
+
+    async def _published_chunk_ids(self, chunk_ids: Sequence[str]) -> set[str]:
+        """Return published IDs from this configured collection."""
+        rows = await self._rows_for_chunk_ids(
+            chunk_ids,
+            collection_id=self.collection_id,
+            publication_state="published",
+        )
+        return {str(row["chunk_id"]) for row in rows}
 
     async def delete_version(self, source_id: str, version: str) -> None:
         """Delete only unpublished rows; published versions are protected."""
@@ -491,7 +512,7 @@ class PGVectorStore(VectorPort):
                 text(
                     f"""SELECT chunk_id, content, content_sha256, publication_state,
                     embedding_model_id, embedding_model_revision, location, source_title,
-                    source_url, publisher, is_synthetic
+                    source_url, publisher, is_synthetic, metadata
                     FROM {self.table_name} WHERE collection_id = :collection_id
                       AND source_id = :source_id AND version = :version"""
                 ),
@@ -503,14 +524,31 @@ class PGVectorStore(VectorPort):
             )
             return list(result.mappings().all())
 
-    async def _rows_for_chunk_ids(self, chunk_ids: Sequence[str]) -> list[Mapping[str, Any]]:
+    async def _rows_for_chunk_ids(
+        self,
+        chunk_ids: Sequence[str],
+        *,
+        collection_id: str | None = None,
+        publication_state: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        if not chunk_ids:
+            return []
         database = self._require_database()
         async with database.sql_engine.connect() as connection:
+            await connection.execute(text("SET TRANSACTION READ ONLY"))
+            filters = ["chunk_id IN :chunk_ids"]
+            parameters: dict[str, object] = {"chunk_ids": list(chunk_ids)}
+            if collection_id is not None:
+                filters.append("collection_id = :collection_id")
+                parameters["collection_id"] = collection_id
+            if publication_state is not None:
+                filters.append("publication_state = :publication_state")
+                parameters["publication_state"] = publication_state
             result = await connection.execute(
                 text(
-                    f"""SELECT chunk_id, collection_id, source_id, version
-                    FROM {self.table_name} WHERE chunk_id IN :chunk_ids"""
+                    f"""SELECT chunk_id, collection_id, source_id, version, publication_state
+                    FROM {self.table_name} WHERE {" AND ".join(filters)}"""
                 ).bindparams(bindparam("chunk_ids", expanding=True)),
-                {"chunk_ids": list(chunk_ids)},
+                parameters,
             )
             return list(result.mappings().all())

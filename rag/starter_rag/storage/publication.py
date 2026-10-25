@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -33,6 +34,16 @@ class PublicationInspection:
 
 
 @dataclass(frozen=True)
+class _PublishedVersionIdentity:
+    chunk_count: int
+    content_sha256: str | None
+    review_sha256: str | None
+    source_title: str | None = None
+    publisher: str | None = None
+    source_url: str | None = None
+
+
+@dataclass(frozen=True)
 class PublicationOutcome:
     document: DocumentVersion
     disposition: Literal["published", "already_published", "confirmed_after_error"]
@@ -54,11 +65,20 @@ class PostgresPublicationStore(PublicationPort):
         self.collection_id = collection_id
         self.table_name = database.target.qualified_name
 
-    async def publish(self, source_id: str, version: str) -> DocumentVersion:
+    async def publish(
+        self,
+        source_id: str,
+        version: str,
+        *,
+        review_sha256: str | None = None,
+        expected_source_sha256: str | None = None,
+    ) -> DocumentVersion:
         outcome = await self.publish_with_outcome(
             source_id,
             version,
             allow_version_replacement=True,
+            review_sha256=review_sha256,
+            expected_source_sha256=expected_source_sha256,
         )
         return outcome.document
 
@@ -103,12 +123,90 @@ class PostgresPublicationStore(PublicationPort):
         )
         return PublicationInspection(document, published_versions)
 
+    async def published_chunk_count(self, source_id: str, version: str) -> int:
+        """Count published chunks for this source, version, and collection."""
+        async with self.database.sql_engine.connect() as connection:
+            await connection.execute(text("SET TRANSACTION READ ONLY"))
+            result = await connection.execute(
+                text(
+                    f"""SELECT count(*) FROM {self.table_name}
+                    WHERE collection_id = :collection_id AND source_id = :source_id
+                      AND version = :version AND publication_state = 'published'"""
+                ),
+                {
+                    "collection_id": self.collection_id,
+                    "source_id": source_id,
+                    "version": version,
+                },
+            )
+            return int(result.scalar_one())
+
+    async def _published_version_identity(
+        self, source_id: str, version: str
+    ) -> _PublishedVersionIdentity | None:
+        """Read the source and HITL fingerprints for a complete published version."""
+        async with self.database.sql_engine.connect() as connection:
+            await connection.execute(text("SET TRANSACTION READ ONLY"))
+            result = await connection.execute(
+                text(
+                    f"""SELECT content_sha256, publication_state, metadata,
+                    source_title, publisher, source_url
+                    FROM {self.table_name}
+                    WHERE collection_id = :collection_id AND source_id = :source_id
+                      AND version = :version"""
+                ),
+                {
+                    "collection_id": self.collection_id,
+                    "source_id": source_id,
+                    "version": version,
+                },
+            )
+            rows = list(result.mappings().all())
+
+        if not rows:
+            return None
+        states = {row["publication_state"] for row in rows}
+        if "published" not in states:
+            return None
+        if states != {"published"}:
+            raise PublicationError("document version has a partial publication state")
+
+        source_hashes = {row.get("content_sha256") for row in rows}
+        approval_markers = [
+            metadata.get("hitl_review_sha256") if isinstance(metadata, Mapping) else None
+            for metadata in (row.get("metadata") for row in rows)
+        ]
+        if any(marker is not None and not isinstance(marker, str) for marker in approval_markers):
+            raise PublicationError("published HITL approval fingerprints are invalid")
+        approval_hashes = set(approval_markers)
+        titles = {row.get("source_title") for row in rows}
+        publishers = {row.get("publisher") for row in rows}
+        source_urls = {row.get("source_url") for row in rows}
+        if (
+            len(source_hashes) != 1
+            or len(approval_hashes) != 1
+            or len(titles) != 1
+            or len(publishers) != 1
+            or len(source_urls) != 1
+        ):
+            raise PublicationError("published document fingerprints are inconsistent")
+        return _PublishedVersionIdentity(
+            chunk_count=len(rows),
+            content_sha256=next(iter(source_hashes)),
+            review_sha256=next(iter(approval_hashes)),
+            source_title=next(iter(titles)),
+            publisher=next(iter(publishers)),
+            source_url=next(iter(source_urls)),
+        )
+
     async def publish_with_outcome(
         self,
         source_id: str,
         version: str,
         *,
         allow_version_replacement: bool,
+        review_sha256: str | None = None,
+        expected_source_sha256: str | None = None,
     ) -> PublicationOutcome:
         async with self.database.sql_engine.begin() as connection:
             # 같은 출처·collection의 동시 게시 전환을 직렬화한다.
@@ -119,7 +217,7 @@ class PostgresPublicationStore(PublicationPort):
             result = await connection.execute(
                 text(
                     f"""SELECT source_id, version, content_sha256, publication_state,
-                    source_title, source_url, publisher, is_synthetic, location
+                    source_title, source_url, publisher, is_synthetic, location, metadata
                     FROM {self.table_name}
                     WHERE collection_id = :collection_id AND source_id = :source_id
                       AND version = :version
@@ -134,6 +232,7 @@ class PostgresPublicationStore(PublicationPort):
             rows = list(result.mappings().all())
             if not rows:
                 raise PublicationError("document version has no indexed chunks")
+            _verify_hitl_approval(rows, review_sha256, expected_source_sha256)
             states = {row["publication_state"] for row in rows}
             if states == {"published"}:
                 return PublicationOutcome(
@@ -195,6 +294,26 @@ class PostgresPublicationStore(PublicationPort):
                 "published",
                 retired_versions,
             )
+
+
+def _verify_hitl_approval(
+    rows,
+    review_sha256: str | None,
+    expected_source_sha256: str | None,
+) -> None:
+    markers = {(row.get("metadata") or {}).get("hitl_review_sha256") for row in rows}
+    if markers == {None} and review_sha256 is None:
+        # Versions indexed before HITL retain their existing publication path.
+        return
+    if (
+        len(markers) != 1
+        or None in markers
+        or not review_sha256
+        or markers != {review_sha256}
+        or not expected_source_sha256
+        or any(row["content_sha256"] != expected_source_sha256 for row in rows)
+    ):
+        raise PublicationError("indexed HITL approval does not match the reviewed source")
 
 
 def _validate_indexed_rows(rows, collection_id: str) -> None:

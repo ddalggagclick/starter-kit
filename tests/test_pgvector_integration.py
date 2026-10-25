@@ -27,7 +27,7 @@ from starter_rag.storage.database import (
     PostgresRagDatabase,
     database_url_from_environment,
 )
-from starter_rag.storage.publication import PostgresPublicationStore
+from starter_rag.storage.publication import PostgresPublicationStore, PublicationError
 from starter_rag.storage.vector_store import (
     DocumentVersionConflictError,
     PGVectorStore,
@@ -115,12 +115,10 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         return self._run(operation)
 
-    def test_t01_real_embedding_is_768_dimensions(self) -> None:
-        query_vector = asyncio.run(
-            self.embedding.embed_query("How can heirs find financial accounts?")
-        )
+    def test_실제_임베딩은_768차원을_반환한다(self) -> None:
+        query_vector = asyncio.run(self.embedding.embed_query("How can users find sample records?"))
         document_vectors = asyncio.run(
-            self.embedding.embed_documents(("Heirs can search for financial accounts.",))
+            self.embedding.embed_documents(("Users can search for sample records.",))
         )
         self.assertEqual(len(query_vector), 768)
         self.assertEqual(len(document_vectors[0]), 768)
@@ -129,7 +127,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
         )
         print(f"T01 model={EMBEDDING_MODEL_ID}@{EMBEDDING_MODEL_REVISION} dimensions=768")
 
-    def test_t02_wrong_dimension_is_rejected_before_insert(self) -> None:
+    def test_잘못된_벡터_차원은_삽입_전에_거부한다(self) -> None:
         source = self._source("dimension-reject")
         chunk = self._chunk(source, "dimension rejection fixture")
 
@@ -150,9 +148,9 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
-    def test_t03_real_postgresql_insert_preserves_metadata_and_vector_size(self) -> None:
+    def test_데이터베이스_삽입은_메타데이터와_벡터_크기를_보존한다(self) -> None:
         source = self._source("database-insert")
-        chunk = self._chunk(source, "A synthetic inheritance account search guide.")
+        chunk = self._chunk(source, "A synthetic record search guide.")
 
         async def operation(database):
             store = PGVectorStore(database, self.embedding, collection_id=self.collection_id)
@@ -179,7 +177,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
-    def test_t04_same_version_rerun_is_idempotent_and_published_is_protected(self) -> None:
+    def test_같은_버전_재실행은_멱등이고_게시_자료를_보호한다(self) -> None:
         source = self._source("idempotent")
         chunk = self._chunk(source, "A same-version guide to finding financial accounts.")
 
@@ -219,7 +217,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
-    def test_t05_version_change_is_separate_and_published_switch_is_atomic(self) -> None:
+    def test_버전_변경은_분리되고_게시_전환은_원자적이다(self) -> None:
         old = self._source("version-switch", "v1")
         new = self._source("version-switch", "v2")
         old_chunk = self._chunk(old, "Version one account search guidance.")
@@ -257,19 +255,19 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
-    def test_t06_real_pgvector_topk_orders_relevant_result_first(self) -> None:
+    def test_벡터검색_top_k는_관련_결과를_먼저_반환한다(self) -> None:
         collection = f"{self.collection_id}-ranking"
         relevant = self._source("ranking-relevant")
         unrelated = self._source("ranking-unrelated")
         relevant_chunk = self._chunk(
             relevant,
-            "Heirs can search for a deceased family member's bank, insurance, and securities accounts using a financial account inquiry service.",
+            "Users can locate sample records by name, category, and date in the searchable directory.",
         )
         unrelated_chunk = self._chunk(
             unrelated,
             "A basketball game is played by two teams on a court with a ball, hoop, and score.",
         )
-        query = "How can heirs find bank and insurance accounts after a family member dies?"
+        query = "How can users find records by name and date?"
 
         async def operation(database):
             store = PGVectorStore(database, self.embedding, collection_id=collection)
@@ -287,7 +285,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
-    def test_t07_no_eligible_published_candidate_returns_empty(self) -> None:
+    def test_게시_가능한_후보가_없으면_빈결과를_반환한다(self) -> None:
         collection = f"{self.collection_id}-empty"
 
         async def operation(database):
@@ -299,7 +297,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
-    def test_t08_only_published_state_is_searchable(self) -> None:
+    def test_게시_상태_자료만_검색할_수_있다(self) -> None:
         collection = f"{self.collection_id}-states"
         source_key = "state-transition"
 
@@ -384,7 +382,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
 
         self._run(operation)
 
-    def test_t09_search_is_isolated_to_the_configured_collection(self) -> None:
+    def test_설정한_컬렉션만_검색한다(self) -> None:
         collection = f"{self.collection_id}-isolation"
         foreign_collection = f"{collection}-foreign"
         source = self._source("collection-isolation-local")
@@ -410,6 +408,23 @@ class PgVectorIntegrationTests(unittest.TestCase):
                 is_synthetic=True,
             )
             await foreign_publication.publish(foreign_source.source_id, foreign_source.version)
+
+            self.assertEqual(await publication.published_chunk_count(source.source_id, "v1"), 1)
+            identity = await publication._published_version_identity(source.source_id, "v1")
+            self.assertIsNotNone(identity)
+            self.assertEqual(identity.chunk_count, 1)
+            self.assertEqual(
+                identity.content_sha256, hashlib.sha256(text_value.encode()).hexdigest()
+            )
+            self.assertIsNone(identity.review_sha256)
+            self.assertEqual(
+                await store._published_chunk_ids([chunk.chunk_id, foreign_chunk.chunk_id]),
+                {chunk.chunk_id},
+            )
+            self.assertEqual(
+                await foreign_store._published_chunk_ids([chunk.chunk_id, foreign_chunk.chunk_id]),
+                {foreign_chunk.chunk_id},
+            )
 
             search = PGVectorSearch(store, self.embedding, allow_synthetic=True)
             result = await search.search(SearchRequest("collection isolation marker"))
@@ -470,15 +485,18 @@ class PgVectorIntegrationTests(unittest.TestCase):
             worksheet.append(("Topic", "Details"))
             worksheet.append(
                 (
-                    "Financial account inquiry",
-                    "Heirs can request a search for bank, insurance, and securities accounts.",
+                    "Directory search",
+                    "Users can search the directory for records by name, category, and date.",
                 )
             )
             workbook.save(input_path)
             workbook.close()
 
             setup = command("db-init")
-            self.assertEqual(setup["database"], "starter_rag_integration")
+            self.assertEqual(
+                setup["database"],
+                os.environ.get("RAG_LOCAL_DATABASE_NAME", "starter_rag_integration"),
+            )
             base_args = (
                 "index",
                 str(input_path),
@@ -489,7 +507,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
                 "--version",
                 version,
                 "--source-title",
-                "[합성 시험 자료] CLI 금융 조회 안내",
+                "[합성 시험 자료] CLI directory guide",
                 "--source-url",
                 "https://example.invalid/rag-cli-test/guide",
                 "--publisher",
@@ -519,7 +537,7 @@ class PgVectorIntegrationTests(unittest.TestCase):
             self.assertEqual(publication["state"], "published")
             search_result = command(
                 "search",
-                "financial account inquiry heirs",
+                "directory search for records",
                 "--top-k",
                 "3",
                 "--collection-id",
@@ -533,6 +551,44 @@ class PgVectorIntegrationTests(unittest.TestCase):
                 f"{first['chunkCount']} rows={rows_after_first}->{rows_after_second} "
                 f"rerun_skipped={second['skippedExistingVersion']}"
             )
+
+    def test_승인_해시가_일치하지_않는_색인_자료는_게시할_수_없다(self) -> None:
+        source = self._source("reviewed-publication")
+        chunk = self._chunk(source, "A reviewed source with an approval fingerprint.")
+        document = self._document(source, chunk)
+        review_hash = hashlib.sha256(b"review snapshot").hexdigest()
+
+        async def operation(database):
+            store = PGVectorStore(database, self.embedding, collection_id=self.collection_id)
+            publication = PostgresPublicationStore(database, collection_id=self.collection_id)
+            await store.index_document(
+                document,
+                (chunk,),
+                is_synthetic=True,
+                review_sha256=review_hash,
+            )
+
+            with self.assertRaises(PublicationError):
+                await publication.publish(source.source_id, source.version)
+            with self.assertRaises(PublicationError):
+                await publication.publish_with_outcome(
+                    source.source_id,
+                    source.version,
+                    allow_version_replacement=False,
+                    review_sha256="different-review",
+                    expected_source_sha256=document.content_sha256,
+                )
+
+            published = await publication.publish_with_outcome(
+                source.source_id,
+                source.version,
+                allow_version_replacement=False,
+                review_sha256=review_hash,
+                expected_source_sha256=document.content_sha256,
+            )
+            self.assertEqual(published.document.state, "published")
+
+        self._run(operation)
 
 
 if __name__ == "__main__":
