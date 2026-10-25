@@ -155,6 +155,45 @@ export const resendVerificationEmail = (_email: string, options: CallOptions = {
 export const requestPasswordReset = (_email: string, options: CallOptions = {}) =>
   respond<{ status: 202 }>(() => ({ status: 202 }), options)
 
+// A12 메일 인증·A15 비밀번호 재설정 링크 토큰. 유효 토큰은 1회만 성공하고, 만료·이미 사용·없는 토큰은 같은 400이다.
+export const MOCK_VALID_VERIFY_TOKEN = "mock-verify-valid"
+export const MOCK_VALID_RESET_TOKEN = "mock-reset-valid"
+const consumedLinkTokens = new Set<string>()
+const TOKEN_INVALID = { code: "TOKEN_INVALID", message: "링크가 만료되었거나 이미 사용되었습니다." }
+
+export const verifyEmail = (token: string, options: CallOptions = {}) =>
+  respond<{ status: 200 }>(() => {
+    if (token !== MOCK_VALID_VERIFY_TOKEN || consumedLinkTokens.has(token)) {
+      throw new MockHttpError(400, TOKEN_INVALID)
+    }
+    consumedLinkTokens.add(token)
+    return { status: 200 }
+  }, options)
+
+export const resetPassword = (token: string, newPassword: string, options: CallOptions = {}) =>
+  respond<{ status: 200 }>(() => {
+    if (!isValidPassword(newPassword)) {
+      throw new MockHttpError(422, {
+        code: "VALIDATION_ERROR",
+        message: "8~64자 영문·숫자 비밀번호를 확인해 주세요.",
+      })
+    }
+    if (token !== MOCK_VALID_RESET_TOKEN || consumedLinkTokens.has(token)) {
+      throw new MockHttpError(400, TOKEN_INVALID)
+    }
+    consumedLinkTokens.add(token)
+    return { status: 200 }
+  }, options)
+
+// A16 탈퇴. 응답 본문 모양은 openapi에 없고 Backend 제안 값을 흉내 낸다.
+export const deleteAccount = (password: string, options: CallOptions = {}) =>
+  respond<{ account: string; sessions: string; checklist: string }>(() => {
+    if (password !== MOCK_ACCOUNT.password) {
+      throw new MockHttpError(403, { code: "FORBIDDEN", message: "FORBIDDEN" })
+    }
+    return { account: "deleted", sessions: "deleted", checklist: "not_stored" }
+  }, options)
+
 // ── A17 서버 체크리스트 (x-status: 제안) ───────────────────────────
 let serverChecklist: ChecklistSaved | null = null
 
@@ -195,6 +234,7 @@ export const deleteMyChecklist = (accessToken: string | null, options: CallOptio
 // 테스트·Mock 패널에서 모듈 상태를 처음으로 되돌린다.
 export const resetMockApiState = () => {
   consumedHandoffTokens.clear()
+  consumedLinkTokens.clear()
   loginFailures = 0
   registeredEmails.clear()
   registeredEmails.add(MOCK_ACCOUNT.email)

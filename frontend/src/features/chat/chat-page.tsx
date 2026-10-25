@@ -145,8 +145,8 @@ function GuestLimitNotice({ isGuest }: { isGuest: boolean }) {
                 로그인
               </Link>
             </Button>
-            <Button size="sm" variant="outline" disabled title="회원가입은 준비 중입니다">
-              회원가입 (준비 중)
+            <Button asChild size="sm" variant="outline">
+              <Link to="/signup">회원가입</Link>
             </Button>
           </div>
         </>

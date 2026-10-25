@@ -124,7 +124,9 @@ describe("W-07 비로그인 하루 한도 (3-7-1)", () => {
     const title = screen.getByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")
     const notice = title.closest("[role=status]") as HTMLElement
     expect(within(notice).getByRole("link", { name: "로그인" })).toBeTruthy()
-    expect(within(notice).getByRole("button", { name: /회원가입/ })).toBeTruthy()
+    expect(within(notice).getByRole("link", { name: "회원가입" }).getAttribute("href")).toBe(
+      "/signup",
+    )
     expect((screen.getByRole("button", { name: "보내기" }) as HTMLButtonElement).disabled).toBe(
       true,
     )

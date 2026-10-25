@@ -156,7 +156,9 @@ describe("W-07 AI (Mock)", () => {
     const title = await screen.findByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")
     const notice = title.closest("[role=status]") as HTMLElement
     expect(within(notice).getByRole("link", { name: "로그인" })).toBeTruthy()
-    expect(within(notice).getByRole("button", { name: /회원가입/ })).toBeTruthy()
+    expect(within(notice).getByRole("link", { name: "회원가입" }).getAttribute("href")).toBe(
+      "/signup",
+    )
   })
 })
 

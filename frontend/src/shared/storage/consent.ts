@@ -175,3 +175,17 @@ export const revokeConsent = (
       await db.consents.delete([namespace, scope])
     }),
   )
+
+// 회원 탈퇴 후 이 기기에서 그 계정의 기록(체크리스트·대화·동의)을 모두 지운다(5-4-3).
+// 한 트랜잭션이라 일부만 지워지지 않는다. 실패하면 아무것도 지우지 않고 실패를 돌려준다(재시도 가능).
+export const deleteAllNamespaceData = (
+  db: InheritanceDb,
+  namespace: StorageNamespace,
+): Promise<StorageResult<void>> =>
+  attemptStorage(() =>
+    db.transaction("rw", [db.checklists, db.conversations, db.messages, db.consents], async () => {
+      await clearScopeData(db, namespace, "checklist")
+      await clearScopeData(db, namespace, "chat")
+      await db.consents.where("namespace").equals(namespace).delete()
+    }),
+  )
