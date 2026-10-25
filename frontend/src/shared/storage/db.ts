@@ -3,7 +3,8 @@
  * PRD: E4 / 스토리 4-2 / 태스크 4-2-1, 4-2-2, 4-2-4. 화면정의서 D-03·D-04·D-10·D-16. 개인정보 정책 S10-A·P02-B.
  * 구현: IndexedDB 스키마, Guest/계정 namespace별 읽기·쓰기·삭제, 저장 실패를 "저장 불가" 결과로 변환.
  * 완료 기준: 다른 namespace 기록은 조회·삭제되지 않고, 저장 실패를 성공으로 반환하지 않는다.
- * 제한사항: 이 모듈의 저장 함수는 동의 여부를 검사하지 않는다. 화면 코드는 consent.ts의 writeWithConsent로 감싸 호출한다.
+ * 제한사항: 쓰기 함수는 이 모듈에 두지 않는다. 체크리스트·대화 저장은 동의를 확인하는 consent.ts 함수로만 한다.
+ *   이 모듈은 스키마, 읽기, 삭제(동의와 무관하게 언제든 허용)만 제공한다.
  *   화면·Zustand 연결(2-5-3, 3-6-1)과 계정 ID 연결(5-3)은 후속 이슈다.
  *   JSON 백업·복원과 충돌 UI(4-4-1~4-4-3)는 MVP+4일 이후다.
  */
@@ -115,10 +116,22 @@ const errorName = (error: unknown): string | undefined =>
 
 // Dexie는 원래 오류를 inner에 감싸 보내므로 바깥과 안쪽 이름을 모두 본다.
 const toFailureReason = (error: unknown): StorageFailureReason => {
+  const inner = (error as { inner?: unknown } | null)?.inner
+  if (error instanceof StorageAbortError) return error.reason
+  if (inner instanceof StorageAbortError) return inner.reason
   const names = [errorName(error), errorName((error as { inner?: unknown } | null)?.inner)]
   if (names.some((name) => name?.includes("QuotaExceeded"))) return "quota-exceeded"
   if (names.some((name) => name !== undefined && UNAVAILABLE_ERRORS.has(name))) return "unavailable"
   return "unknown"
+}
+
+// 트랜잭션 안에서 "동의 없음"처럼 예상된 실패를 알릴 때 던진다.
+// 값으로 반환하면 트랜잭션이 정상 종료로 커밋되므로, 반드시 던져서 앞선 쓰기까지 되돌린다.
+export class StorageAbortError extends Error {
+  constructor(readonly reason: StorageFailureReason) {
+    super(reason)
+    this.name = "StorageAbortError"
+  }
 }
 
 // 사생활 보호 모드·용량 초과 등에서도 화면이 멈추지 않도록 예외를 결과로 바꾼다(S10-A, 4-2-4).
@@ -137,15 +150,6 @@ const attemptOwned = async (operation: () => Promise<boolean>): Promise<StorageR
   if (!result.ok) return result
   return result.value ? { ok: true, value: undefined } : { ok: false, reason: "not-found" }
 }
-
-export const saveChecklist = (
-  db: InheritanceDb,
-  namespace: StorageNamespace,
-  snapshot: ChecklistSnapshot,
-): Promise<StorageResult<void>> =>
-  attemptStorage(async () => {
-    await db.checklists.put({ ...snapshot, namespace, updatedAt: Date.now() })
-  })
 
 // 기록이 없으면 value가 null이다. 실패(ok: false)와 구분해 "저장 불가"를 잘못 보여주지 않는다.
 export const loadChecklist = (
@@ -166,35 +170,6 @@ export const deleteChecklist = (
   attemptStorage(async () => {
     await db.checklists.delete(namespace)
   })
-
-export const saveConversation = (
-  db: InheritanceDb,
-  conversation: ConversationRecord,
-): Promise<StorageResult<void>> =>
-  // 키가 [namespace+id]라 조회 없이 저장해도 다른 계정 대화에 닿지 않는다. 동시 저장에도 서로 덮어쓰지 않는다.
-  attemptStorage(async () => {
-    await db.conversations.put(conversation)
-  })
-
-// 대화 존재 확인, 메시지 저장, 대화 updatedAt 갱신을 한 트랜잭션으로 묶는다.
-// 확인과 저장 사이에 대화가 지워져 주인 없는 메시지가 남는 일을 막는다.
-export const addMessage = (
-  db: InheritanceDb,
-  message: MessageRecord,
-): Promise<StorageResult<void>> =>
-  attemptOwned(() =>
-    db.transaction("rw", db.conversations, db.messages, async () => {
-      const key: NamespacedKey = [message.namespace, message.conversationId]
-      const conversation = await db.conversations.get(key)
-      if (!conversation) return false
-      await db.messages.put(message)
-      // 오래된 메시지가 늦게 저장돼도 목록 순서(최신순)가 과거로 돌아가지 않게 한다.
-      await db.conversations.update(key, {
-        updatedAt: Math.max(conversation.updatedAt, message.createdAt),
-      })
-      return true
-    }),
-  )
 
 // 최근에 이어 쓴 대화가 위에 오도록 정렬한다(S10 최신순).
 export const listConversations = (

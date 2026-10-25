@@ -1,4 +1,5 @@
-// Dexie 저장소 단위 테스트(4-2-1, 4-2-2, 4-2-4): namespace 격리, 체크리스트·대화 삭제 분리, 저장 실패 결과.
+// Dexie 저장소 단위 테스트(4-2-1, 4-2-2, 4-2-4): 읽기·삭제의 namespace 격리, 체크리스트·대화 삭제 분리, 실패 결과 변환.
+// 쓰기는 동의 확인을 거치는 consent.ts에만 있으므로 consent.test.ts에서 검사한다. 여기서는 테이블에 직접 넣어 준비한다.
 // fake-indexeddb는 Node에서 IndexedDB 규격을 메모리로 흉내 낸다. 실제 브라우저 차단·용량 동작은 검증하지 않는다.
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -6,7 +7,6 @@ import type { ProcedureId } from "@/shared/contracts/domain"
 import type { ProcedureState } from "@/shared/state/inheritance-store"
 import {
   accountNamespace,
-  addMessage,
   type ChecklistSnapshot,
   type ConversationRecord,
   deleteAllConversations,
@@ -19,20 +19,10 @@ import {
   loadMessages,
   type MessageRecord,
   type StorageNamespace,
-  saveChecklist,
-  saveConversation,
 } from "./db"
 
 const ACCOUNT_A = accountNamespace("user-a")
 const ACCOUNT_B = accountNamespace("user-b")
-
-const procedureStates = (read: ProcedureId[] = []) =>
-  Object.fromEntries(
-    (["p01", "p02", "p03", "p04", "p05", "p06", "p07", "p08"] as const).map((id) => [
-      id,
-      { guidanceRead: read.includes(id), needsRecheck: false },
-    ]),
-  ) as Record<ProcedureId, ProcedureState>
 
 const checklist = (read: ProcedureId[] = []): ChecklistSnapshot => ({
   answers: {
@@ -42,7 +32,12 @@ const checklist = (read: ProcedureId[] = []): ChecklistSnapshot => ({
     oneStopApplication: "unknown",
   },
   riskAnswers: { debt: { riskId: "debt", answer: "unknown", confirmed: true } },
-  procedureStates: procedureStates(read),
+  procedureStates: Object.fromEntries(
+    (["p01", "p02", "p03", "p04", "p05", "p06", "p07", "p08"] as const).map((id) => [
+      id,
+      { guidanceRead: read.includes(id), needsRecheck: false },
+    ]),
+  ) as Record<ProcedureId, ProcedureState>,
 })
 
 const conversation = (
@@ -68,6 +63,14 @@ const message = (
 
 let db: InheritanceDb
 
+const putChecklist = (namespace: StorageNamespace, snapshot = checklist()) =>
+  db.checklists.put({ ...snapshot, namespace, updatedAt: 1 })
+
+const ids = async (namespace: StorageNamespace) => {
+  const result = await listConversations(db, namespace)
+  return result.ok ? result.value.map((c) => c.id) : result
+}
+
 beforeEach(() => {
   db = new InheritanceDb("test-db", { indexedDB: new IDBFactory(), IDBKeyRange })
 })
@@ -87,32 +90,18 @@ describe("accountNamespace", () => {
   })
 })
 
-describe("체크리스트 저장", () => {
-  it("저장한 namespace에서만 복원되고 다른 계정에서는 보이지 않는다", async () => {
-    expect(await saveChecklist(db, ACCOUNT_A, checklist(["p01"]))).toEqual({
-      ok: true,
-      value: undefined,
-    })
+describe("체크리스트 읽기·삭제", () => {
+  it("저장된 namespace에서만 복원되고 다른 계정에서는 보이지 않는다", async () => {
+    await putChecklist(ACCOUNT_A, checklist(["p01"]))
 
     expect(await loadChecklist(db, ACCOUNT_A)).toEqual({ ok: true, value: checklist(["p01"]) })
     expect(await loadChecklist(db, ACCOUNT_B)).toEqual({ ok: true, value: null })
     expect(await loadChecklist(db, GUEST_NAMESPACE)).toEqual({ ok: true, value: null })
   })
 
-  it("다시 저장하면 같은 namespace 기록을 최신 상태로 바꾼다", async () => {
-    await saveChecklist(db, GUEST_NAMESPACE, checklist(["p01"]))
-    await saveChecklist(db, GUEST_NAMESPACE, checklist(["p01", "p05"]))
-
-    expect(await loadChecklist(db, GUEST_NAMESPACE)).toEqual({
-      ok: true,
-      value: checklist(["p01", "p05"]),
-    })
-    expect(await db.checklists.count()).toBe(1)
-  })
-
   it("한 계정의 체크리스트 삭제는 다른 계정 기록을 지우지 않는다", async () => {
-    await saveChecklist(db, ACCOUNT_A, checklist())
-    await saveChecklist(db, ACCOUNT_B, checklist())
+    await putChecklist(ACCOUNT_A)
+    await putChecklist(ACCOUNT_B)
 
     await deleteChecklist(db, ACCOUNT_A)
 
@@ -121,162 +110,98 @@ describe("체크리스트 저장", () => {
   })
 })
 
-describe("AI 대화 저장", () => {
+describe("AI 대화 읽기·삭제", () => {
   it("대화 목록은 해당 namespace 것만 최근에 이어 쓴 순서로 돌려준다", async () => {
-    await saveConversation(db, conversation("c1", ACCOUNT_A, 10))
-    await saveConversation(db, conversation("c2", ACCOUNT_A, 30))
-    await saveConversation(db, conversation("c3", ACCOUNT_B, 20))
+    await db.conversations.bulkPut([
+      conversation("c1", ACCOUNT_A, 10),
+      conversation("c2", ACCOUNT_A, 30),
+      conversation("c3", ACCOUNT_B, 20),
+    ])
 
-    const result = await listConversations(db, ACCOUNT_A)
-
-    expect(result.ok && result.value.map((c) => c.id)).toEqual(["c2", "c1"])
+    expect(await ids(ACCOUNT_A)).toEqual(["c2", "c1"])
   })
 
-  it("메시지를 추가하면 대화가 목록 맨 위로 오고, 메시지는 작성 순서로 읽힌다", async () => {
-    await saveConversation(db, conversation("c1", GUEST_NAMESPACE, 10))
-    await saveConversation(db, conversation("c2", GUEST_NAMESPACE, 20))
-    await addMessage(db, message("m2", "c1", GUEST_NAMESPACE, 50))
-    await addMessage(db, message("m1", "c1", GUEST_NAMESPACE, 40))
+  it("메시지는 작성 순서로 읽히고 다른 계정에서는 조회되지 않는다", async () => {
+    await db.conversations.put(conversation("c1", ACCOUNT_A))
+    await db.messages.bulkPut([
+      message("m2", "c1", ACCOUNT_A, 50),
+      message("m1", "c1", ACCOUNT_A, 40),
+    ])
 
-    const list = await listConversations(db, GUEST_NAMESPACE)
-    const messages = await loadMessages(db, GUEST_NAMESPACE, "c1")
+    const own = await loadMessages(db, ACCOUNT_A, "c1")
 
-    expect(list.ok && list.value.map((c) => c.id)).toEqual(["c1", "c2"])
-    expect(messages.ok && messages.value.map((m) => m.id)).toEqual(["m1", "m2"])
-  })
-
-  it("다른 계정의 대화에는 메시지를 추가·조회·삭제할 수 없다", async () => {
-    await saveConversation(db, conversation("c1", ACCOUNT_A))
-    await addMessage(db, message("m1", "c1", ACCOUNT_A, 5))
-
-    expect(await addMessage(db, message("m2", "c1", ACCOUNT_B, 6))).toEqual({
-      ok: false,
-      reason: "not-found",
-    })
+    expect(own.ok && own.value.map((m) => m.id)).toEqual(["m1", "m2"])
     expect(await loadMessages(db, ACCOUNT_B, "c1")).toEqual({ ok: true, value: [] })
+  })
+
+  it("다른 계정의 대화는 지울 수 없다", async () => {
+    await db.conversations.put(conversation("c1", ACCOUNT_A))
+
     expect(await deleteConversation(db, ACCOUNT_B, "c1")).toEqual({
       ok: false,
       reason: "not-found",
     })
-
-    const messages = await loadMessages(db, ACCOUNT_A, "c1")
-    expect(messages.ok && messages.value.map((m) => m.id)).toEqual(["m1"])
-  })
-
-  it("두 계정이 같은 대화 ID를 써도 각자의 대화로 따로 저장된다", async () => {
-    await saveConversation(db, conversation("c1", ACCOUNT_A))
-
-    expect(await saveConversation(db, conversation("c1", ACCOUNT_B))).toEqual({
-      ok: true,
-      value: undefined,
-    })
-    expect(await db.conversations.get([ACCOUNT_A, "c1"])).toEqual(conversation("c1", ACCOUNT_A))
-    expect(await db.conversations.get([ACCOUNT_B, "c1"])).toEqual(conversation("c1", ACCOUNT_B))
-  })
-
-  it("두 계정이 같은 메시지 ID를 써도 서로의 메시지를 덮어쓰지 않는다", async () => {
-    await saveConversation(db, conversation("a1", ACCOUNT_A))
-    await saveConversation(db, conversation("b1", ACCOUNT_B))
-
-    await addMessage(db, message("m1", "a1", ACCOUNT_A, 1))
-    await addMessage(db, message("m1", "b1", ACCOUNT_B, 2))
-
-    const messagesA = await loadMessages(db, ACCOUNT_A, "a1")
-    const messagesB = await loadMessages(db, ACCOUNT_B, "b1")
-    expect(messagesA.ok && messagesA.value.map((m) => m.namespace)).toEqual([ACCOUNT_A])
-    expect(messagesB.ok && messagesB.value.map((m) => m.namespace)).toEqual([ACCOUNT_B])
-  })
-
-  it("두 계정이 같은 대화 ID로 동시에 저장해도 둘 다 남는다", async () => {
-    const results = await Promise.all([
-      saveConversation(db, conversation("c1", ACCOUNT_A)),
-      saveConversation(db, conversation("c1", ACCOUNT_B)),
-    ])
-
-    expect(results.every((result) => result.ok)).toBe(true)
-    expect((await listConversations(db, ACCOUNT_A)).ok).toBe(true)
-    expect(await db.conversations.count()).toBe(2)
-  })
-
-  it("오래된 메시지가 늦게 저장돼도 대화의 updatedAt은 과거로 돌아가지 않는다", async () => {
-    await saveConversation(db, conversation("c1", GUEST_NAMESPACE, 10))
-    await saveConversation(db, conversation("c2", GUEST_NAMESPACE, 20))
-    await addMessage(db, message("m2", "c1", GUEST_NAMESPACE, 50))
-    await addMessage(db, message("m1", "c1", GUEST_NAMESPACE, 5))
-
-    expect((await db.conversations.get([GUEST_NAMESPACE, "c1"]))?.updatedAt).toBe(50)
-    const list = await listConversations(db, GUEST_NAMESPACE)
-    expect(list.ok && list.value.map((c) => c.id)).toEqual(["c1", "c2"])
+    expect(await ids(ACCOUNT_A)).toEqual(["c1"])
   })
 
   it("대화 하나를 지우면 그 대화의 메시지만 함께 지워진다", async () => {
-    await saveConversation(db, conversation("c1", GUEST_NAMESPACE))
-    await saveConversation(db, conversation("c2", GUEST_NAMESPACE))
-    await addMessage(db, message("m1", "c1", GUEST_NAMESPACE, 1))
-    await addMessage(db, message("m2", "c2", GUEST_NAMESPACE, 2))
+    await db.conversations.bulkPut([
+      conversation("c1", GUEST_NAMESPACE),
+      conversation("c2", GUEST_NAMESPACE),
+    ])
+    await db.messages.bulkPut([
+      message("m1", "c1", GUEST_NAMESPACE, 1),
+      message("m2", "c2", GUEST_NAMESPACE, 2),
+    ])
 
     expect(await deleteConversation(db, GUEST_NAMESPACE, "c1")).toEqual({
       ok: true,
       value: undefined,
     })
-
-    const list = await listConversations(db, GUEST_NAMESPACE)
-    expect(list.ok && list.value.map((c) => c.id)).toEqual(["c2"])
+    expect(await ids(GUEST_NAMESPACE)).toEqual(["c2"])
     expect(await db.messages.count()).toBe(1)
   })
 })
 
 describe("삭제 범위 분리(D-04)", () => {
   it("[대화 기록 삭제]는 체크리스트와 다른 계정 대화를 지우지 않는다", async () => {
-    await saveChecklist(db, ACCOUNT_A, checklist())
-    await saveConversation(db, conversation("a1", ACCOUNT_A))
-    await addMessage(db, message("am1", "a1", ACCOUNT_A, 1))
-    await saveConversation(db, conversation("b1", ACCOUNT_B))
-    await addMessage(db, message("bm1", "b1", ACCOUNT_B, 1))
+    await putChecklist(ACCOUNT_A)
+    await db.conversations.bulkPut([conversation("a1", ACCOUNT_A), conversation("b1", ACCOUNT_B)])
+    await db.messages.bulkPut([
+      message("am1", "a1", ACCOUNT_A, 1),
+      message("bm1", "b1", ACCOUNT_B, 1),
+    ])
 
     await deleteAllConversations(db, ACCOUNT_A)
 
-    expect(await listConversations(db, ACCOUNT_A)).toEqual({ ok: true, value: [] })
+    expect(await ids(ACCOUNT_A)).toEqual([])
     expect(await loadMessages(db, ACCOUNT_A, "a1")).toEqual({ ok: true, value: [] })
     expect(await loadChecklist(db, ACCOUNT_A)).toEqual({ ok: true, value: checklist() })
-    const other = await listConversations(db, ACCOUNT_B)
-    expect(other.ok && other.value.map((c) => c.id)).toEqual(["b1"])
+    expect(await ids(ACCOUNT_B)).toEqual(["b1"])
   })
 
   it("[체크리스트 삭제]는 대화 기록을 지우지 않는다", async () => {
-    await saveChecklist(db, GUEST_NAMESPACE, checklist())
-    await saveConversation(db, conversation("c1", GUEST_NAMESPACE))
+    await putChecklist(GUEST_NAMESPACE)
+    await db.conversations.put(conversation("c1", GUEST_NAMESPACE))
 
     await deleteChecklist(db, GUEST_NAMESPACE)
 
-    const list = await listConversations(db, GUEST_NAMESPACE)
-    expect(list.ok && list.value.map((c) => c.id)).toEqual(["c1"])
+    expect(await ids(GUEST_NAMESPACE)).toEqual(["c1"])
   })
 })
 
-describe("저장 실패(D-10, 4-2-4)", () => {
+describe("실패 결과 변환(D-10, 4-2-4)", () => {
   it("IndexedDB를 쓸 수 없는 환경이면 성공 대신 unavailable을 돌려준다", async () => {
     // 전역 IndexedDB가 없는 Node 환경을 그대로 써서 사생활 보호 모드 등 미지원 상황을 흉내 낸다.
     const unsupported = new InheritanceDb("unsupported-db")
 
-    expect(await saveChecklist(unsupported, GUEST_NAMESPACE, checklist())).toEqual({
-      ok: false,
-      reason: "unavailable",
-    })
     expect(await loadChecklist(unsupported, GUEST_NAMESPACE)).toEqual({
       ok: false,
       reason: "unavailable",
     })
-  })
-
-  it("용량 초과 오류는 quota-exceeded로 돌려준다", async () => {
-    vi.spyOn(db.checklists, "put").mockRejectedValue(
-      new DOMException("저장 공간 부족", "QuotaExceededError"),
-    )
-
-    expect(await saveChecklist(db, GUEST_NAMESPACE, checklist())).toEqual({
+    expect(await deleteChecklist(unsupported, GUEST_NAMESPACE)).toEqual({
       ok: false,
-      reason: "quota-exceeded",
+      reason: "unavailable",
     })
   })
 
@@ -285,9 +210,9 @@ describe("저장 실패(D-10, 4-2-4)", () => {
       name: "AbortError",
       inner: new DOMException("저장 공간 부족", "QuotaExceededError"),
     })
-    vi.spyOn(db.checklists, "put").mockRejectedValue(wrapped)
+    vi.spyOn(db.checklists, "delete").mockRejectedValue(wrapped)
 
-    expect(await saveChecklist(db, GUEST_NAMESPACE, checklist())).toEqual({
+    expect(await deleteChecklist(db, GUEST_NAMESPACE)).toEqual({
       ok: false,
       reason: "quota-exceeded",
     })
