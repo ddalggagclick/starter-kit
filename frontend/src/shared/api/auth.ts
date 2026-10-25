@@ -48,20 +48,95 @@ let refreshPending: Promise<string> | null = null
 // 이미 무효인 Refresh를 401마다 반복하고 인증 해제 알림을 중복 호출하는 것을 막는다.
 let refreshFailed = false
 let authLostListener: (() => void) | null = null
+// 로그인·로그아웃마다 1씩 오르는 세션 번호. 요청을 시작할 때의 번호와 응답이 왔을 때의 번호가 다르면
+// 그 응답은 이전 세션 것이므로 버린다. 늦게 끝난 A의 복구·Refresh·로그아웃이 B 로그인 상태를 덮지 못하게 한다.
+let sessionEpoch = 0
+let refreshRunner: (() => Promise<string>) | null = null
+
+// 이전 세션의 응답이라 버렸음을 알린다.
+export class StaleSessionError extends Error {
+  constructor() {
+    super("stale auth session")
+    this.name = "StaleSessionError"
+  }
+}
+
+const startNewSession = () => {
+  sessionEpoch += 1
+  // 이전 세션에서 시작한 Refresh를 새 세션이 기다리지 않게 한다.
+  refreshPending = null
+}
 
 export const accessSession = {
   get(): string | null {
     return accessToken
   },
-  // 로그인·세션 복구로 새 토큰을 받으면 Refresh를 다시 허용한다.
-  set(token: string): void {
+  current(): number {
+    return sessionEpoch
+  },
+  isCurrent(epoch: number): boolean {
+    return epoch === sessionEpoch
+  },
+  // 로그인 시작. 진행 중인 이전 세션 응답을 무효로 만들고 새 번호를 돌려준다.
+  begin(): number {
+    startNewSession()
+    return sessionEpoch
+  },
+  // 시작할 때의 번호가 지금과 같을 때만 토큰을 넣는다. 다르면 false(이전 세션 응답).
+  setIfCurrent(token: string, epoch: number): boolean {
+    if (epoch !== sessionEpoch) return false
     accessToken = token
     refreshFailed = false
+    return true
+  },
+  // 새 세션으로 토큰을 바로 넣는다(테스트·이미 검증된 토큰용).
+  set(token: string): void {
+    startNewSession()
+    accessToken = token
+    refreshFailed = false
+  },
+  // 로그아웃: 서버 응답을 기다리지 않고 즉시 토큰을 지운다. 이후 도착하는 이전 세션 응답은 버린다.
+  end(): void {
+    startNewSession()
+    accessToken = null
+    csrfToken = null
   },
   clear(): void {
     accessToken = null
     csrfToken = null
   },
+}
+
+// 세션 복구와 401 재시도가 같은 Refresh 실행을 함께 쓴다. 동시에 두 번 보내면 회전형 Refresh 쿠키의
+// 재사용 탐지로 정상 로그인이 풀릴 수 있다.
+// 실패하면 지금 세션일 때만 인증을 해제하고 화면에 한 번 알린다(5-3-3).
+export const refreshAccessToken = (): Promise<string> => {
+  if (!refreshRunner) return Promise.reject(new Error("auth security is not attached"))
+  if (refreshPending) return refreshPending
+  const epoch = sessionEpoch
+  const pending: Promise<string> = refreshRunner()
+    .then((token) => {
+      if (!token) throw new Error("Refresh returned no access token")
+      if (epoch !== sessionEpoch) throw new StaleSessionError()
+      accessToken = token
+      refreshFailed = false
+      return token
+    })
+    .catch((cause) => {
+      if (!(cause instanceof StaleSessionError) && epoch === sessionEpoch) {
+        refreshFailed = true
+        accessToken = null
+        csrfToken = null
+        authLostListener?.()
+      }
+      throw cause
+    })
+    .finally(() => {
+      // 그 사이 새 세션이 다른 Refresh를 시작했으면 그것을 지우지 않는다.
+      if (refreshPending === pending) refreshPending = null
+    })
+  refreshPending = pending
+  return pending
 }
 
 // Refresh 실패로 인증이 끊기면 한 번 호출된다. 인증 스토어가 등록한다.
@@ -93,6 +168,7 @@ const readErrorCode = (data: unknown): string | null => {
 
 // api에 요청·응답 인터셉터를 설치해 CSRF 처리와 메모리 Access Token의 401 갱신을 적용한다.
 export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): void {
+  refreshRunner = async () => wire.readAccessToken(await api.post(wire.refreshPath))
   const csrf = async (): Promise<string> => {
     if (csrfToken) return csrfToken
     if (!csrfPending) {
@@ -159,30 +235,10 @@ export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): 
       }
       // Refresh·CSRF 경로와 인증 예외 경로는 위에서 제외하고, 나머지 원 요청만 한 번 재시도한다.
       original.__retried = true
-      if (!refreshPending) {
-        // 동시 401은 같은 Refresh 응답을 기다려 토큰 회전을 한 번만 수행한다.
-        refreshPending = api
-          .post(wire.refreshPath)
-          .then((response) => {
-            const token = wire.readAccessToken(response)
-            if (!token) throw new Error("Refresh returned no access token")
-            accessToken = token
-            return token
-          })
-          .catch((cause) => {
-            // 무한 재시도하지 않고 인증을 해제한 뒤 화면에 한 번만 알린다(5-3-3).
-            refreshFailed = true
-            accessSession.clear()
-            authLostListener?.()
-            throw cause
-          })
-          .finally(() => {
-            refreshPending = null
-          })
-      }
-      await refreshPending
+      // 동시 401은 같은 Refresh 응답을 기다려 토큰 회전을 한 번만 수행한다.
+      const token = await refreshAccessToken()
       // Refresh가 끝난 뒤 새 Access Token을 붙여 실패했던 원 요청을 다시 보낸다.
-      original.headers.set("Authorization", `Bearer ${accessToken}`)
+      original.headers.set("Authorization", `Bearer ${token}`)
       return api.request(original)
     },
   )

@@ -8,7 +8,13 @@
  * 제한사항: Refresh 토큰은 HttpOnly 쿠키라 JavaScript에서 다루지 않는다. 비밀번호를 저장하지 않는다.
  */
 import { login as loginMock, logout as logoutMock } from "@/mocks/mock-api"
-import { AUTH_WIRE, accessSession, accountIdFromAccessToken } from "@/shared/api/auth"
+import {
+  AUTH_WIRE,
+  accessSession,
+  accountIdFromAccessToken,
+  refreshAccessToken,
+  StaleSessionError,
+} from "@/shared/api/auth"
 import { loadApiClient, USE_MOCK_API } from "@/shared/api/data-source"
 
 export type SignedInAccount = { accountId: string; email: string | null }
@@ -20,21 +26,27 @@ const accountFromToken = (token: string, email: string | null): SignedInAccount 
   return { accountId, email }
 }
 
+// 로그인을 시작하면 새 세션 번호를 받는다. 그 사이 끝난 이전 세션의 복구·Refresh 결과는 버려지고,
+// 이 로그인 응답도 그 뒤 또 다른 로그인·로그아웃이 있었다면 버린다(StaleSessionError).
 export const loginRequest = async (email: string, password: string): Promise<SignedInAccount> => {
+  const epoch = accessSession.begin()
   if (USE_MOCK_API) {
     await loginMock(email, password)
+    if (!accessSession.isCurrent(epoch)) throw new StaleSessionError()
     return { accountId: `mock:${email}`, email }
   }
   const api = await loadApiClient()
   const response = await api.post<{ accessToken?: string }>("/api/auth/login", { email, password })
   const token = AUTH_WIRE.readAccessToken(response)
   const account = accountFromToken(token, email)
-  accessSession.set(token)
+  if (!accessSession.setIfCurrent(token, epoch)) throw new StaleSessionError()
   return account
 }
 
-// 서버 로그아웃이 실패해도(네트워크 등) 이 탭의 인증 상태는 해제한다. 호출자는 결과와 관계없이 화면을 로그아웃으로 바꾼다.
+// 이 탭의 토큰은 서버 응답을 기다리지 않고 즉시 지운다. 응답 뒤에 지우면 그 사이 한 재로그인 토큰까지 지워진다.
+// 서버 로그아웃이 실패해도(네트워크 등) 화면 인증 해제는 막지 않는다.
 export const logoutRequest = async (): Promise<void> => {
+  accessSession.end()
   try {
     if (USE_MOCK_API) {
       await logoutMock()
@@ -43,25 +55,24 @@ export const logoutRequest = async (): Promise<void> => {
     const api = await loadApiClient()
     await api.post("/api/auth/logout")
   } catch {
-    // 서버 세션 정리 실패는 화면 인증 해제를 막지 않는다.
-  } finally {
-    accessSession.clear()
+    // 서버 세션 정리 실패는 무시한다.
   }
 }
 
 // 새로고침하면 메모리 Access Token이 사라진다. Refresh 쿠키가 있으면 조용히 다시 받는다(5-3).
-// 이메일은 응답에 없어(A21 /api/me 미확정) null이다. 실패하면 비로그인으로 둔다.
+// 401 재시도와 같은 Refresh 실행을 함께 써서 Refresh를 동시에 두 번 보내지 않는다.
+// 복구 중에 사용자가 직접 로그인·로그아웃했으면 결과를 버린다. 이메일은 응답에 없어(A21 미확정) null이다.
 export const restoreSessionRequest = async (): Promise<SignedInAccount | null> => {
   if (USE_MOCK_API) return null
+  const epoch = accessSession.current()
   try {
-    const api = await loadApiClient()
-    const response = await api.post<{ accessToken?: string }>(AUTH_WIRE.refreshPath)
-    const token = AUTH_WIRE.readAccessToken(response)
-    const account = accountFromToken(token, null)
-    accessSession.set(token)
-    return account
+    await loadApiClient()
+    const token = await refreshAccessToken()
+    if (!accessSession.isCurrent(epoch)) return null
+    return accountFromToken(token, null)
   } catch {
-    accessSession.clear()
+    // sub가 없는 토큰을 받았다면 이 세션에 남기지 않는다.
+    if (accessSession.isCurrent(epoch)) accessSession.clear()
     return null
   }
 }

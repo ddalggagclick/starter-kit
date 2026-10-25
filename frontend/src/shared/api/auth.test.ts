@@ -7,6 +7,8 @@ import {
   accessSession,
   accountIdFromAccessToken,
   attachAuthSecurity,
+  refreshAccessToken,
+  StaleSessionError,
   setAuthLostListener,
 } from "./auth"
 
@@ -202,5 +204,83 @@ describe("accountIdFromAccessToken", () => {
     expect(accountIdFromAccessToken(jwt({ exp: 1 }))).toBeNull()
     expect(accountIdFromAccessToken("not-a-jwt")).toBeNull()
     expect(accountIdFromAccessToken("a.!!!.c")).toBeNull()
+  })
+})
+
+describe("늦게 도착한 이전 세션 응답 (리뷰 회귀)", () => {
+  // Refresh 응답을 테스트가 원하는 때에 돌려주는 서버.
+  const deferredRefreshServer = () => {
+    let release: (token: string) => void = () => {}
+    let refreshCalls = 0
+    const adapter: AxiosAdapter = async (config) => {
+      const reply = (status: number, data: unknown) => ({
+        data,
+        status,
+        statusText: "",
+        headers: {},
+        config,
+      })
+      if (config.url === "/api/auth/csrf") return reply(200, { csrfToken: "csrf" })
+      if (config.url === "/api/auth/refresh") {
+        refreshCalls += 1
+        const token = await new Promise<string>((resolve) => {
+          release = resolve
+        })
+        return reply(200, { accessToken: token })
+      }
+      const response = reply(401, {})
+      throw Object.assign(new Error("401"), { config, response })
+    }
+    const api = axios.create({ adapter })
+    attachAuthSecurity(api, AUTH_WIRE)
+    // Refresh 요청은 CSRF 발급을 거쳐 서버에 도착한다. 도착을 확인한 뒤에 응답을 보낸다.
+    const respond = async (token: string) => {
+      await vi.waitFor(() => expect(refreshCalls).toBe(1))
+      release(token)
+    }
+    return { api, respond, calls: () => refreshCalls }
+  }
+
+  it("A 세션의 Refresh가 B 로그인 뒤에 끝나도 B 토큰을 덮지 않고 인증 해제 알림도 없다", async () => {
+    const lost = vi.fn()
+    setAuthLostListener(lost)
+    const server = deferredRefreshServer()
+    accessSession.set("a-old")
+    const pending = refreshAccessToken()
+
+    // B 로그인 완료
+    const epoch = accessSession.begin()
+    expect(accessSession.setIfCurrent("b-token", epoch)).toBe(true)
+    await server.respond("a-new")
+
+    await expect(pending).rejects.toBeInstanceOf(StaleSessionError)
+    expect(accessSession.get()).toBe("b-token")
+    expect(lost).not.toHaveBeenCalled()
+  })
+
+  it("로그아웃 뒤 도착한 Refresh 결과는 토큰을 다시 넣지 않는다", async () => {
+    const server = deferredRefreshServer()
+    accessSession.set("a-old")
+    const pending = refreshAccessToken()
+
+    accessSession.end()
+    await server.respond("a-new")
+
+    await expect(pending).rejects.toBeInstanceOf(StaleSessionError)
+    expect(accessSession.get()).toBeNull()
+  })
+
+  it("세션 복구와 401 재시도가 겹쳐도 Refresh는 1번만 보낸다", async () => {
+    const server = deferredRefreshServer()
+    accessSession.set("old")
+
+    const restore = refreshAccessToken()
+    const request = server.api.get("/api/a").catch(() => undefined)
+    await server.respond("new")
+    await restore
+    await request
+
+    expect(server.calls()).toBe(1)
+    expect(accessSession.get()).toBe("new")
   })
 })
