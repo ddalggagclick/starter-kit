@@ -175,3 +175,57 @@ describe("저장 실패(D-10, 4-2-4)", () => {
     expect(store().procedureStates.p02.guidanceRead).toBe(true)
   })
 })
+
+describe("리뷰 회귀: 저장 중 변경·실패 표시", () => {
+  it("동의 처리 중(데이터를 쓰는 순간) 바꾼 내용도 빠짐없이 저장된다", async () => {
+    await start()
+    store().setInitialAnswers(ANSWERS, "direct")
+    const originalPut = db.checklists.put.bind(db.checklists)
+    vi.spyOn(db.checklists, "put").mockImplementationOnce((...args) => {
+      // 첫 저장이 진행되는 사이에 사용자가 다른 절차를 확인한다.
+      store().setGuidanceRead("p03", true)
+      return originalPut(...args)
+    })
+
+    await grantChecklistStorage(db)
+    vi.restoreAllMocks()
+    await reload()
+
+    expect(store().procedureStates.p03.guidanceRead).toBe(true)
+  })
+
+  it("동의는 됐지만 데이터 저장이 실패하면, 다시 접속해도 '저장 중'으로 표시하지 않는다", async () => {
+    await start()
+    store().setInitialAnswers(ANSWERS, "direct")
+    vi.spyOn(db.checklists, "put").mockRejectedValue(
+      new DOMException("저장 공간 부족", "QuotaExceededError"),
+    )
+    await grantChecklistStorage(db)
+    expect(status()).toBe("failed")
+    vi.restoreAllMocks()
+
+    await reload()
+
+    expect(status()).not.toBe("ready")
+    expect(await db.checklists.count()).toBe(0)
+  })
+
+  it("다시 접속했을 때 실제로 쓸 수 없으면 '저장 중' 대신 '저장 불가'를 표시한다", async () => {
+    await start()
+    store().setInitialAnswers(ANSWERS, "direct")
+    await grantChecklistStorage(db)
+    await persistence.flush()
+    persistence.stop()
+    store().reset()
+    vi.spyOn(db.checklists, "put").mockRejectedValue(
+      new DOMException("저장 공간 부족", "QuotaExceededError"),
+    )
+
+    await start()
+    await persistence.flush()
+
+    expect(status()).toBe("failed")
+    // 복원한 내용으로 메모리 이용은 계속된다.
+    expect(store().answers).toEqual(ANSWERS)
+  })
+})

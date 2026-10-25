@@ -88,6 +88,29 @@ export const grantConsent = (
     await db.consents.put({ namespace, scope, grantedAt: Date.now() })
   })
 
+// 체크리스트 동의 기록과 현재 체크리스트 저장을 한 트랜잭션으로 처리한다.
+// 저장이 실패하면 동의도 남기지 않아, 다음 접속 때 '동의는 있는데 데이터는 없는' 상태로 '저장 중'을 표시하지 않는다.
+// snapshot이 null이면(아직 답이 없음) 동의만 기록한다.
+export const grantChecklistConsentWithSnapshot = (
+  db: InheritanceDb,
+  namespace: StorageNamespace,
+  snapshot: ChecklistSnapshot | null,
+): Promise<StorageResult<void>> =>
+  attemptStorage(() =>
+    db.transaction("rw", db.consents, db.checklists, async () => {
+      await db.consents.put({ namespace, scope: "checklist", grantedAt: Date.now() })
+      if (!snapshot) return
+      const { answers, riskAnswers, procedureStates } = snapshot
+      await db.checklists.put({
+        answers,
+        riskAnswers,
+        procedureStates,
+        namespace,
+        updatedAt: Date.now(),
+      })
+    }),
+  )
+
 // namespace당 현재 체크리스트 1건을 덮어쓴다. 체크리스트 동의가 없으면 not-consented.
 export const saveChecklistWithConsent = (
   db: InheritanceDb,
