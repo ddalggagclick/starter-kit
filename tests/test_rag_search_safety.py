@@ -32,6 +32,88 @@ class _Embedding:
         return (0.0,) * 768
 
 
+class _RankedHitStore:
+    def __init__(self, hits):
+        self.hits = hits
+        self.requested_top_k = None
+
+    async def search_vectors(self, vector, *, top_k, allow_synthetic):
+        self.requested_top_k = top_k
+        return self.hits[:top_k]
+
+
+def _ranked_hit(chunk_id, text, score, *, chunk_kind="document"):
+    return SimpleNamespace(
+        chunk_id=chunk_id,
+        text=text,
+        cosine_distance=1 - score,
+        metadata={
+            "source_id": "guide-1",
+            "source_title": "General information guide",
+            "source_url": None,
+            "publisher": "Publisher",
+            "version": "v1",
+            "location": "page=1",
+            "publication_state": "published",
+            "is_synthetic": False,
+            "chunk_kind": chunk_kind,
+        },
+    )
+
+
+def test_문서_구조가_제목만_있는_청크를_본문보다_낮게_정렬한다():
+    store = _RankedHitStore(
+        (
+            _ranked_hit("heading", "Coastal itinerary planning guide", 0.90),
+            _ranked_hit(
+                "body",
+                "Plan a coastal itinerary with lodging, transit, and weather details.",
+                0.82,
+            ),
+        )
+    )
+
+    result = asyncio.run(
+        PGVectorSearch(store, _Embedding()).search(
+            SearchRequest("coastal itinerary planning", top_k=2)
+        )
+    )
+
+    assert [item.evidence_id for item in result.evidence] == ["body", "heading"]
+
+
+def test_질문_어휘와_본문이_맞는_근거를_우선한다():
+    store = _RankedHitStore(
+        (
+            _ranked_hit("unrelated", "Rose gardening needs regular pruning.", 0.82),
+            _ranked_hit("matched", "Account search instructions describe each step.", 0.76),
+        )
+    )
+
+    result = asyncio.run(
+        PGVectorSearch(store, _Embedding()).search(
+            SearchRequest("account search instructions", top_k=2)
+        )
+    )
+
+    assert [item.evidence_id for item in result.evidence] == ["matched", "unrelated"]
+
+
+def test_검색은_최대_열_후보만_조회한다():
+    store = _RankedHitStore((_ranked_hit("body", "General searchable content.", 0.8),))
+
+    asyncio.run(
+        PGVectorSearch(store, _Embedding()).search(SearchRequest("searchable content", top_k=3))
+    )
+
+    assert store.requested_top_k == 10
+
+
+def test_검색_후보_상한을_넘는_설정을_거부한다():
+    with pytest.raises(ValueError, match="candidate_count"):
+        PGVectorSearch(_RankedHitStore(()), _Embedding(), candidate_count=11)
+
+
 class _SearchQuery:
     def __init__(self, rows=(), error: Exception | None = None) -> None:
         self.rows = rows
@@ -222,10 +304,11 @@ def test_벡터저장소_생성오류를_정상적인_빈결과로_바꾸지_않
 
 def test_로컬_데이터베이스_연결오류에서_연결주소_비밀번호를_노출하지_않는다(caplog):
     password = "rag-validation-only-secret"
-    database = PostgresRagDatabase(
-        "postgresql+asyncpg://rag_test:rag-validation-only-secret@127.0.0.1:1/"
-        "starter_rag_integration"
-    )
+    with patch.dict("os.environ", {"RAG_LOCAL_DATABASE_NAME": "starter_rag_integration"}):
+        database = PostgresRagDatabase(
+            "postgresql+asyncpg://rag_test:rag-validation-only-secret@127.0.0.1:1/"
+            "starter_rag_integration"
+        )
 
     async def operation():
         try:
