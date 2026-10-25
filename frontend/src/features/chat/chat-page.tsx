@@ -6,15 +6,17 @@
  *   S6은 질문을 남기고 다시 시도, 비로그인 10회 소진(S9)이면 로그인·회원가입 진입.
  *   VITE_USE_MOCK_API=false면 실제 A08(ask-transport.ts)로 보낸다. 출처 url이 null이면 링크 없이 제목만 보인다.
  *   같은 질문의 [다시 시도]는 최대 3회다(결정 문서 Q47).
+ *   AI 대화 저장 동의(S1, 체크리스트와 별도)·이전 대화 목록(S10)·새 대화(S8)·저장 안 된 대화 이탈 확인(S11)
+ *   (PRD 4-1-1·3-6-1~3-6-3). 저장은 chat-storage.ts가 동의를 확인해 처리한다.
  * 제한사항: Mock 모드에서는 화면 상단에 Mock임을 표시하고 실동작 완료로 보이지 않게 한다.
- *   대화 저장 동의·이전 대화(S10)·이탈 확인(S11)은 후속 이슈다.
+ *   새로고침·탭 닫기는 확인 없이 초기화한다(D-11). [대화 기록 삭제]·동의 철회(4-3)는 후속 이슈다.
  */
 import { ExternalLink, Send, Square } from "lucide-react"
-import { type FormEvent, useCallback, useId, useState } from "react"
-import { Link, useLocation } from "react-router"
+import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react"
+import { Link, useBlocker, useLocation } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
-import { useAuthStore } from "@/features/auth/auth-store"
+import { selectNamespace, useAuthStore } from "@/features/auth/auth-store"
 import {
   createMockAskResponse,
   GUEST_DAILY_LIMIT,
@@ -29,9 +31,22 @@ import type { ApiFailure } from "@/shared/api/api-error"
 import { USE_MOCK_API } from "@/shared/api/data-source"
 import type { SseResultEvent } from "@/shared/api/types"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
+import { inheritanceDb } from "@/shared/storage/db"
 import { createApiAskTransport } from "./ask-transport"
+import {
+  CHAT_POLICY_ITEMS,
+  ChatConsentBand,
+  ConfirmDialog,
+  PreviousConversations,
+} from "./chat-history"
+import {
+  type ChatTurn,
+  type ConversationMeta,
+  conversationTitle,
+  useChatStorage,
+} from "./chat-storage"
 import { useChatSessionStore } from "./chat-store"
-import { type ChatOutcome, type ChatTransport, useChatStream } from "./use-chat-stream"
+import { type ChatTransport, useChatStream } from "./use-chat-stream"
 import { useTypewriter } from "./use-typewriter"
 
 const VISIBLE_SOURCE_COUNT = 2
@@ -50,8 +65,8 @@ export const inputErrorMessage = (failure: ApiFailure): string =>
     ? failure.message
     : `질문을 확인해 주세요. ${CHAT_INPUT_POLICY.maxQuestionCodePoints}자 이하로 입력할 수 있습니다.`
 
-// retries: 이 질문에 [다시 시도]를 누른 횟수.
-type Turn = { id: number; question: string; outcome: ChatOutcome; retries: number }
+const newConversationId = () =>
+  globalThis.crypto?.randomUUID?.() ?? `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 // 실제 A08은 url이 null인 출처를 보낸다(백엔드 #103). openapi 생성 타입보다 넓게 받는다.
 export type ChatSource = { title?: string; url?: string | null }
@@ -94,8 +109,17 @@ export function Sources({ sources }: { sources: ChatSource[] }) {
   )
 }
 
-function AnsweredBubble({ result }: { result: SseResultEvent }) {
-  const { shown, done } = useTypewriter(result.answer ?? "")
+// instant: 저장 기록에서 다시 연 답변. 이미 읽은 답이라 타이핑 효과 없이 바로 보인다.
+function AnsweredBubble({
+  result,
+  instant = false,
+}: {
+  result: SseResultEvent
+  instant?: boolean
+}) {
+  const typed = useTypewriter(instant ? "" : (result.answer ?? ""))
+  const shown = instant ? (result.answer ?? "") : typed.shown
+  const done = instant || typed.done
   return (
     <div className="space-y-3 rounded-xl border bg-card p-4" aria-busy={!done}>
       <p className="whitespace-pre-wrap leading-7">{shown}</p>
@@ -221,7 +245,14 @@ export function ChatPage() {
   } = useChatSessionStore()
   const [scenario, setScenario] = useState<MockAiScenario>("answered")
   const [input, setInput] = useState("")
-  const [turns, setTurns] = useState<Turn[]>([])
+  const [turns, setTurns] = useState<ChatTurn[]>([])
+  // 지금 대화. 첫 질문이 끝날 때 만든다(제목 = 첫 질문 앞부분, D-14).
+  const [meta, setMeta] = useState<ConversationMeta | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [confirmNewChat, setConfirmNewChat] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const namespace = useAuthStore(selectNamespace)
+  const storage = useChatStorage(inheritanceDb, namespace)
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
   const [inputError, setInputError] = useState<string | null>(null)
   const [cancelledNote, setCancelledNote] = useState(false)
@@ -248,7 +279,7 @@ export function ChatPage() {
   const guestLimitReached = isGuest && guestRemaining === 0
   const codePoints = countUnicodeCodePoints(input)
   const overLimit = codePoints > CHAT_INPUT_POLICY.maxQuestionCodePoints
-  async function send(question: string, earlierTurns: Turn[], retries = 0) {
+  async function send(question: string, earlierTurns: ChatTurn[], retries = 0) {
     setInputError(null)
     setCancelledNote(false)
     setPendingQuestion(question)
@@ -272,7 +303,16 @@ export function ChatPage() {
     if (outcome.kind === "error" && outcome.failure.code === "RATE_LIMITED" && isGuest) {
       setGuestRemaining(0)
     }
-    setTurns((current) => [...current, { id: Date.now(), question, outcome, retries }])
+    const turn: ChatTurn = { id: Date.now(), question, outcome, retries }
+    const conversation = meta ?? {
+      id: newConversationId(),
+      title: conversationTitle(earlierTurns[0]?.question ?? question),
+      createdAt: Date.now(),
+    }
+    if (!meta) setMeta(conversation)
+    setTurns((current) => [...current, turn])
+    // 동의한 경우에만 저장된다(chat-storage가 확인). 오류·사용 제한은 저장하지 않는다.
+    void storage.saveTurn(conversation, turn)
   }
 
   function onSubmit(event: FormEvent) {
@@ -295,13 +335,76 @@ export function ChatPage() {
     setCancelledNote(true)
   }
 
-  function startNewChat() {
+  function resetConversation() {
     cancel()
     setTurns([])
+    setMeta(null)
+    setInput("")
     setPendingQuestion(null)
     setCancelledNote(false)
     setInputError(null)
   }
+
+  const saving = storage.status === "ready"
+  const hasUnsent = input.trim() !== ""
+  const hasConversation = turns.length > 0 || pendingQuestion !== null
+
+  // S8: 저장 중이면 지금 대화는 이미 목록에 보관되어 확인 없이 새 대화를 연다. 미전송 입력이 있을 때만 묻는다.
+  // 저장하지 않는 중이면 대화나 입력이 있을 때 묻는다(Q60).
+  function startNewChat() {
+    const needsConfirm = hasUnsent || (!saving && hasConversation)
+    if (needsConfirm) setConfirmNewChat(true)
+    else resetConversation()
+  }
+
+  // S11: 저장하지 않는(미동의·저장 불가) 대화나 입력이 있을 때, 사이트 안 다른 화면으로 이동하면 묻는다.
+  // 새로고침·탭 닫기는 묻지 않는다(D-11). 공식 출처를 새 탭으로 여는 것은 이동이 아니다.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      currentLocation.pathname !== nextLocation.pathname &&
+      !saving &&
+      (hasConversation || hasUnsent),
+  )
+
+  // 정책 확인 후 [저장] 또는 S11 [이 기기에 저장하고 이동]: 동의와 지금 대화를 함께 저장한다.
+  const grantStorage = () => storage.grant(meta, turns)
+
+  async function openConversation(conversationId: string, title: string, createdAt: number) {
+    setHistoryError(null)
+    const restored = await storage.open(conversationId)
+    if (!restored) {
+      setHistoryError("이전 대화를 불러오지 못했습니다. 다시 시도해 주세요.")
+      return
+    }
+    cancel()
+    setPendingQuestion(null)
+    setCancelledNote(false)
+    setMeta({ id: conversationId, title, createdAt })
+    setTurns(restored)
+  }
+
+  async function removeConversation(conversationId: string) {
+    setHistoryError(null)
+    const ok = await storage.remove(conversationId)
+    if (!ok) {
+      setHistoryError("삭제하지 못했습니다. 다시 시도해 주세요.")
+      return
+    }
+    // 보고 있던 대화를 지웠으면 화면에서도 지운다.
+    if (meta?.id === conversationId) resetConversation()
+  }
+
+  // 로그인 계정이 바뀌면 이전 계정에 저장된 대화는 화면에서 내린다. 저장하지 않은 임시 대화는 유지해도 된다.
+  const wasSaving = useRef(saving)
+  const previousNamespace = useRef(namespace)
+  useEffect(() => {
+    if (previousNamespace.current !== namespace) {
+      if (wasSaving.current) resetConversation()
+      setHistoryOpen(false)
+      previousNamespace.current = namespace
+    }
+    wasSaving.current = saving
+  })
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -310,15 +413,48 @@ export function ChatPage() {
           <p className="text-sm font-semibold text-muted-foreground">W-07 · AI 질문</p>
           <h1 className="text-2xl font-bold">상속 절차를 물어보세요</h1>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={startNewChat}
-          disabled={turns.length === 0 && !running}
-        >
-          새 대화 시작
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {saving && (
+            <Button
+              variant="outline"
+              size="sm"
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen((open) => !open)}
+            >
+              이전 대화 {historyOpen ? "▴" : "▾"}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={startNewChat}
+            disabled={turns.length === 0 && !running && !hasUnsent}
+          >
+            새 대화 시작
+          </Button>
+        </div>
       </div>
+
+      <ChatConsentBand
+        status={storage.status}
+        declined={storage.declined}
+        onGrant={grantStorage}
+        onDecline={storage.decline}
+      />
+
+      {saving && historyOpen && (
+        <section aria-label="이전 대화 목록" className="space-y-2 rounded-xl border bg-card p-3">
+          <PreviousConversations
+            conversations={storage.conversations}
+            currentId={meta?.id ?? null}
+            onOpen={(conversation) =>
+              void openConversation(conversation.id, conversation.title, conversation.createdAt)
+            }
+            onRemove={(conversation) => void removeConversation(conversation.id)}
+          />
+        </section>
+      )}
+      {historyError && <Notice tone="danger">{historyError}</Notice>}
 
       {USE_MOCK_API && (
         <>
@@ -367,7 +503,9 @@ export function ChatPage() {
             <p className="ml-auto w-fit max-w-[85%] rounded-xl bg-primary px-4 py-2 text-primary-foreground">
               {turn.question}
             </p>
-            {turn.outcome.kind === "answered" && <AnsweredBubble result={turn.outcome.result} />}
+            {turn.outcome.kind === "answered" && (
+              <AnsweredBubble result={turn.outcome.result} instant={turn.restored} />
+            )}
             {turn.outcome.kind === "withheld" && <WithheldBubble />}
             {turn.outcome.kind === "error" && (
               <FailureBubble
@@ -460,6 +598,60 @@ export function ChatPage() {
           </p>
         )}
       </form>
+
+      {confirmNewChat && (
+        <ConfirmDialog
+          title={
+            saving
+              ? "보내지 않은 입력이 있습니다. 새 대화를 시작할까요?"
+              : "이 대화는 저장되지 않아 새 대화를 시작하면 사라집니다."
+          }
+          actions={[
+            {
+              label: "새 대화 시작",
+              primary: true,
+              onClick: () => {
+                setConfirmNewChat(false)
+                resetConversation()
+              },
+            },
+          ]}
+          onCancel={() => setConfirmNewChat(false)}
+        />
+      )}
+
+      {blocker.state === "blocked" && (
+        <ConfirmDialog
+          title="이 대화는 저장되지 않아 나가면 사라집니다."
+          actions={[
+            // 저장할 수 없는 브라우저면 저장 버튼을 숨긴다(부록4 S11).
+            ...(storage.status === "failed"
+              ? []
+              : [
+                  {
+                    label: "이 기기에 저장하고 이동",
+                    primary: true,
+                    onClick: async () => {
+                      if (await grantStorage()) blocker.proceed()
+                    },
+                  },
+                ]),
+            { label: "저장 없이 이동", onClick: () => blocker.proceed() },
+          ]}
+          onCancel={() => blocker.reset()}
+        >
+          {storage.status !== "failed" && (
+            <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+              {CHAT_POLICY_ITEMS.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          )}
+          {storage.status === "failed" && (
+            <p className="text-sm">⚠ 이 브라우저에서는 저장할 수 없습니다.</p>
+          )}
+        </ConfirmDialog>
+      )}
     </div>
   )
 }
