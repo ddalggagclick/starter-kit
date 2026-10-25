@@ -3,7 +3,8 @@
  * PRD: E4 / 스토리 4-2 / 태스크 4-2-1; 화면 연계 2-4-1, 2-4-3, 2-4-4, 2-5-1, 2-5-2; Handoff 반영 1-4-3.
  * 구현: 초기·위험 답변과 절차별 '안내 확인'·'재확인 필요' 상태를 메모리(Zustand)에서만 관리한다.
  * 완료 기준: 답변을 바꾸면 영향받은 위험 질문만 미확인, 이미 확인한 영향 절차만 재확인 배지가 된다.
- * 제한사항: 영속 저장(Dexie)은 별도 동의 후 2구간(간트 21·22)에서 붙인다. 지금은 새로고침하면 사라진다.
+ * 제한사항: 이 스토어는 메모리만 다룬다. 동의한 경우의 IndexedDB 저장·복원은 features/checklist/checklist-storage.ts가
+ *   이 스토어를 구독해 처리한다(4-2-1). 미동의면 새로고침 시 사라진다(D-12).
  *   '안내 확인'은 읽음 표시일 뿐 신고·신청 완료가 아니다(Q71). 체크해도 순서·노출은 바뀌지 않는다(2-5-2).
  */
 import { create } from "zustand"
@@ -18,7 +19,14 @@ import type {
   RiskId,
 } from "@/shared/contracts/domain"
 
-export type EntrySource = "direct" | "kakao"
+// restored: 이 기기에 저장한 답변을 재방문 때 불러온 경우.
+export type EntrySource = "direct" | "kakao" | "restored"
+
+export type SavedChecklist = {
+  answers: InitialAnswers | null
+  riskAnswers: Partial<Record<RiskId, RiskAnswer>>
+  procedureStates: Partial<Record<ProcedureId, ProcedureState>>
+}
 export type ProcedureState = { guidanceRead: boolean; needsRecheck: boolean }
 
 // 초기 답변 항목이 바뀔 때 영향받는 절차·위험 질문.
@@ -50,6 +58,7 @@ type InheritanceState = {
   procedureStates: Record<ProcedureId, ProcedureState>
   setInitialAnswers: (answers: InitialAnswers, source: EntrySource) => void
   applyHandoff: (payload: HandoffPayload) => void
+  restoreSaved: (saved: SavedChecklist) => boolean
   answerRisk: (riskId: RiskId, answer: AnswerChoice) => void
   clearRisk: (riskId: RiskId) => void
   confirmRisk: (riskId: RiskId) => void
@@ -79,7 +88,7 @@ const changedFields = (before: InitialAnswers, after: InitialAnswers) => {
   return fields
 }
 
-export const useInheritanceStore = create<InheritanceState>()((set) => ({
+export const useInheritanceStore = create<InheritanceState>()((set, get) => ({
   answers: null,
   entrySource: null,
   riskAnswers: {},
@@ -123,6 +132,23 @@ export const useInheritanceStore = create<InheritanceState>()((set) => ({
       ),
       procedureStates: initialProcedureStates(),
     }),
+
+  // 저장 기록 복원. 이미 메모리에 답이 있으면(카카오 인계·직접 입력 직후) 덮어쓰지 않고 false를 돌려준다.
+  // 복원한 위험 답변은 [그대로 맞음]을 누르기 전까지 미확인이다(D-09, 2-4-4).
+  restoreSaved: (saved) => {
+    if (get().answers || !saved.answers) return false
+    set({
+      answers: saved.answers,
+      entrySource: "restored",
+      riskAnswers: Object.fromEntries(
+        Object.values(saved.riskAnswers)
+          .filter((risk): risk is RiskAnswer => risk !== undefined)
+          .map((risk) => [risk.riskId, { ...risk, confirmed: false }]),
+      ),
+      procedureStates: { ...initialProcedureStates(), ...saved.procedureStates },
+    })
+    return true
+  },
 
   answerRisk: (riskId, answer) =>
     set((state) => {
