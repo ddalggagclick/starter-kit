@@ -51,7 +51,8 @@ export type AskAiRequest = {
 // A08 SSE 이벤트 (event: status → result 또는 error)
 export type SseStage = "searching" | "lawChecking" | "writing"
 export type SseStatusEvent = { stage: SseStage }
-export type SseSource = { title: string; url: string }
+// url이 null이면 링크 없는 출처(전화 상담·공식 사이트 안내 등)다. 백엔드 #103 기준, openapi는 아직 null 불가로 적혀 있다.
+export type SseSource = { title: string; url: string | null }
 export type SseResultEvent = {
   state: "answered" | "withheld"
   answer: string | null
