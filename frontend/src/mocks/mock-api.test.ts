@@ -58,8 +58,8 @@ describe("A07 절차 Mock", () => {
     }
   })
 
-  it("없는 절차 ID는 404", async () => {
-    await expect(getProcedure("p99", fast)).rejects.toMatchObject({ status: 404 })
+  it("없는 절차 ID는 422", async () => {
+    await expect(getProcedure("p99", fast)).rejects.toMatchObject({ status: 422 })
   })
 })
 

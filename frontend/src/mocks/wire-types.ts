@@ -19,7 +19,7 @@ export type HandoffPayload = {
   risks?: { riskId: RiskId; answer: AnswerChoice }[]
 }
 
-// A07 목록 (x-confirmed: false, 경로 제안)
+// A07 목록 (openapi 0.2.1 x-confirmed: true)
 export type ProcedureSummary = { procedureId: ProcedureId; name: string; summary: string }
 export type ProcedureListResponse = { procedures: ProcedureSummary[] }
 

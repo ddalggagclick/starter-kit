@@ -724,8 +724,8 @@ export interface operations {
                     "application/json": components["schemas"]["ProcedureDetail"];
                 };
             };
-            /** @description 없는 절차 ID (팀 코드 오류 목록에 없음 → 제안) */
-            404: {
+            /** @description VALIDATION_ERROR (p01~p08이 아닌 절차 ID는 경로 검증 단계에서 거부. 팀 오류 코드에 없는 404는 만들지 않음, 김현주 10/22) */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
