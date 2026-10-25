@@ -47,7 +47,8 @@ export type ConversationRecord = {
 
 // 이 모듈은 출처를 검증하지 않고 받은 그대로 저장한다.
 // 호출하는 쪽에서 서버가 검증해 보낸 출처(SseResultEvent.sources)만 넘겨야 한다. URL을 만들거나 고치지 않는다.
-export type StoredSource = { title: string; url: string }
+// url이 null이면 링크 없는 출처다(A08 sources[].url null 허용).
+export type StoredSource = { title: string; url: string | null }
 
 export type MessageRecord = {
   id: string

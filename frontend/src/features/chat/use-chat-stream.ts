@@ -4,7 +4,7 @@
  * 구현: 요청마다 requestId와 AbortController를 만든다. 실제 status 이벤트만 진행 단계로 보여주고,
  *   result/error 한 건으로 끝낸다. 취소·화면 이탈·새 요청이 오면 이전 요청을 끊고 늦은 응답을 버린다.
  *   result가 answered여도 답변 본문이나 출처가 없으면 S7(판단 유보)로 처리한다(출처 0건 → S7).
- * 제한사항: 전송 방식(transport)은 바깥에서 받는다. V1은 Mock Response이며 A08 Backend 라우터가 없다.
+ * 제한사항: 전송 방식(transport)은 바깥에서 받는다. 실제 A08은 ask-transport.ts, Mock은 mocks/ai-stream.ts다.
  *   화면 타이핑 효과와 출처 표시는 chat-page 책임이다.
  */
 import { useCallback, useEffect, useRef, useState } from "react"

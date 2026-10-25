@@ -3,8 +3,8 @@
  * PRD: 스토리 1-4, 2-1, 2-2, 2-4, 2-5 / 태스크 1-4-3, 1-4-4, 2-1-1, 2-2-1, 2-5-1, 2-5-2.
  * 구현: ?handoff= 로 들어오면 토큰을 교환해 W-01을 건너뛴다(K1 띠). 실패하면 사유를 구분하지 않는
  *   같은 안내와 '이어 보기' 또는 'W-01 처음부터'를 보여준다. 8개 카드는 항상 같은 순서로 모두 보인다.
- * 제한사항: 저장 동의·Dexie 저장은 2구간(간트 21·22)이다. 지금은 '저장 안 됨'을 그대로 표시한다.
- *   '안내 확인' 개수를 신고·신청 완료율로 표현하지 않는다.
+ *   체크리스트 저장 동의 띠(ChecklistConsentBand)를 보여 주고, 저장 기록을 불러오면 그 사실을 알린다(4-1-1, D-09).
+ * 제한사항: '안내 확인' 개수를 신고·신청 완료율로 표현하지 않는다. 삭제·철회 버튼(4-3)은 후속 이슈다.
  */
 import { ChevronRight, Pencil } from "lucide-react"
 import { useState } from "react"
@@ -22,11 +22,11 @@ import {
   ONE_STOP_OPTIONS,
   RELATIONSHIP_OPTIONS,
   RISK_QUESTIONS,
-  STORAGE_STATUS_LABELS,
 } from "@/mocks/checklist"
 import { MOCK_DEADLINE_TAGS } from "@/mocks/procedures"
 import type { InitialAnswers, ProcedureId } from "@/shared/contracts/domain"
 import { countGuidance, useInheritanceStore } from "@/shared/state/inheritance-store"
+import { ChecklistConsentBand } from "./checklist-consent-band"
 import { RiskQuestions } from "./risk-questions"
 
 const labelOf = <T extends string>(options: { value: T; label: string }[], value: T) =>
@@ -52,12 +52,15 @@ function AnswerSummary({ answers }: { answers: InitialAnswers }) {
 }
 
 // 위험 질문에 '있음'으로 답했으면 관련 절차 카드에 주의 표시를 붙인다. 순서·노출은 바꾸지 않는다.
+// 미확인 답(저장 후 재방문·답변 수정 영향)은 [그대로 맞음] 전까지 반영하지 않는다(D-09, Q70).
 const useRiskFlags = (): Set<ProcedureId> => {
   const riskAnswers = useInheritanceStore((s) => s.riskAnswers)
   const flagged = new Set<ProcedureId>()
   for (const question of RISK_QUESTIONS) {
     const answer = riskAnswers[question.riskId]
-    if (answer?.answer === "yes") for (const id of question.relatedProcedureIds) flagged.add(id)
+    if (answer?.confirmed && answer.answer === "yes") {
+      for (const id of question.relatedProcedureIds) flagged.add(id)
+    }
   }
   return flagged
 }
@@ -188,6 +191,13 @@ export function ChecklistPage() {
         </Notice>
       )}
 
+      {entrySource === "restored" && (
+        <Notice tone="info">
+          이 기기에 저장한 답변을 불러왔습니다. 위험 질문 답변은 [그대로 맞음]을 누르기 전까지
+          반영하지 않습니다.
+        </Notice>
+      )}
+
       <Card>
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">내 답변</CardTitle>
@@ -200,9 +210,7 @@ export function ChecklistPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <AnswerSummary answers={answers} />
-          <p className="text-xs text-muted-foreground">
-            저장 상태: {STORAGE_STATUS_LABELS["not-consented"]} (기기 저장 동의는 준비 중)
-          </p>
+          <ChecklistConsentBand />
         </CardContent>
       </Card>
 

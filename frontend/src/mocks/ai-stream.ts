@@ -18,6 +18,7 @@ import type {
 export type MockAiScenario =
   | "answered"
   | "answeredSingleSource"
+  | "answeredNoUrlSource"
   | "withheld"
   | "providerUnavailable"
   | "providerTimeout"
@@ -28,6 +29,7 @@ export type MockAiScenario =
 export const MOCK_AI_SCENARIO_LABELS: Record<MockAiScenario, string> = {
   answered: "S3 답변 · 출처 3개 (2개 + 추가 출처 보기)",
   answeredSingleSource: "S3 답변 · 출처 1개",
+  answeredNoUrlSource: "S3 답변 · 링크 없는 출처 포함 (url null)",
   withheld: "S7 판단 유보 · 출처 0개",
   providerUnavailable: "S6 기술 오류 · 503 PROVIDER_UNAVAILABLE",
   providerTimeout: "S6 기술 오류 · 504 PROVIDER_TIMEOUT (스트림 중)",
@@ -65,6 +67,12 @@ const MOCK_SOURCES: SseSource[] = [
   { title: "대법원 전자민원센터 · 상속 안내 (Mock)", url: "https://help.scourt.go.kr" },
   { title: "대한법률구조공단 · 상속 상담 (Mock)", url: "https://www.klac.or.kr" },
 ]
+
+// 링크 없이 제목만 보여 줄 출처 예시(전화 상담 안내).
+const MOCK_NO_URL_SOURCE: SseSource = {
+  title: "대한법률구조공단 · 전화 상담 132 (Mock)",
+  url: null,
+}
 
 const MOCK_ANSWER =
   "상속포기는 일반적으로 상속 개시가 있음을 안 날부터 3개월 안에 가정법원에 신고하는 절차로 안내됩니다. " +
@@ -115,7 +123,12 @@ const resultFor = (scenario: MockAiScenario, remainingToday: number | null): Sse
   return {
     state: "answered",
     answer: MOCK_ANSWER,
-    sources: scenario === "answeredSingleSource" ? MOCK_SOURCES.slice(0, 1) : MOCK_SOURCES,
+    sources:
+      scenario === "answeredSingleSource"
+        ? MOCK_SOURCES.slice(0, 1)
+        : scenario === "answeredNoUrlSource"
+          ? [MOCK_NO_URL_SOURCE, MOCK_SOURCES[0]]
+          : MOCK_SOURCES,
     remainingToday,
     reasonCode: null,
   }

@@ -27,6 +27,7 @@ import { ChatPage } from "@/features/chat/chat-page"
 import { ChecklistPage } from "@/features/checklist/checklist-page"
 import { InitialQuestionsPage } from "@/features/checklist/initial-questions-page"
 import { LandingPage } from "@/features/checklist/landing-page"
+import { useChecklistPersistence } from "@/features/checklist/use-checklist-persistence"
 import { RelationshipGuidePage, TaxGuidePage } from "@/features/law/guide-page"
 import { ProcedureDetailPage } from "@/features/procedures/procedure-detail"
 import { ProceduresPage } from "@/features/procedures/procedures-page"
@@ -108,6 +109,8 @@ function SiteHeader() {
 function AppLayout() {
   // 새로고침 후 Refresh 쿠키로 로그인 상태를 복구한다(실제 Backend 모드만).
   useSessionRestore()
+  // 동의한 경우에만 체크리스트를 이 기기에 저장·복원한다(4-2-1). 어느 화면에서 바꿔도 저장되도록 레이아웃에서 시작한다.
+  useChecklistPersistence()
   return (
     <div className="flex min-h-svh flex-col">
       <SiteHeader />
