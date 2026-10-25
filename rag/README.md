@@ -33,15 +33,18 @@ CLI는 사용자가 명시적으로 호출한 작업만 실행하며, 앱 시작
 |---|---|---|
 | `starter-rag status` | 구현 상태와 `RAG_DATABASE_URL` 설정 유무를 표시합니다. 연결 상태는 검사하지 않습니다. | DB에 연결하지 않습니다. |
 | `starter-rag parse PATH` | Docling 문서 구조와 원문 위치를 JSON으로 출력합니다. | DB를 사용하지 않습니다. |
-| `starter-rag chunk PATH` | 파싱·청킹 결과와 처리 상태를 JSON으로 출력합니다. `--source-id`, `--version`(기본 `cli-test`), `--target-tokens`(기본 512)을 선택할 수 있습니다. | DB에 쓰지 않습니다. 일반 문서는 청킹 모델을 사용할 수 있고 XLSX 표 행은 결정적으로 처리합니다. |
+| `starter-rag chunk PATH` | 파싱·청킹 결과와 처리 상태를 JSON으로 출력합니다. `--source-id`, `--version`(기본 `cli-test`), `--target-tokens`(기본 512), 승인된 `--review-file`을 선택할 수 있습니다. | DB에 쓰지 않습니다. 일반 문서는 청킹 모델을 사용할 수 있고 XLSX 표 행은 결정적으로 처리합니다. |
+| `starter-rag review ACTION` | `scan`, `export`, `validate`, `approve`, `wizard`, `assist`, `load`로 PDF 표 충돌을 사람이 검토합니다. | `load`를 명시한 경우에만 색인·게시로 이어집니다. |
+| `starter-rag config ACTION` | `setup`, `show`, `validate [--connect]`로 비공개 로컬 설정을 관리합니다. | `--connect`는 로컬 DB 읽기 전용 연결 확인입니다. |
+| `starter-rag batch MANIFEST` | 여러 PDF의 검토 준비, 승인 후 순차 색인·게시, Golden Truth 평가를 재개 가능한 상태로 수행합니다. | 로컬 DB만 허용하며, 색인·게시는 문서별 순차 처리합니다. |
 | `starter-rag db-init` | 승인된 로컬 DB에 `vector` 확장과 `rag_test.chunks` 테이블을 준비합니다. | 스키마를 변경합니다. |
 | `starter-rag index PATH` | 일반 자료는 `--source-id`, `--version`, `--source-title`, `--publisher`가 필요합니다. `--source-url`은 선택이며 HTTPS만 허용합니다. `--type source-v2`는 Source_v2 전용 색인을 실행합니다. `--target-tokens` 기본값은 512입니다. | DB에 색인하지만 게시하지 않습니다. 일반 기본 collection은 `published-guides`, Source_v2는 `rag-test-source-v2-e2e`입니다. |
 | `starter-rag publish --source-id ID --version VERSION` | 기존 단건 게시 계약입니다. `--from-index-result PATH`는 index JSON의 모든 Source Unit을 검증한 뒤 배치 게시합니다. | 게시 상태를 변경합니다. Source Unit마다 원자 전환하며 배치 전체는 원자적이지 않습니다. 기본 collection은 `published-guides`입니다. |
-| `starter-rag search "QUERY"` | 게시된 자료를 검색하고 기존 Evidence JSON을 반환합니다. `--top-k` 허용 범위는 1–10, 기본값은 3입니다. `--collection-id`, `--allow-synthetic`을 선택할 수 있습니다. | 게시 자료를 읽고 질의 임베딩을 만듭니다. 기본 collection은 `published-guides`, 합성 자료는 기본 검색에서 제외됩니다. |
+| `starter-rag search "QUERY"` | 게시된 자료를 검색하고 기본 Evidence JSON을 반환합니다. `--format text`는 읽기 쉬운 터미널 출력을 선택합니다. `--top-k` 허용 범위는 1–10, 기본값은 3입니다. `--collection-id`, `--allow-synthetic`을 선택할 수 있습니다. | 게시 자료를 읽고 질의 임베딩을 만듭니다. 기본 collection은 `published-guides`, 합성 자료는 기본 검색에서 제외됩니다. |
 | `starter-rag check PATH` | Source_v2 승인 상태, 필수값, URL 정책, 원본 행 참조와 31개 Unit 기준을 확인합니다. `--rows`를 추가하면 Docling 결과와 원본 XLSX 행의 일대일 대응도 확인합니다. | DB에 쓰지 않습니다. 비표시 내부 URL은 출력하지 않으며 결정적 `table_row` 청킹에서 모델 호출은 0회입니다. |
-| `starter-rag test` | Golden Truth v1.2 기반 26문항 검색 품질 평가를 실행합니다. `--dataset`, `--out`, `--mode`(`clarified`/`title`, 기본 `clarified`), `--group`(`all`/`direct`/`partial`/`safety_context`, 기본 `all`)을 지원합니다. | `--validate-only`는 DB를 사용하지 않습니다. 실제 평가는 검색만 하며 DB를 수정하지 않습니다. |
+| `starter-rag test` | Golden Truth v1.2 기반 26문항 검색 품질 평가를 실행합니다. `--dataset`, `--mode`(`clarified`/`title`, 기본 `clarified`), `--group`(`all`/`direct`/`partial`/`safety_context`, 기본 `all`)을 지원합니다. 결과 파일은 `--out`으로 지정할 수 있습니다. | 기본 출력은 stdout이며 파일을 만들지 않습니다. `--validate-only`는 DB를 사용하지 않습니다. 실제 평가는 검색만 하며 DB를 수정하지 않습니다. |
 
-일반 사용 명령은 `status`, `parse`, `chunk`, `db-init`, `index`, `publish`, `search`의 7개이고, 검증·평가
+일반 사용 명령은 `status`, `parse`, `chunk`, `review`, `config`, `batch`, `db-init`, `index`, `publish`, `search`의 10개이고, 검증·평가
 명령은 `check`, `test`의 2개입니다. 토크나이저 경로는 `--tokenizer-path`가 우선하며, 없으면
 `RAG_TOKENIZER_PATH` 환경변수를 사용합니다. 어느 경로도 설정되지 않으면 명확한 오류를 반환하며
 토크나이저를 내려받거나 다른 모델로 바꾸지 않습니다.
@@ -299,7 +302,8 @@ uv run --project rag --locked starter-rag test --mode clarified
 
 검증 기준은 승인 Unit 31건, 화면 표시 허용 16건, 화면 표시 비허용 15건, 실제 URL 없음 7건입니다.
 비표시 URL은 Evidence에 포함하지 않습니다. Golden Truth 평가는 26개 질문과 38개 검증 라벨을
-확인한 뒤 로컬 검색 결과를 평가하며 DB를 수정하지 않습니다. `--dataset`, `--group`, `--out`,
+확인한 뒤 로컬 검색 결과를 평가하며 DB를 수정하지 않습니다. 결과는 기본적으로 stdout에 출력하며,
+파일 저장이 필요하면 `--out` 경로를 지정합니다. `--dataset`, `--group`,
 `--mode title`로 입력과 평가 범위를 고정할 수 있습니다.
 
 26문항 실측은 `clarified` Hit@3 1.000 / Recall@3 0.865385, `title` Hit@3 0.692308 /
@@ -319,6 +323,12 @@ RAG_CHUNKING_OLLAMA_BASE_URL=http://127.0.0.1:11434
 ```
 
 `RAG_CHUNKING_OLLAMA_BASE_URL`은 생략할 수 있으며 기본값은 `http://127.0.0.1:11434`입니다. Ollama 서버와 모델은 별도로 준비해야 합니다. RAG는 Ollama를 설치하거나 모델을 내려받지 않습니다.
+
+`RAG_CHUNKING_CONTEXT_TOKENS`는 Ollama의 `num_ctx`와 입력 분할 한도를 함께 설정하며 기본값은
+4,096입니다. `RAG_CHUNKING_RESPONSE_RESERVE_TOKENS`는 출력용 예약량이며 기본값은 1,024입니다.
+따라서 기본 입력 예산은 3,072토큰입니다. 모델이 메시지 토큰 수를 제공하면 이를 사용하고, 제공하지
+않으면 CLI의 로컬 토크나이저 추정치를 사용합니다. 같은 모델·컨텍스트·토크나이저 설정으로 반복할
+때 Ollama는 `temperature=0`으로 실행됩니다. `target_tokens=512`는 기존 청크 목표로 유지됩니다.
 
 ### 배포: Gemini
 
@@ -427,3 +437,109 @@ Source_v2는 31개 Unit을 별도 문서 버전으로 색인한다. 색인은 �
 유지하고, 화면 URL 비표시 자료의 내부 URL을 Evidence에 노출하지 않는다.
 `RAG_COLLECTION_ID`는 로컬 실험값을 운영 기본값으로 사용하지 말고 승인된 값을
 명시해야 한다. 운영 접속 결과·적재 행 수·Golden Truth 재평가는 별도 기록한다.
+
+## 로컬 설정, HITL 검토, 다중 문서 실행
+
+### 비공개 CLI 설정
+
+`config setup`은 허용된 RAG 환경변수만 기본 `~/.config/starter-rag/config.json`에 저장하며,
+파일과 상위 디렉터리를 사용자 전용 권한으로 만든다. 저장소 안의 경로는 거부한다.
+`RAG_CONFIG_PATH`로 다른 저장소 외부 경로를 지정할 수 있다. 현재 셸의 환경변수가 설정 파일보다
+우선하며, `config show`는 DB URL 자격정보를 가린다.
+
+```bash
+export RAG_DATABASE_URL='postgresql+asyncpg://<local-user>@127.0.0.1:5432/starter_rag_integration'
+export RAG_LOCAL_DATABASE_NAME=starter_rag_integration
+export RAG_TOKENIZER_PATH=/path/to/local/tokenizer
+export RAG_CHUNKING_PROVIDER=ollama
+export RAG_CHUNKING_MODEL=qwen3:4b-instruct
+starter-rag config setup
+starter-rag config show
+starter-rag config validate --connect
+```
+
+DB URL은 `RAG_LOCAL_DATABASE_NAME`과 일치하는 로컬 PostgreSQL DB만 허용한다. 기본 DB 이름은
+`starter_rag_integration`이며, 다른 로컬 테스트 DB를 쓸 때는 이름 변수를 URL과 함께 설정한다.
+Supabase 운영 연결은 이 로컬 프로필에 저장하지 말고 기존 `--db-profile supabase` 계약을 따른다.
+`config validate --connect`는 읽기 전용 `SELECT 1` 연결 검사다.
+
+### PDF 검토와 승인
+
+검토 명령은 PDF 표 구조 문제를 찾고 원문 해시와 Docling 결과를 JSON에 보관한다. `review wizard`와
+`review assist`는 중단 후 같은 파일을 열어 재개할 수 있다. Docling이 빈 표를 반환하면 원본 PDF를
+직접 확인한 사람이 표 셀을 전사하고 페이지 대조를 확인해야 한다. 문자를 자동으로 보충하거나
+승인을 대신하지 않는다. 승인 파일은 사용자 전용 권한으로 쓰며 OS 사용자 이름과 UTC 시각을 남긴다.
+
+```bash
+starter-rag review scan guide.pdf --source-id guide-001 --version 2026-10
+starter-rag review export guide.pdf --source-id guide-001 --version 2026-10 \
+  --output /path/outside/repository/guide-review.json
+starter-rag review wizard guide.pdf --output /path/outside/repository/guide-review.json \
+  --source-id guide-001 --version 2026-10
+starter-rag review assist /path/outside/repository/guide-review.json
+starter-rag review validate /path/outside/repository/guide-review.json
+starter-rag review approve /path/outside/repository/guide-review.json
+starter-rag review load /path/outside/repository/guide-review.json \
+  --publish --publisher '공식 발행기관' --tokenizer-path "$RAG_TOKENIZER_PATH"
+```
+
+`review load`는 명시적으로 호출한 경우에만 승인 자료를 색인한다. 미승인 검토 JSON은 `--review-file`
+색인·게시에서 거부된다. 검토 해시는 색인 행의 메타데이터와 대조한다. 검토 기록이 없는 기존의
+합법적 `index`·`publish` 흐름은 유지한다. 기존 `publish --from-index-result`는 HITL 플래그 없이
+Source_v2와 Supabase 계약대로 동작한다.
+
+### 재개 가능한 다중 문서 검증
+
+manifest에는 각 PDF의 경로, Source ID, 버전, 제목, 발행처, 리뷰 파일 위치를 적는다. 검토 준비만
+병렬 실행하며 최대 작업자는 2개다. 색인과 게시는 문서별로 순차 실행한다. 상태 JSON은 진행을
+기록하고, 완료된 게시 버전은 DB의 게시 상태와 대조해 재사용한다. 승인 전이면 종료 코드 3과 함께
+검토 파일 경로를 표시한다. 사용자가 각 파일을 검토·승인한 뒤 `load`로 재개한다.
+
+```json
+{
+  "schema_version": 1,
+  "collection_id": "published-guides",
+  "documents": [
+    {
+      "path": "/data/guide.pdf",
+      "source_id": "guide-001",
+      "version": "sha256-version",
+      "title": "공식 안내자료",
+      "publisher": "공식 발행기관",
+      "review_file": "/data/results/guide-review.json"
+    }
+  ]
+}
+```
+
+```bash
+starter-rag batch ./manifest.json --state ./results/batch-state.json --phase prepare --prepare-workers 2
+# 각 review_file을 열어 review wizard/assist로 원문 검토와 승인을 마친다.
+starter-rag batch ./manifest.json --state ./results/batch-state.json --phase load
+# 평가 보고서를 파일로 보관할 때만 별도 출력 경로를 지정한다.
+starter-rag batch ./manifest.json --state ./results/batch-state.json \
+  --evaluation-out ./results/evaluation-report.json --phase evaluate
+```
+
+검색 평가 manifest에는 승인된 14문항 CSV와 Golden Truth JSON 경로를 `evaluation.cases` 및
+`evaluation.gold`로 추가한다. 평가 중 문항별 완료 수를 stderr에 표시한다. 문서 수준 Hit/Recall과
+Evidence 수준 Recall/MRR을 따로 계산하며, 기대 Evidence ID가 게시 DB에서 발견되지 않으면
+Evidence 점수는 `null`로 남겨 재매핑을 요구한다. 답변 정확성이나 법률 안전성은 측정하지 않는다.
+`rag/evaluation/si_rag_reuse_golden_20261025.json`은 실업인정 도메인 재사용성 평가 원본으로 따로
+보존한다. 16개 질의 중 승인된 14개만 점수화하고, 모호한 SI01-01·SI01-04는 제외한다. 이 자료는
+공통 단위 테스트 fixture에 합치지 않는다.
+
+### 진행률, 진단, 출력
+
+터미널 또는 `RAG_PROGRESS=1`에서 PDF 파싱 페이지 수와 완료된 청킹 윈도·청크 수를 stderr로 표시한다.
+진행 건수를 아직 알 수 없는 긴 파싱·모델 작업은 단계와 경과 시간만 heartbeat로 알리고 백분율을 만들지 않는다.
+JSON 결과는 기존처럼 stdout에 한 줄로 출력된다. `search --format text`는 제어문자를 지우고 페이지와
+조항을 읽기 쉽게 표시하며, 기본 `--format json`은 원래 Evidence 필드와 원문 텍스트를 유지한다.
+
+검색은 최대 10개 후보를 읽고 원문 텍스트의 질문 어휘·문자 조각 일치와 저장된 청크 유형을 사용해
+결과 순서를 조정한다. Evidence `score`에는 기존 cosine 유사도를 보존한다. 따라서 JSON의 표시 순서는
+`score` 내림차순과 다를 수 있다. PDF 재색인이나 답변 품질을 보장하지 않는다.
+
+PDF 변환은 기본 OCR을 사용한다. `RAG_PDF_SKIP_OCR=1`은 OCR 가중치를 사용할 수 없는 디지털 PDF에서만
+관리자가 선택한다. 스캔 페이지나 이미지 표의 텍스트를 놓칠 수 있으므로 원본 페이지를 시각적으로
+대조하고, 해당 옵션을 쓴 결과를 기본 OCR 결과와 같은 것으로 취급하지 않는다.
