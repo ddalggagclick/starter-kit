@@ -44,14 +44,19 @@ let accessToken: string | null = null
 let csrfToken: string | null = null
 let csrfPending: Promise<string> | null = null
 let refreshPending: Promise<string> | null = null
+// Refresh가 실패하면(무효·재사용 탐지) 새 Access Token을 받기 전까지 다시 시도하지 않는다.
+// 이미 무효인 Refresh를 401마다 반복하고 인증 해제 알림을 중복 호출하는 것을 막는다.
+let refreshFailed = false
 let authLostListener: (() => void) | null = null
 
 export const accessSession = {
   get(): string | null {
     return accessToken
   },
+  // 로그인·세션 복구로 새 토큰을 받으면 Refresh를 다시 허용한다.
   set(token: string): void {
     accessToken = token
+    refreshFailed = false
   },
   clear(): void {
     accessToken = null
@@ -145,6 +150,7 @@ export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): 
       if (
         failure.response?.status !== 401 ||
         original.__retried ||
+        refreshFailed ||
         original.url === wire.refreshPath ||
         original.url === wire.csrfPath ||
         wire.noRefreshRetryPaths.includes(original.url ?? "")
@@ -164,7 +170,8 @@ export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): 
             return token
           })
           .catch((cause) => {
-            // 무한 재시도하지 않고 인증을 해제한 뒤 화면에 알린다(5-3-3).
+            // 무한 재시도하지 않고 인증을 해제한 뒤 화면에 한 번만 알린다(5-3-3).
+            refreshFailed = true
             accessSession.clear()
             authLostListener?.()
             throw cause

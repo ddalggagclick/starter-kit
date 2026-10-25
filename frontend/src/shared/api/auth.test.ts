@@ -87,6 +87,48 @@ describe("401 Refresh single-flight (5-3-1)", () => {
     expect(accessSession.get()).toBeNull()
   })
 
+  it("Refresh가 한 번 실패한 뒤 새 401이 와도 Refresh를 다시 하지 않고 알림도 중복하지 않는다", async () => {
+    accessSession.set("old")
+    const lost = vi.fn()
+    setAuthLostListener(lost)
+    const server = fakeServer((config) => {
+      if (config.url === "/api/auth/csrf") return { status: 200, data: { csrfToken: "csrf-1" } }
+      if (config.url === "/api/auth/refresh")
+        return { status: 401, data: { code: "REFRESH_INVALID" } }
+      return { status: 401 }
+    })
+
+    await server.api.get("/api/a").catch(() => undefined)
+    await server.api.get("/api/b").catch(() => undefined)
+    await server.api.get("/api/c").catch(() => undefined)
+
+    expect(server.count("post", "/api/auth/refresh")).toBe(1)
+    expect(lost).toHaveBeenCalledTimes(1)
+    expect(server.count("get", "/api/b")).toBe(1)
+  })
+
+  it("Refresh 실패 뒤 다시 로그인해 새 토큰을 받으면 이후 401은 다시 Refresh한다", async () => {
+    accessSession.set("old")
+    let refreshOk = false
+    const server = fakeServer((config) => {
+      if (config.url === "/api/auth/csrf") return { status: 200, data: { csrfToken: "csrf-1" } }
+      if (config.url === "/api/auth/refresh")
+        return refreshOk
+          ? { status: 200, data: { accessToken: "fresh" } }
+          : { status: 401, data: { code: "REFRESH_INVALID" } }
+      return bearer(config) === "Bearer fresh" ? { status: 200 } : { status: 401 }
+    })
+    await server.api.get("/api/a").catch(() => undefined)
+
+    // 다시 로그인: 새 Access Token을 세션에 넣는다(만료됐다고 가정해 401 → Refresh 성공).
+    accessSession.set("relogin")
+    refreshOk = true
+    const response = await server.api.get("/api/b")
+
+    expect(response.status).toBe(200)
+    expect(server.count("post", "/api/auth/refresh")).toBe(2)
+  })
+
   it("로그인 경로의 401은 Refresh하지 않고 그대로 실패로 돌려준다", async () => {
     const server = fakeServer((config) =>
       config.url === "/api/auth/csrf"
