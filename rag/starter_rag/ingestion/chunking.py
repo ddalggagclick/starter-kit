@@ -28,6 +28,7 @@ GenerationMethod = Literal["agentic", "deterministic"]
 ModelStatus = Literal["succeeded", "failed", "not_used"]
 MAX_MODEL_ATTEMPTS = 4
 DEFAULT_TARGET_TOKENS = 512
+DEFAULT_PROMPT_TOKEN_BUDGET = 3072
 
 
 @dataclass(frozen=True)
@@ -671,6 +672,73 @@ def _prompt_messages(
     )
 
 
+def _prompt_token_count(
+    model: BaseChatModel,
+    messages: tuple[SystemMessage, HumanMessage],
+    count_tokens: Callable[[str], int],
+) -> int:
+    model_token_counter = getattr(type(model), "get_num_tokens_from_messages", None)
+    if (
+        model_token_counter is not None
+        and model_token_counter is not BaseChatModel.get_num_tokens_from_messages
+    ):
+        try:
+            count = model.get_num_tokens_from_messages(list(messages))
+            if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+                return count
+        except (NotImplementedError, ImportError, ValueError, AttributeError, OSError):
+            pass
+    # The ingestion tokenizer is a conservative fallback when the chat model
+    # does not expose its own token counter.
+    try:
+        return sum(
+            _validate_token_count(count_tokens, str(message.content)) for message in messages
+        )
+    except InvalidTokenCountError:
+        # Older callers inject a counter for element text only. A byte count
+        # keeps their contract working while conservatively bounding requests.
+        return sum(len(str(message.content).encode("utf-8")) for message in messages)
+
+
+def _agentic_windows(
+    model: BaseChatModel,
+    segments: tuple[tuple[_ElementRef, ...], ...],
+    *,
+    count_tokens: Callable[[str], int],
+    target_tokens: int,
+    prompt_token_budget: int,
+) -> tuple[tuple[tuple[_ElementRef, ...], ...], ...]:
+    windows: list[tuple[tuple[_ElementRef, ...], ...]] = []
+    pending: list[list[_ElementRef]] = []
+    for segment in segments:
+        for ref in segment:
+            singleton = ((ref,),)
+            singleton_messages = _prompt_messages(
+                singleton, None, count_tokens=count_tokens, target_tokens=target_tokens
+            )
+            if _prompt_token_count(model, singleton_messages, count_tokens) > prompt_token_budget:
+                raise ChunkingError(
+                    "문서 요소 하나가 모델 입력 예산을 초과해 안전하게 분할할 수 없습니다."
+                )
+            candidate = [list(part) for part in pending]
+            if candidate and candidate[-1][0].segment_index == ref.segment_index:
+                candidate[-1].append(ref)
+            else:
+                candidate.append([ref])
+            trial = tuple(tuple(part) for part in candidate)
+            messages = _prompt_messages(
+                trial, None, count_tokens=count_tokens, target_tokens=target_tokens
+            )
+            if pending and _prompt_token_count(model, messages, count_tokens) > prompt_token_budget:
+                windows.append(tuple(tuple(part) for part in pending))
+                pending = [[ref]]
+            else:
+                pending = candidate
+    if pending:
+        windows.append(tuple(tuple(part) for part in pending))
+    return tuple(windows)
+
+
 def _http_status_code(error: BaseException) -> int | None:
     pending: list[object] = [error]
     visited: set[int] = set()
@@ -710,18 +778,20 @@ async def _agentic_groups(
     *,
     count_tokens: Callable[[str], int],
     target_tokens: int,
+    prompt_token_budget: int,
 ) -> tuple[tuple[tuple[_ElementRef, ...], ...], int, str | None]:
     last_error: Exception | None = None
     for attempt in range(1, MAX_MODEL_ATTEMPTS + 1):
+        messages = _prompt_messages(
+            segments,
+            _model_failure(last_error) if last_error is not None else None,
+            count_tokens=count_tokens,
+            target_tokens=target_tokens,
+        )
+        if _prompt_token_count(model, messages, count_tokens) > prompt_token_budget:
+            raise ChunkingError("모델 재시도 입력이 예산을 초과해 안전하게 중단했습니다.")
         try:
-            response = await model.ainvoke(
-                _prompt_messages(
-                    segments,
-                    _model_failure(last_error) if last_error is not None else None,
-                    count_tokens=count_tokens,
-                    target_tokens=target_tokens,
-                )
-            )
+            response = await model.ainvoke(messages)
             groups = _parse_groups(response)
             validated = _validate_groups(
                 groups,
@@ -968,6 +1038,8 @@ async def chunk_document(
     model: BaseChatModel,
     count_tokens: Callable[[str], int],
     target_tokens: int = DEFAULT_TARGET_TOKENS,
+    prompt_token_budget: int = DEFAULT_PROMPT_TOKEN_BUDGET,
+    progress: Callable[[int, int], None] | None = None,
 ) -> tuple[DocumentChunk, ...]:
     # 일반 요소는 인접 그룹으로, 표는 원본 행마다 하나의 청크로 만든다.
     # 병합 셀의 원문은 소유 행에 두고 후속 행의 검색 텍스트에는 참조로 표시한다.
@@ -975,6 +1047,12 @@ async def chunk_document(
         raise ChunkingError("source_id와 version은 외부에서 제공해야 합니다.")
     if isinstance(target_tokens, bool) or not isinstance(target_tokens, int) or target_tokens <= 0:
         raise ChunkingError("target_tokens는 양의 정수여야 합니다.")
+    if (
+        isinstance(prompt_token_budget, bool)
+        or not isinstance(prompt_token_budget, int)
+        or prompt_token_budget <= 0
+    ):
+        raise ChunkingError("prompt_token_budget는 양의 정수여야 합니다.")
     if not isinstance(model, BaseChatModel):
         raise TypeError("model은 외부에서 주입한 BaseChatModel이어야 합니다.")
 
@@ -982,28 +1060,38 @@ async def chunk_document(
     chunks: list[DocumentChunk] = []
     all_general_refs = tuple(ref for segment in segments for ref in segment)
     if all_general_refs:
-        groups, attempts, failure = await _agentic_groups(
+        windows = _agentic_windows(
             model,
             segments,
             count_tokens=count_tokens,
             target_tokens=target_tokens,
+            prompt_token_budget=prompt_token_budget,
         )
-        model_status: ModelStatus = "failed" if failure is not None else "succeeded"
-        fallback_used = failure is not None
-        for group in groups:
-            chunks.append(
-                _make_document_chunk(
-                    group,
-                    source_id=source_id,
-                    version=version,
-                    count_tokens=count_tokens,
-                    target_tokens=target_tokens,
-                    model_status=model_status,
-                    model_attempts=attempts,
-                    model_failure=failure,
-                    fallback_used=fallback_used,
-                )
+        for window_number, window in enumerate(windows, 1):
+            groups, attempts, failure = await _agentic_groups(
+                model,
+                window,
+                count_tokens=count_tokens,
+                target_tokens=target_tokens,
+                prompt_token_budget=prompt_token_budget,
             )
+            model_status: ModelStatus = "failed" if failure is not None else "succeeded"
+            for group in groups:
+                chunks.append(
+                    _make_document_chunk(
+                        group,
+                        source_id=source_id,
+                        version=version,
+                        count_tokens=count_tokens,
+                        target_tokens=target_tokens,
+                        model_status=model_status,
+                        model_attempts=attempts,
+                        model_failure=failure,
+                        fallback_used=failure is not None,
+                    )
+                )
+            if progress is not None:
+                progress(window_number, len(windows))
 
     for position, element in enumerate(structure.elements):
         if element.kind != "table":

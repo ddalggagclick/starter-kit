@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import posixpath
 import re
 from dataclasses import asdict, dataclass
@@ -279,13 +280,15 @@ def extract_document_structure(
             )
         elif label == "section_header":
             kind = "section_title"
-        elif label in {"paragraph", "text"}:
-            kind = "paragraph"
         elif label == "table":
             kind = "table"
             table = _table_structure(item)
         else:
-            continue
+            # Docling may assign list items, code, and checkbox text to other labels.
+            item_text = getattr(item, "text", None)
+            if not isinstance(item_text, str) or not item_text.strip():
+                continue
+            kind = "paragraph"
 
         location = _location(item, source_format)
         text = None if table is not None else getattr(item, "text", "")
@@ -336,6 +339,21 @@ def _get_converter() -> DocumentConverter:
     return _create_converter()
 
 
+@lru_cache(maxsize=1)
+def _get_text_only_converter() -> DocumentConverter:
+    """Opt-in for digital PDFs when OCR weights are unavailable locally."""
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    return DocumentConverter(
+        allowed_formats=list(InputFormat),
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=PdfPipelineOptions(do_ocr=False))
+        },
+    )
+
+
 def _validate_source(source: Path) -> None:
     try:
         source.stat()
@@ -369,7 +387,12 @@ def parse_document(path: str | Path) -> DoclingDocument:
     _validate_source(source)
 
     try:
-        result = _get_converter().convert(source, raises_on_error=False)
+        converter = (
+            _get_text_only_converter()
+            if source.suffix.lower() == ".pdf" and os.environ.get("RAG_PDF_SKIP_OCR") == "1"
+            else _get_converter()
+        )
+        result = converter.convert(source, raises_on_error=False)
     except Exception as error:
         raise DocumentConversionError(f"Docling 변환에 실패했습니다: {source}") from error
 
