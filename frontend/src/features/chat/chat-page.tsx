@@ -4,8 +4,10 @@
  * 구현: 200 코드 포인트 입력·글자 수, 예시 질문은 입력칸만 채움, 개인정보 경고 상시 표시, 최초 외부 전송 안내,
  *   실제 status 이벤트로 진행 표시, 검증된 답변만 자동 타이핑, 출처 2개 + '추가 출처 보기', 취소,
  *   S6은 질문을 남기고 다시 시도, 비로그인 10회 소진(S9)이면 로그인·회원가입 진입.
- * 제한사항: V1은 Mock SSE다(Gemini·RAG 호출 없음). 화면 상단에 Mock임을 표시하고 실동작 완료로 보이지 않게 한다.
- *   대화 저장 동의·이전 대화(S10)·이탈 확인(S11)은 2구간(간트 19·21)이다.
+ *   VITE_USE_MOCK_API=false면 실제 A08(ask-transport.ts)로 보낸다. 출처 url이 null이면 링크 없이 제목만 보인다.
+ *   같은 질문의 [다시 시도]는 최대 3회다(결정 문서 Q47).
+ * 제한사항: Mock 모드에서는 화면 상단에 Mock임을 표시하고 실동작 완료로 보이지 않게 한다.
+ *   대화 저장 동의·이전 대화(S10)·이탈 확인(S11)은 후속 이슈다.
  */
 import { ExternalLink, Send, Square } from "lucide-react"
 import { type FormEvent, useCallback, useId, useState } from "react"
@@ -15,6 +17,7 @@ import { Notice } from "@/components/ui/notice"
 import { useAuthStore } from "@/features/auth/auth-store"
 import {
   createMockAskResponse,
+  GUEST_DAILY_LIMIT,
   MOCK_AI_SCENARIO_LABELS,
   MOCK_EXAMPLE_QUESTIONS,
   type MockAiScenario,
@@ -23,21 +26,37 @@ import {
   WITHHELD_COPY,
 } from "@/mocks/ai-stream"
 import type { ApiFailure } from "@/shared/api/api-error"
+import { USE_MOCK_API } from "@/shared/api/data-source"
 import type { SseResultEvent } from "@/shared/api/types"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
+import { createApiAskTransport } from "./ask-transport"
 import { useChatSessionStore } from "./chat-store"
 import { type ChatOutcome, type ChatTransport, useChatStream } from "./use-chat-stream"
 import { useTypewriter } from "./use-typewriter"
 
 const VISIBLE_SOURCE_COUNT = 2
+// 같은 질문의 수동 [다시 시도] 상한(최초 1회 + 3회). 새 질문 제출 횟수와는 별개다(Q47).
+export const MAX_MANUAL_RETRIES = 3
+
+const apiAskTransport = createApiAskTransport()
 
 // 문구 검토(P02) 전 Mock 문구다. 외부 공급자 이름은 공개 문구 확정 후 바꾼다.
 export const EXTERNAL_TRANSFER_NOTICE =
   "질문 내용은 답변을 만들기 위해 외부 AI 서비스로 전송됩니다. 이름·주민등록번호·연락처 같은 개인정보는 입력하지 마세요."
 
-type Turn = { id: number; question: string; outcome: ChatOutcome }
+// 실제 A08은 422 message에 코드 이름(VALIDATION_ERROR)을 그대로 넣는다. 코드는 사용자에게 보이지 않는다.
+export const inputErrorMessage = (failure: ApiFailure): string =>
+  failure.message && failure.message !== failure.code
+    ? failure.message
+    : `질문을 확인해 주세요. ${CHAT_INPUT_POLICY.maxQuestionCodePoints}자 이하로 입력할 수 있습니다.`
 
-function Sources({ sources }: { sources: NonNullable<SseResultEvent["sources"]> }) {
+// retries: 이 질문에 [다시 시도]를 누른 횟수.
+type Turn = { id: number; question: string; outcome: ChatOutcome; retries: number }
+
+// 실제 A08은 url이 null인 출처를 보낸다(백엔드 #103). openapi 생성 타입보다 넓게 받는다.
+export type ChatSource = { title?: string; url?: string | null }
+
+export function Sources({ sources }: { sources: ChatSource[] }) {
   const [expanded, setExpanded] = useState(false)
   const visible = expanded ? sources : sources.slice(0, VISIBLE_SOURCE_COUNT)
   const hidden = sources.length - VISIBLE_SOURCE_COUNT
@@ -45,18 +64,24 @@ function Sources({ sources }: { sources: NonNullable<SseResultEvent["sources"]> 
     <div className="space-y-1 border-t pt-2">
       <p className="text-xs font-semibold text-muted-foreground">공식 출처</p>
       <ul className="space-y-1">
-        {visible.map((source) => (
-          <li key={`${source.title}-${source.url}`}>
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-sm underline underline-offset-4"
-            >
-              {source.title}
-              <ExternalLink className="size-3.5" aria-hidden />
-              <span className="sr-only">(새 창)</span>
-            </a>
+        {visible.map((source, index) => (
+          // url이 null인 출처가 여럿이면 url로 key를 만들 수 없다. 서버 순서를 그대로 쓴다.
+          // biome-ignore lint/suspicious/noArrayIndexKey: 출처 목록은 순서가 바뀌지 않는 읽기 전용 목록이다.
+          <li key={index}>
+            {source.url ? (
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-sm underline underline-offset-4"
+              >
+                {source.title || source.url}
+                <ExternalLink className="size-3.5" aria-hidden />
+                <span className="sr-only">(새 창)</span>
+              </a>
+            ) : (
+              <span className="text-sm">{source.title || "공식 출처"}</span>
+            )}
           </li>
         ))}
       </ul>
@@ -79,14 +104,42 @@ function AnsweredBubble({ result }: { result: SseResultEvent }) {
   )
 }
 
+function RetryButton({
+  onRetry,
+  canRetry,
+  busy,
+}: {
+  onRetry: () => void
+  canRetry: boolean
+  busy: boolean
+}) {
+  if (!canRetry) {
+    return (
+      <p className="text-sm">
+        다시 시도 횟수({MAX_MANUAL_RETRIES}회)를 모두 사용했습니다. 잠시 후 새로 질문해 주세요.
+      </p>
+    )
+  }
+  return (
+    // 다른 질문을 처리하는 중에는 한 화면 활성 요청 1개 규칙(Q45)에 따라 누를 수 없다.
+    <Button size="sm" variant="outline" onClick={onRetry} disabled={busy}>
+      다시 시도
+    </Button>
+  )
+}
+
 function FailureBubble({
   failure,
   isGuest,
   onRetry,
+  canRetry,
+  busy,
 }: {
   failure: ApiFailure
   isGuest: boolean
   onRetry: () => void
+  canRetry: boolean
+  busy: boolean
 }) {
   const location = useLocation()
   // S9 비로그인 하루 제한 (A08 429 RATE_LIMITED)
@@ -123,9 +176,7 @@ function FailureBubble({
       <Notice tone="warning" className="space-y-2">
         <p className="font-semibold">지금은 AI 질문이 많아 답변하지 못했습니다.</p>
         <p>잠시 후 다시 시도해 주세요.</p>
-        <Button size="sm" variant="outline" onClick={onRetry}>
-          다시 시도
-        </Button>
+        <RetryButton onRetry={onRetry} canRetry={canRetry} busy={busy} />
       </Notice>
     )
   }
@@ -134,9 +185,7 @@ function FailureBubble({
     <Notice tone="danger" className="space-y-2">
       <p className="font-semibold">일시적인 문제로 답변하지 못했습니다.</p>
       <p>질문은 그대로 남아 있습니다. 다시 시도해 주세요.</p>
-      <Button size="sm" variant="outline" onClick={onRetry}>
-        다시 시도
-      </Button>
+      <RetryButton onRetry={onRetry} canRetry={canRetry} busy={busy} />
     </Notice>
   )
 }
@@ -178,21 +227,24 @@ export function ChatPage() {
   const inputId = useId()
   const counterId = useId()
 
-  // V1 Mock 전송. 비로그인 남은 횟수가 0이면 서버처럼 429를 돌려준다.
-  const transport = useCallback<ChatTransport>(
-    (request, signal) =>
-      createMockAskResponse(request, {
-        scenario: isGuest && guestRemaining <= 0 ? "guestLimit" : scenario,
+  // Mock 모드: 비로그인 남은 횟수가 0이면 서버처럼 429를 돌려준다. 실제 모드: A08로 보낸다.
+  const mockTransport = useCallback<ChatTransport>(
+    (request, signal) => {
+      const remaining = guestRemaining ?? GUEST_DAILY_LIMIT
+      return createMockAskResponse(request, {
+        scenario: isGuest && remaining <= 0 ? "guestLimit" : scenario,
         signal,
-        remainingToday: isGuest ? Math.max(guestRemaining - 1, 0) : null,
-      }),
+        remainingToday: isGuest ? Math.max(remaining - 1, 0) : null,
+      })
+    },
     [isGuest, guestRemaining, scenario],
   )
+  const transport = USE_MOCK_API ? mockTransport : apiAskTransport
   const { ask, cancel, running, stage } = useChatStream(transport)
 
   const codePoints = countUnicodeCodePoints(input)
   const overLimit = codePoints > CHAT_INPUT_POLICY.maxQuestionCodePoints
-  async function send(question: string, earlierTurns: Turn[]) {
+  async function send(question: string, earlierTurns: Turn[], retries = 0) {
     setInputError(null)
     setCancelledNote(false)
     setPendingQuestion(question)
@@ -205,17 +257,18 @@ export function ChatPage() {
     if (!outcome) return
     // 422는 대화에 남기지 않고 입력칸 아래 오류로 보여준다.
     if (outcome.kind === "error" && outcome.failure.status === 422) {
-      setInputError(outcome.failure.message ?? "질문을 확인해 주세요.")
+      setInputError(inputErrorMessage(outcome.failure))
       setInput(question)
       return
     }
-    if (outcome.kind !== "error" && isGuest && typeof outcome.result.remainingToday === "number") {
-      setGuestRemaining(outcome.result.remainingToday)
+    // 서버가 null을 보내면 남은 횟수를 모르는 것이다. 마지막 값을 지우고 숫자를 지어내지 않는다.
+    if (outcome.kind !== "error" && isGuest) {
+      setGuestRemaining(outcome.result.remainingToday ?? null)
     }
     if (outcome.kind === "error" && outcome.failure.code === "RATE_LIMITED" && isGuest) {
       setGuestRemaining(0)
     }
-    setTurns((current) => [...current, { id: Date.now(), question, outcome }])
+    setTurns((current) => [...current, { id: Date.now(), question, outcome, retries }])
   }
 
   function onSubmit(event: FormEvent) {
@@ -263,25 +316,29 @@ export function ChatPage() {
         </Button>
       </div>
 
-      <Notice tone="info">
-        V1 Mock 화면입니다. 실제 AI(Gemini)·공식자료 검색을 호출하지 않고 미리 준비한 예시 응답을
-        보여줍니다.
-      </Notice>
+      {USE_MOCK_API && (
+        <>
+          <Notice tone="info">
+            V1 Mock 화면입니다. 실제 AI(Gemini)·공식자료 검색을 호출하지 않고 미리 준비한 예시
+            응답을 보여줍니다.
+          </Notice>
 
-      <label className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm">
-        <span className="font-medium">Mock 시나리오 (발표용)</span>
-        <select
-          value={scenario}
-          onChange={(event) => setScenario(event.target.value as MockAiScenario)}
-          className="h-8 rounded-md border bg-background px-2"
-        >
-          {Object.entries(MOCK_AI_SCENARIO_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
+          <label className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm">
+            <span className="font-medium">Mock 시나리오 (발표용)</span>
+            <select
+              value={scenario}
+              onChange={(event) => setScenario(event.target.value as MockAiScenario)}
+              className="h-8 rounded-md border bg-background px-2"
+            >
+              {Object.entries(MOCK_AI_SCENARIO_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
 
       <section aria-label="대화" aria-live="polite" className="space-y-4">
         {turns.length === 0 && !pendingQuestion && (
@@ -312,10 +369,12 @@ export function ChatPage() {
               <FailureBubble
                 failure={turn.outcome.failure}
                 isGuest={isGuest}
+                canRetry={turn.retries < MAX_MANUAL_RETRIES}
+                busy={running}
                 onRetry={() => {
                   const remaining = turns.filter((item) => item.id !== turn.id)
                   setTurns(remaining)
-                  void send(turn.question, remaining)
+                  void send(turn.question, remaining, turn.retries + 1)
                 }}
               />
             )}
@@ -378,7 +437,9 @@ export function ChatPage() {
           >
             {codePoints}/{CHAT_INPUT_POLICY.maxQuestionCodePoints}자
             {overLimit && " · 200자를 넘었습니다. 줄여 주세요."}
-            {isGuest && ` · 오늘 남은 질문 ${guestRemaining}회 (비로그인)`}
+            {isGuest &&
+              guestRemaining !== null &&
+              ` · 오늘 남은 질문 ${guestRemaining}회 (비로그인)`}
           </p>
           <Button type="submit" disabled={running || overLimit || !externalNoticeAcknowledged}>
             <Send className="size-4" />

@@ -37,7 +37,7 @@ import {
   MOCK_PROCEDURE_DETAILS,
   MOCK_PROCEDURE_SUMMARIES,
 } from "../procedures"
-import type { OfficialLink } from "../wire-types"
+import type { OfficialLink, SseSource } from "../wire-types"
 import type { ChatMessage, MockState } from "./state"
 
 export type Route = { name: string; param: string | null; query: URLSearchParams }
@@ -407,18 +407,22 @@ export const renderGuide = (screenId: "W-05" | "W-06") => {
 }
 
 // ── W-07 AI 질문 (S1~S11) ──────────────────────────────────────────
+// url이 null인 출처(전화 상담 안내 등)는 링크 없이 제목만 보인다.
+const sourceItem = (source: SseSource) =>
+  `<li>${source.url ? externalLink({ title: source.title, url: source.url }) : esc(source.title)}</li>`
+
 const renderSources = (message: ChatMessage) => {
   const sources = message.result?.sources ?? []
   const first = sources.slice(0, 2)
   const rest = sources.slice(2)
   return `<div class="sources">
     <strong>공식 출처</strong>
-    <ul>${first.map((source) => `<li>${externalLink(source)}</li>`).join("")}</ul>
+    <ul>${first.map(sourceItem).join("")}</ul>
     ${
       rest.length
         ? `<button type="button" class="link" aria-expanded="${message.showMoreSources}" data-action="toggle-sources"
             data-req="${esc(message.requestId)}">추가 출처 보기 ${message.showMoreSources ? "▲" : "▾"}</button>
-           ${message.showMoreSources ? `<ul>${rest.map((source) => `<li>${externalLink(source)}</li>`).join("")}</ul>` : ""}`
+           ${message.showMoreSources ? `<ul>${rest.map(sourceItem).join("")}</ul>` : ""}`
         : ""
     }
   </div>`
