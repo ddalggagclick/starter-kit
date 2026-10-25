@@ -18,7 +18,7 @@ import { toApiFailure } from "@/shared/api/api-error"
 import { accessSession } from "@/shared/api/auth"
 import { deleteAllNamespaceData } from "@/shared/storage/consent"
 import { inheritanceDb, type StorageNamespace } from "@/shared/storage/db"
-import { deleteAccountRequest } from "./auth-api"
+import { AuthOperationConflictError, deleteAccountRequest } from "./auth-api"
 import { AuthCard, AuthField } from "./auth-form-field"
 import { selectNamespace, useAuthStore } from "./auth-store"
 
@@ -83,7 +83,9 @@ export function AccountDeletePage() {
       await deleteAccountRequest(password)
     } catch (failure) {
       const { status } = toApiFailure(failure)
-      if (status === 403) setError("비밀번호가 맞지 않습니다.")
+      if (failure instanceof AuthOperationConflictError)
+        setError("로그인을 처리하는 중입니다. 끝난 뒤 다시 시도해 주세요.")
+      else if (status === 403) setError("비밀번호가 맞지 않습니다.")
       else if (status === 401) setError("로그인이 만료되었습니다. 다시 로그인한 뒤 시도해 주세요.")
       else setError("탈퇴하지 못했습니다. 잠시 후 다시 시도해 주세요.")
       setBusy(false)

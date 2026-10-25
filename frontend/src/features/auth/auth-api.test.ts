@@ -3,7 +3,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { MOCK_ACCOUNT, MOCK_LATENCY_MS, resetMockApiState } from "@/mocks/mock-api"
 import { accessSession, StaleSessionError } from "@/shared/api/auth"
-import { deleteAccountRequest, loginRequest, logoutRequest } from "./auth-api"
+import {
+  AuthOperationConflictError,
+  deleteAccountRequest,
+  loginRequest,
+  logoutRequest,
+} from "./auth-api"
 
 afterEach(() => accessSession.clear())
 
@@ -55,5 +60,23 @@ describe("탈퇴 응답과 로그인의 Refresh 쿠키 경합 (리뷰 회귀)", 
     // 탈퇴 응답 뒤에 로그인 요청이 나가 그만큼 뒤에 끝난다.
     await vi.advanceTimersByTimeAsync(MOCK_LATENCY_MS)
     expect(loginSettled).toBe(true)
+  })
+
+  it("로그인이 먼저 처리 중이면 탈퇴를 시작하지 않는다(다른 계정 토큰으로 탈퇴 요청이 나가지 않게)", async () => {
+    resetMockApiState()
+    const login = loginRequest(MOCK_ACCOUNT.email, MOCK_ACCOUNT.password)
+
+    await expect(deleteAccountRequest(MOCK_ACCOUNT.password)).rejects.toBeInstanceOf(
+      AuthOperationConflictError,
+    )
+    // 탈퇴 요청이 나가지 않았으므로 계정은 그대로이고 로그인은 성공한다.
+    await expect(login).resolves.toMatchObject({ email: MOCK_ACCOUNT.email })
+  })
+
+  it("로그인이 끝난 뒤에는 탈퇴할 수 있다", async () => {
+    resetMockApiState()
+    await loginRequest(MOCK_ACCOUNT.email, MOCK_ACCOUNT.password)
+
+    await expect(deleteAccountRequest(MOCK_ACCOUNT.password)).resolves.toBeUndefined()
   })
 })
