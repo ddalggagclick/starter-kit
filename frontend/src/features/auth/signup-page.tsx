@@ -10,9 +10,9 @@ import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
 import { toApiFailure } from "@/shared/api/api-error"
+import { newPasswordError, PASSWORD_RULE_TEXT } from "@/shared/contracts/password-policy"
 import { signupRequest } from "./auth-api"
 import { AuthCard, AuthField } from "./auth-form-field"
-import { newPasswordError, PASSWORD_RULE_TEXT } from "./password-policy"
 import { ResendVerificationForm } from "./resend-verification-form"
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/

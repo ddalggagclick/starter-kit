@@ -11,11 +11,11 @@ import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
 import { toApiFailure } from "@/shared/api/api-error"
+import { newPasswordError, PASSWORD_RULE_TEXT } from "@/shared/contracts/password-policy"
 import { logoutRequest, resetPasswordRequest } from "./auth-api"
 import { AuthCard, AuthField } from "./auth-form-field"
 import { useAuthStore } from "./auth-store"
 import { useLinkToken } from "./link-token"
-import { newPasswordError, PASSWORD_RULE_TEXT } from "./password-policy"
 
 export function ResetPasswordPage() {
   const token = useLinkToken()

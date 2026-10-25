@@ -2,14 +2,18 @@ import { beforeEach, describe, expect, it } from "vitest"
 import { createMockAskResponse, type MockAiScenario } from "./ai-stream"
 import { findRiskGuidance } from "./checklist"
 import {
+  deleteAccount,
   exchangeHandoff,
   getProcedure,
   listProcedures,
   login,
   MOCK_ACCOUNT,
   MOCK_VALID_HANDOFF_TOKEN,
+  MOCK_VALID_RESET_TOKEN,
   MockHttpError,
   resetMockApiState,
+  resetPassword,
+  signup,
 } from "./mock-api"
 import type { SseEvent } from "./wire-types"
 
@@ -137,5 +141,37 @@ describe("위험 안내 문구", () => {
     expect(findRiskGuidance("debt", "yes")).not.toBeNull()
     expect(findRiskGuidance("debt", "no")).toBeNull()
     expect(findRiskGuidance("self_application", "unknown")).toBeNull()
+  })
+})
+
+describe("Mock 계정 상태 반영 (리뷰 회귀)", () => {
+  beforeEach(() => resetMockApiState())
+
+  it("비밀번호 재설정에 성공하면 새 비밀번호로만 로그인된다", async () => {
+    await resetPassword(MOCK_VALID_RESET_TOKEN, "changed123", fast)
+
+    await expect(login(MOCK_ACCOUNT.email, MOCK_ACCOUNT.password, fast)).rejects.toMatchObject({
+      status: 401,
+    })
+    await expect(login(MOCK_ACCOUNT.email, "changed123", fast)).resolves.toMatchObject({
+      accessToken: expect.any(String),
+    })
+  })
+
+  it("탈퇴하면 로그인할 수 없고, 다시 탈퇴하면 401이며, 같은 이메일로 다시 가입할 수 있다", async () => {
+    await deleteAccount(MOCK_ACCOUNT.password, fast)
+
+    await expect(login(MOCK_ACCOUNT.email, MOCK_ACCOUNT.password, fast)).rejects.toMatchObject({
+      status: 401,
+    })
+    await expect(deleteAccount(MOCK_ACCOUNT.password, fast)).rejects.toMatchObject({ status: 401 })
+    await expect(signup(MOCK_ACCOUNT.email, "newpass123", fast)).resolves.toEqual({ status: 201 })
+  })
+
+  it("탈퇴는 현재 비밀번호(재설정 후 값)로만 된다", async () => {
+    await resetPassword(MOCK_VALID_RESET_TOKEN, "changed123", fast)
+
+    await expect(deleteAccount(MOCK_ACCOUNT.password, fast)).rejects.toBeInstanceOf(MockHttpError)
+    await expect(deleteAccount("changed123", fast)).resolves.toMatchObject({ account: "deleted" })
   })
 })

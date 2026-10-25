@@ -5,27 +5,35 @@
  * 구현: 비밀번호 재확인과 확인 체크 후 요청한다. ① 서버 삭제 성공 확인 → ② 이 기기의 그 계정 기록(체크리스트·대화·동의) 삭제
  *   → ③ 로그아웃. ②가 실패하면 로그아웃하지 않고 '완료'라고 하지도 않는다. 남은 기록을 알린 뒤 재시도를 제공하고,
  *   재시도로 ②가 성공해야 ③을 한다(재시도가 같은 계정 흐름에 묶이도록).
- * 제한사항: 다른 기기의 기록과 서버 백업은 즉시 지워졌다고 보장하지 않는다(정책 T15·T16). 비밀번호를 저장하지 않는다.
+ *   ③은 탈퇴를 요청한 계정·세션이 아직 이 탭에 로그인돼 있을 때만 한다. 그 사이 다른 계정으로 로그인했으면 건드리지 않는다.
+ *   서버 세션은 탈퇴로 이미 삭제되므로 서버 로그아웃 요청은 보내지 않는다(새로 로그인한 계정의 쿠키를 끊지 않도록).
+ * 제한사항: 이 기기 기록만 지운다. 다른 기기 기록을 지우는 기능은 없고(T16 미구현) 서버 백업 삭제도 보장하지 않는다.
+ *   비밀번호를 저장하지 않는다.
  */
 import { type FormEvent, useId, useState } from "react"
 import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
 import { toApiFailure } from "@/shared/api/api-error"
+import { accessSession } from "@/shared/api/auth"
 import { deleteAllNamespaceData } from "@/shared/storage/consent"
 import { inheritanceDb, type StorageNamespace } from "@/shared/storage/db"
-import { deleteAccountRequest, logoutRequest } from "./auth-api"
+import { deleteAccountRequest } from "./auth-api"
 import { AuthCard, AuthField } from "./auth-form-field"
 import { selectNamespace, useAuthStore } from "./auth-store"
 
+// 다른 기기 기록은 자동으로 지워지지 않는다. 사실대로 안내한다.
 const LIMITS_NOTICE =
-  "다른 기기에 저장된 기록과 서버 백업은 즉시 지워지지 않을 수 있습니다. 다른 기기는 다음에 접속할 때 정리됩니다."
+  "이 기기의 기록만 삭제됩니다. 다른 기기(브라우저)에 저장한 기록은 자동으로 지워지지 않으니 그 기기에서 직접 삭제해 주세요. 서버 백업에서도 즉시 지워지지 않을 수 있습니다."
+
+// 탈퇴를 요청한 계정과 그때의 세션 번호.
+type DeleteTarget = { accountId: string; namespace: StorageNamespace; epoch: number }
 
 type Phase =
   | { kind: "form" }
   | { kind: "done" }
-  // 서버 계정은 삭제됐지만 이 기기의 기록을 지우지 못했다. 다시 시도할 영역을 기억한다.
-  | { kind: "local-failed"; namespace: StorageNamespace }
+  // 서버 계정은 삭제됐지만 이 기기의 기록을 지우지 못했다. 다시 시도할 대상을 기억한다.
+  | { kind: "local-failed"; target: DeleteTarget }
 
 export function AccountDeletePage() {
   const accountId = useAuthStore((s) => s.accountId)
@@ -37,15 +45,21 @@ export function AccountDeletePage() {
   const [phase, setPhase] = useState<Phase>({ kind: "form" })
   const confirmId = useId()
 
-  // ② 이 기기 기록 삭제 → 성공했을 때만 ③ 로그아웃. 결과(성공 여부)를 돌려준다.
-  const finishLocal = async (namespace: StorageNamespace): Promise<boolean> => {
-    const result = await deleteAllNamespaceData(inheritanceDb, namespace)
+  // ② 이 기기 기록 삭제 → 성공했을 때만 ③ 이 탭 로그아웃. 결과(성공 여부)를 돌려준다.
+  const finishLocal = async (target: DeleteTarget): Promise<boolean> => {
+    const result = await deleteAllNamespaceData(inheritanceDb, target.namespace)
     if (!result.ok) {
-      setPhase({ kind: "local-failed", namespace })
+      setPhase({ kind: "local-failed", target })
       return false
     }
-    void logoutRequest()
-    signOut()
+    // 탈퇴를 요청한 계정·세션이 그대로일 때만 로그아웃한다. 그 사이 B로 로그인했으면 B를 건드리지 않는다.
+    const stillSameSession =
+      useAuthStore.getState().accountId === target.accountId &&
+      accessSession.isCurrent(target.epoch)
+    if (stillSameSession) {
+      accessSession.end()
+      signOut()
+    }
     setPhase({ kind: "done" })
     return true
   }
@@ -56,7 +70,13 @@ export function AccountDeletePage() {
       setError("비밀번호를 입력하고 탈퇴 안내를 확인해 주세요.")
       return
     }
-    const namespace = selectNamespace(useAuthStore.getState())
+    const auth = useAuthStore.getState()
+    if (!auth.accountId) return
+    const target: DeleteTarget = {
+      accountId: auth.accountId,
+      namespace: selectNamespace(auth),
+      epoch: accessSession.current(),
+    }
     setBusy(true)
     setError(null)
     try {
@@ -71,7 +91,7 @@ export function AccountDeletePage() {
       return
     }
     // 서버 계정 삭제가 확인된 뒤에만 이 기기 기록을 지운다. 로그아웃은 finishLocal이 삭제 성공 후에 한다.
-    await finishLocal(namespace)
+    await finishLocal(target)
     setBusy(false)
     setPassword("")
   }
@@ -101,7 +121,7 @@ export function AccountDeletePage() {
           disabled={busy}
           onClick={async () => {
             setBusy(true)
-            await finishLocal(phase.namespace)
+            await finishLocal(phase.target)
             setBusy(false)
           }}
         >

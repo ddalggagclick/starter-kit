@@ -3,7 +3,7 @@
 // fake-indexeddb/auto를 먼저 불러와 앱의 IndexedDB(탈퇴 후 이 기기 기록 삭제)를 메모리로 쓴다.
 import "fake-indexeddb/auto"
 import { QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { StrictMode } from "react"
 import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -14,6 +14,7 @@ import {
   MOCK_VALID_VERIFY_TOKEN,
   resetMockApiState,
 } from "@/mocks/mock-api"
+import { accessSession } from "@/shared/api/auth"
 import type { InitialAnswers } from "@/shared/contracts/domain"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { grantChecklistConsentWithSnapshot } from "@/shared/storage/consent"
@@ -224,6 +225,34 @@ describe("/account/delete (5-4-1, 5-4-3)", () => {
     expect(useAuthStore.getState().accountId).toBeNull()
     expect(await loadChecklist(inheritanceDb, NAMESPACE)).toEqual({ ok: true, value: null })
     expect(await inheritanceDb.consents.where("namespace").equals(NAMESPACE).count()).toBe(0)
+  })
+
+  it("다른 기기 기록이 자동으로 지워진다고 안내하지 않는다", async () => {
+    useAuthStore.getState().signIn(ACCOUNT)
+    renderAt("/account/delete")
+
+    expect(screen.getByText(/자동으로 지워지지 않으니 그 기기에서 직접 삭제해 주세요/)).toBeTruthy()
+    expect(screen.queryByText(/다음에 접속할 때 정리/)).toBeNull()
+  })
+
+  it("A 탈퇴 처리 중 B로 로그인하면 B는 로그아웃되지 않고 A 기록만 지운다", async () => {
+    await seedAccountRecord()
+    useAuthStore.getState().signIn(ACCOUNT)
+    renderAt("/account/delete")
+
+    submitDelete(MOCK_ACCOUNT.password)
+    // 서버 응답(Mock 300ms)을 기다리는 사이 다른 계정 B로 로그인한다.
+    const B = { accountId: "user-b", email: "b@example.com" }
+    act(() => {
+      const epoch = accessSession.begin()
+      accessSession.setIfCurrent("b-token", epoch)
+      useAuthStore.getState().signIn(B)
+    })
+
+    expect(await screen.findByText(/탈퇴했습니다/)).toBeTruthy()
+    expect(useAuthStore.getState().accountId).toBe("user-b")
+    expect(accessSession.get()).toBe("b-token")
+    expect(await loadChecklist(inheritanceDb, NAMESPACE)).toEqual({ ok: true, value: null })
   })
 
   it("이 기기 기록 삭제가 실패하면 '탈퇴했습니다' 대신 남은 기록을 알리고 재시도할 수 있다", async () => {
