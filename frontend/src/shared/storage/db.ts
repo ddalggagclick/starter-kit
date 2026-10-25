@@ -3,12 +3,13 @@
  * PRD: E4 / 스토리 4-2 / 태스크 4-2-1, 4-2-2, 4-2-4. 화면정의서 D-03·D-04·D-10·D-16. 개인정보 정책 S10-A·P02-B.
  * 구현: IndexedDB 스키마, Guest/계정 namespace별 읽기·쓰기·삭제, 저장 실패를 "저장 불가" 결과로 변환.
  * 완료 기준: 다른 namespace 기록은 조회·삭제되지 않고, 저장 실패를 성공으로 반환하지 않는다.
- * 제한사항: 이 모듈은 동의 여부를 검사하지 않는다. 호출자는 해당 항목 동의(consent.ts, 4-1) 후에만 쓴다.
+ * 제한사항: 이 모듈의 저장 함수는 동의 여부를 검사하지 않는다. 화면 코드는 consent.ts의 writeWithConsent로 감싸 호출한다.
  *   화면·Zustand 연결(2-5-3, 3-6-1)과 계정 ID 연결(5-3)은 후속 이슈다.
  *   JSON 백업·복원과 충돌 UI(4-4-1~4-4-3)는 MVP+4일 이후다.
  */
 import Dexie, { type DexieOptions, type Table } from "dexie"
 import type { InitialAnswers, ProcedureId, RiskAnswer, RiskId } from "@/shared/contracts/domain"
+import type { StorageConsentScope } from "@/shared/contracts/ui"
 import type { ProcedureState } from "@/shared/state/inheritance-store"
 
 // 계정 ID에 접두어를 붙여 Guest 기록과 이름이 겹치지 않게 한다.
@@ -57,7 +58,19 @@ export type MessageRecord = {
   createdAt: number
 }
 
-export type StorageFailureReason = "unavailable" | "quota-exceeded" | "not-found" | "unknown"
+// 레코드가 있으면 동의한 상태다. 철회하면 레코드를 지우므로 "동의 안 함"을 따로 저장하지 않는다.
+export type ConsentRecord = {
+  namespace: StorageNamespace
+  scope: StorageConsentScope
+  grantedAt: number
+}
+
+export type StorageFailureReason =
+  | "unavailable"
+  | "quota-exceeded"
+  | "not-found"
+  | "not-consented"
+  | "unknown"
 
 export type StorageResult<T> = { ok: true; value: T } | { ok: false; reason: StorageFailureReason }
 
@@ -70,6 +83,7 @@ export class InheritanceDb extends Dexie {
   checklists!: Table<ChecklistRecord, StorageNamespace>
   conversations!: Table<ConversationRecord, NamespacedKey>
   messages!: Table<MessageRecord, NamespacedKey>
+  consents!: Table<ConsentRecord, [StorageNamespace, StorageConsentScope]>
 
   // options는 테스트에서 fake-indexeddb를 주입할 때만 쓴다.
   constructor(name: string = INHERITANCE_DB_NAME, options?: DexieOptions) {
@@ -79,6 +93,7 @@ export class InheritanceDb extends Dexie {
       checklists: "namespace",
       conversations: "[namespace+id], namespace, [namespace+updatedAt]",
       messages: "[namespace+id], namespace, [namespace+conversationId]",
+      consents: "[namespace+scope]",
     })
   }
 }
@@ -108,7 +123,7 @@ const toFailureReason = (error: unknown): StorageFailureReason => {
 
 // 사생활 보호 모드·용량 초과 등에서도 화면이 멈추지 않도록 예외를 결과로 바꾼다(S10-A, 4-2-4).
 // 오류 메시지에 기록 원문이 섞일 수 있어 로그를 남기지 않는다.
-const attempt = async <T>(operation: () => Promise<T>): Promise<StorageResult<T>> => {
+export const attemptStorage = async <T>(operation: () => Promise<T>): Promise<StorageResult<T>> => {
   try {
     return { ok: true, value: await operation() }
   } catch (error) {
@@ -118,7 +133,7 @@ const attempt = async <T>(operation: () => Promise<T>): Promise<StorageResult<T>
 
 // 이 namespace에 대상 대화가 없으면 false를 돌려받아 "not-found"로 알린다.
 const attemptOwned = async (operation: () => Promise<boolean>): Promise<StorageResult<void>> => {
-  const result = await attempt(operation)
+  const result = await attemptStorage(operation)
   if (!result.ok) return result
   return result.value ? { ok: true, value: undefined } : { ok: false, reason: "not-found" }
 }
@@ -128,7 +143,7 @@ export const saveChecklist = (
   namespace: StorageNamespace,
   snapshot: ChecklistSnapshot,
 ): Promise<StorageResult<void>> =>
-  attempt(async () => {
+  attemptStorage(async () => {
     await db.checklists.put({ ...snapshot, namespace, updatedAt: Date.now() })
   })
 
@@ -137,7 +152,7 @@ export const loadChecklist = (
   db: InheritanceDb,
   namespace: StorageNamespace,
 ): Promise<StorageResult<ChecklistSnapshot | null>> =>
-  attempt(async () => {
+  attemptStorage(async () => {
     const record = await db.checklists.get(namespace)
     if (!record) return null
     const { answers, riskAnswers, procedureStates } = record
@@ -148,7 +163,7 @@ export const deleteChecklist = (
   db: InheritanceDb,
   namespace: StorageNamespace,
 ): Promise<StorageResult<void>> =>
-  attempt(async () => {
+  attemptStorage(async () => {
     await db.checklists.delete(namespace)
   })
 
@@ -157,7 +172,7 @@ export const saveConversation = (
   conversation: ConversationRecord,
 ): Promise<StorageResult<void>> =>
   // 키가 [namespace+id]라 조회 없이 저장해도 다른 계정 대화에 닿지 않는다. 동시 저장에도 서로 덮어쓰지 않는다.
-  attempt(async () => {
+  attemptStorage(async () => {
     await db.conversations.put(conversation)
   })
 
@@ -186,7 +201,7 @@ export const listConversations = (
   db: InheritanceDb,
   namespace: StorageNamespace,
 ): Promise<StorageResult<ConversationRecord[]>> =>
-  attempt(() =>
+  attemptStorage(() =>
     db.conversations
       .where("[namespace+updatedAt]")
       .between([namespace, Dexie.minKey], [namespace, Dexie.maxKey])
@@ -199,7 +214,7 @@ export const loadMessages = (
   namespace: StorageNamespace,
   conversationId: string,
 ): Promise<StorageResult<MessageRecord[]>> =>
-  attempt(() =>
+  attemptStorage(() =>
     db.messages
       .where("[namespace+conversationId]")
       .equals([namespace, conversationId])
@@ -229,7 +244,7 @@ export const deleteAllConversations = (
   db: InheritanceDb,
   namespace: StorageNamespace,
 ): Promise<StorageResult<void>> =>
-  attempt(() =>
+  attemptStorage(() =>
     db.transaction("rw", db.conversations, db.messages, async () => {
       await db.messages.where("namespace").equals(namespace).delete()
       await db.conversations.where("namespace").equals(namespace).delete()
