@@ -4,7 +4,8 @@
  * 구현: ?handoff= 로 들어오면 토큰을 교환해 W-01을 건너뛴다(K1 띠). 실패하면 사유를 구분하지 않는
  *   같은 안내와 '이어 보기' 또는 'W-01 처음부터'를 보여준다. 8개 카드는 항상 같은 순서로 모두 보인다.
  *   체크리스트 저장 동의 띠(ChecklistConsentBand)를 보여 주고, 저장 기록을 불러오면 그 사실을 알린다(4-1-1, D-09).
- * 제한사항: '안내 확인' 개수를 신고·신청 완료율로 표현하지 않는다. 삭제·철회 버튼(4-3)은 후속 이슈다.
+ *   저장 중이면 [체크리스트 삭제]·[체크리스트 저장 동의 철회]를 보인다(4-3).
+ * 제한사항: '안내 확인' 개수를 신고·신청 완료율로 표현하지 않는다.
  */
 import { ChevronRight, Pencil } from "lucide-react"
 import { useState } from "react"
@@ -27,6 +28,7 @@ import { MOCK_DEADLINE_TAGS } from "@/mocks/procedures"
 import type { InitialAnswers, ProcedureId } from "@/shared/contracts/domain"
 import { countGuidance, useInheritanceStore } from "@/shared/state/inheritance-store"
 import { ChecklistConsentBand } from "./checklist-consent-band"
+import { ChecklistStorageControls } from "./checklist-storage-controls"
 import { RiskQuestions } from "./risk-questions"
 
 const labelOf = <T extends string>(options: { value: T; label: string }[], value: T) =>
@@ -170,6 +172,8 @@ export function ChecklistPage() {
         <Button asChild>
           <Link to="/start">질문에 답하기</Link>
         </Button>
+        {/* 삭제·철회 직후 이 화면으로 바뀌어도 결과 안내가 보이고, 답이 없어도 동의를 철회할 수 있다. */}
+        <ChecklistStorageControls />
       </div>
     )
   }
@@ -211,6 +215,7 @@ export function ChecklistPage() {
         <CardContent className="space-y-3">
           <AnswerSummary answers={answers} />
           <ChecklistConsentBand />
+          <ChecklistStorageControls />
         </CardContent>
       </Card>
 

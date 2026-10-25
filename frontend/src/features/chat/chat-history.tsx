@@ -1,11 +1,11 @@
 /*
- * 담당: [A] | 책임: W-07 AI 대화 저장 동의 띠(S1), 이전 대화 목록(S10), 확인창(S8·S11).
- * PRD: 태스크 4-1-1(W-07), 3-6-2, 3-6-3. 화면정의서 D-03·D-05·D-10·D-11·D-14, 17장 접근성.
+ * 담당: [A] | 책임: W-07 AI 대화 저장 동의 띠(S1), 이전 대화 목록(S10).
+ * PRD: 태스크 4-1-1(W-07), 3-6-2, 3-6-3. 화면정의서 D-03·D-05·D-10·D-14, 17장 접근성.
  * 구현: 동의는 정책 확인 체크 후 [저장]만 가능하고 [저장]·[저장 안 함]은 기본 선택 없이 동등하다.
- *   상태는 문구·기호로 표시해 색만으로 구분하지 않는다. 확인창은 열리면 첫 버튼에 포커스, Esc는 취소다.
+ *   상태는 문구·기호로 표시해 색만으로 구분하지 않는다.
  * 제한사항: 정책 문구는 P02 검토 전 초안이다. [대화 기록 삭제] 전체 삭제·동의 철회(4-3)는 후속 이슈다.
  */
-import { useEffect, useId, useRef, useState } from "react"
+import { useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { CONSENT_COPY, STORAGE_STATUS_LABELS } from "@/mocks/checklist"
 import type { ConversationRecord } from "@/shared/storage/db"
@@ -133,63 +133,5 @@ export function PreviousConversations({
         </li>
       ))}
     </ul>
-  )
-}
-
-export type ConfirmAction = { label: string; onClick: () => void; primary?: boolean }
-
-export function ConfirmDialog({
-  title,
-  children,
-  actions,
-  onCancel,
-}: {
-  title: string
-  children?: React.ReactNode
-  actions: ConfirmAction[]
-  onCancel: () => void
-}) {
-  const titleId = useId()
-  const firstButton = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    firstButton.current?.focus()
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onCancel])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="w-full max-w-sm space-y-3 rounded-xl border bg-card p-4 shadow-lg"
-      >
-        <p id={titleId} className="font-semibold">
-          {title}
-        </p>
-        {children}
-        <div className="flex flex-col gap-2">
-          {actions.map((action, index) => (
-            <Button
-              key={action.label}
-              ref={index === 0 ? firstButton : undefined}
-              type="button"
-              variant={action.primary ? "default" : "outline"}
-              onClick={action.onClick}
-            >
-              {action.label}
-            </Button>
-          ))}
-          <Button type="button" variant="outline" onClick={onCancel}>
-            취소
-          </Button>
-        </div>
-      </div>
-    </div>
   )
 }

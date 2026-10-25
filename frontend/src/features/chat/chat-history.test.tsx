@@ -110,6 +110,41 @@ describe("AI 대화 저장 동의 (4-1-1, D-03)", () => {
   }, 15_000)
 })
 
+describe("W-07 삭제·철회 (4-3-1~4-3-3)", () => {
+  it("[대화 기록 삭제]는 대화를 지우고 저장 중 상태를 유지한다", async () => {
+    renderAi()
+    await consentInBand()
+    await ask("상속세")
+    await waitFor(async () => expect(await conversationCount()).toBe(1))
+
+    fireEvent.click(screen.getByRole("button", { name: "대화 기록 삭제" }))
+    fireEvent.click(await screen.findByRole("button", { name: "삭제: AI 대화 기록" }))
+
+    expect(
+      await screen.findByText(/AI 대화 기록을 삭제했습니다. 저장 동의는 유지됩니다/),
+    ).toBeTruthy()
+    expect(await conversationCount()).toBe(0)
+    expect(screen.queryByText("공식 출처")).toBeNull()
+    expect(screen.getByText(/AI 대화 저장: ● 이 기기에 저장 중/)).toBeTruthy()
+  }, 15_000)
+
+  it("동의 철회 뒤 대화가 지워지고 동의 띠가 다시 나타난다", async () => {
+    renderAi()
+    await consentInBand()
+    await ask("상속세")
+    await waitFor(async () => expect(await conversationCount()).toBe(1))
+
+    fireEvent.click(screen.getByRole("button", { name: "AI 대화 저장 동의 철회" }))
+    fireEvent.click(await screen.findByRole("button", { name: "동의 철회: AI 대화 기록 삭제" }))
+
+    expect(
+      await screen.findByText(/저장 동의를 철회하고 이 기기의 AI 대화 기록을 삭제했습니다/),
+    ).toBeTruthy()
+    expect(await screen.findByRole("region", { name: "AI 대화 저장" })).toBeTruthy()
+    expect(await conversationCount()).toBe(0)
+  }, 15_000)
+})
+
 describe("새 대화 시작 (S8)", () => {
   it("저장 중이면 확인 없이 새 대화를 열고 이전 대화는 목록에 남는다", async () => {
     renderAi()

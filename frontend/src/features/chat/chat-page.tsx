@@ -9,13 +9,15 @@
  *   AI 대화 저장 동의(S1, 체크리스트와 별도)·이전 대화 목록(S10)·새 대화(S8)·저장 안 된 대화 이탈 확인(S11)
  *   (PRD 4-1-1·3-6-1~3-6-3). 저장은 chat-storage.ts가 동의를 확인해 처리한다.
  * 제한사항: Mock 모드에서는 화면 상단에 Mock임을 표시하고 실동작 완료로 보이지 않게 한다.
- *   새로고침·탭 닫기는 확인 없이 초기화한다(D-11). [대화 기록 삭제]·동의 철회(4-3)는 후속 이슈다.
+ *   새로고침·탭 닫기는 확인 없이 초기화한다(D-11). 저장 중이면 [대화 기록 삭제]·동의 철회를 보인다(4-3).
  */
 import { ExternalLink, Send, Square } from "lucide-react"
 import { type FormEvent, useCallback, useId, useState } from "react"
 import { Link, useBlocker, useLocation } from "react-router"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Notice } from "@/components/ui/notice"
+import { StorageControls } from "@/components/ui/storage-controls"
 import { selectNamespace, useAuthStore } from "@/features/auth/auth-store"
 import {
   createMockAskResponse,
@@ -27,18 +29,14 @@ import {
   SSE_STAGE_LABELS,
   WITHHELD_COPY,
 } from "@/mocks/ai-stream"
+import { DELETE_BUTTON_LABELS } from "@/mocks/checklist"
 import type { ApiFailure } from "@/shared/api/api-error"
 import { USE_MOCK_API } from "@/shared/api/data-source"
 import type { SseResultEvent } from "@/shared/api/types"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
 import { inheritanceDb, type StorageNamespace } from "@/shared/storage/db"
 import { createApiAskTransport } from "./ask-transport"
-import {
-  CHAT_POLICY_ITEMS,
-  ChatConsentBand,
-  ConfirmDialog,
-  PreviousConversations,
-} from "./chat-history"
+import { CHAT_POLICY_ITEMS, ChatConsentBand, PreviousConversations } from "./chat-history"
 import {
   type ChatTurn,
   type ConversationMeta,
@@ -375,6 +373,16 @@ function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
       (hasConversation || hasUnsent),
   )
 
+  // [대화 기록 삭제]·동의 철회에 성공하면 보고 있던 대화도 화면에서 지운다.
+  const afterStorageCleared = async (cleared: Promise<boolean>) => {
+    const ok = await cleared
+    if (ok) {
+      resetConversation()
+      setHistoryOpen(false)
+    }
+    return ok
+  }
+
   // 정책 확인 후 [저장] 또는 S11 [이 기기에 저장하고 이동]: 동의와 지금 대화를 함께 저장한다.
   const grantStorage = () => storage.grant(meta, turns)
 
@@ -437,6 +445,14 @@ function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
         declined={storage.declined}
         onGrant={grantStorage}
         onDecline={storage.decline}
+      />
+      <StorageControls
+        available={saving}
+        itemName="AI 대화 기록"
+        deleteLabel={DELETE_BUTTON_LABELS.chat}
+        revokeLabel="AI 대화 저장 동의 철회"
+        onDelete={() => afterStorageCleared(storage.removeAll())}
+        onRevoke={() => afterStorageCleared(storage.revoke())}
       />
 
       {saving && historyOpen && (
