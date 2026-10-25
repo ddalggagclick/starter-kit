@@ -105,9 +105,9 @@ export const MOCK_ACCOUNT = { email: "demo@example.com", password: "mockpass1" }
 const LOGIN_FAILURE_LIMIT = 5
 let loginFailures = 0
 const registeredEmails = new Set<string>([MOCK_ACCOUNT.email])
-// 로그인할 수 있는 Mock 계정의 현재 상태. 비밀번호 재설정·탈퇴가 성공하면 실제로 바뀐다.
-// (MOCK_ACCOUNT는 처음 값이다. 재설정 링크 토큰은 이 계정의 것으로 본다.)
-const mockAccount = { exists: true, password: MOCK_ACCOUNT.password as string }
+// 로그인할 수 있는 Mock 계정의 현재 상태. 비밀번호 재설정·탈퇴·재가입·메일 인증이 성공하면 실제로 바뀐다.
+// (MOCK_ACCOUNT는 처음 값이다. 인증·재설정 링크 토큰은 이 계정의 것으로 본다.)
+const mockAccount = { exists: true, verified: true, password: MOCK_ACCOUNT.password as string }
 
 // H5: 서버와 같은 규칙(코드 포인트 8~64자, 영문·숫자 포함)
 const isValidPassword = passwordPolicyOk
@@ -127,6 +127,13 @@ export const signup = (email: string, password: string, options: CallOptions = {
       throw new MockHttpError(409, { code: "EMAIL_TAKEN", message: "이미 가입된 이메일입니다." })
     }
     registeredEmails.add(email)
+    // 탈퇴한 Mock 계정 이메일로 다시 가입하면 새 비밀번호로 계정을 되살린다.
+    // 실제 Backend처럼 메일 인증 전에는 로그인할 수 없다.
+    if (email === MOCK_ACCOUNT.email) {
+      mockAccount.exists = true
+      mockAccount.verified = false
+      mockAccount.password = password
+    }
     return { status: 201 }
   }, options)
 
@@ -138,7 +145,16 @@ export const login = (email: string, password: string, options: CallOptions = {}
         message: "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
       })
     }
-    if (!mockAccount.exists || email !== MOCK_ACCOUNT.email || password !== mockAccount.password) {
+    const passwordMatches =
+      mockAccount.exists && email === MOCK_ACCOUNT.email && password === mockAccount.password
+    // 실제 Backend와 같이 비밀번호가 맞은 뒤에만 미인증 사실을 알린다(가입 여부를 새로 드러내지 않음).
+    if (passwordMatches && !mockAccount.verified) {
+      throw new MockHttpError(401, {
+        code: "UNAUTHENTICATED",
+        message: "이메일 인증 후 로그인할 수 있습니다.",
+      })
+    }
+    if (!passwordMatches) {
       loginFailures += 1
       // 실패 사유를 구분하지 않고 같은 문구로 안내한다(W-09).
       throw new MockHttpError(401, {
@@ -171,6 +187,7 @@ export const verifyEmail = (token: string, options: CallOptions = {}) =>
       throw new MockHttpError(400, TOKEN_INVALID)
     }
     consumedLinkTokens.add(token)
+    if (mockAccount.exists) mockAccount.verified = true
     return { status: 200 }
   }, options)
 
@@ -251,6 +268,7 @@ export const resetMockApiState = () => {
   registeredEmails.clear()
   registeredEmails.add(MOCK_ACCOUNT.email)
   mockAccount.exists = true
+  mockAccount.verified = true
   mockAccount.password = MOCK_ACCOUNT.password
   serverChecklist = null
 }

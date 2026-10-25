@@ -35,10 +35,20 @@ const accountFromToken = (token: string, email: string | null): SignedInAccount 
   return { accountId, email }
 }
 
+// 탈퇴 응답은 Refresh 쿠키를 지운다(Set-Cookie). 그 응답보다 로그인 응답(새 Refresh 쿠키)이 먼저 오면
+// 새 계정의 쿠키가 지워진다. 같은 탭에서는 진행 중인 탈퇴가 끝난 뒤에 로그인 요청을 보내 이 순서를 막는다.
+// 다른 탭에서 동시에 로그인하는 경우는 프런트엔드만으로 막을 수 없다(API 담당자 조율 필요).
+let accountDeletionInFlight: Promise<void> | null = null
+
+const afterAccountDeletion = async () => {
+  if (accountDeletionInFlight) await accountDeletionInFlight.catch(() => undefined)
+}
+
 // 로그인을 시작하면 새 세션 번호를 받는다. 그 사이 끝난 이전 세션의 복구·Refresh 결과는 버려지고,
 // 이 로그인 응답도 그 뒤 또 다른 로그인·로그아웃이 있었다면 버린다(StaleSessionError).
 export const loginRequest = async (email: string, password: string): Promise<SignedInAccount> => {
   const epoch = accessSession.begin()
+  await afterAccountDeletion()
   if (USE_MOCK_API) {
     await loginMock(email, password)
     if (!accessSession.isCurrent(epoch)) throw new StaleSessionError()
@@ -151,10 +161,18 @@ export const resetPasswordRequest = async (token: string, newPassword: string): 
 // 로그인 상태에서 비밀번호를 한 번 더 받아 탈퇴한다. 성공 응답(200)을 받아야만 성공으로 본다.
 // 응답 본문 모양은 openapi에 없어(계약 없음) 읽지 않는다.
 export const deleteAccountRequest = async (password: string): Promise<void> => {
-  if (USE_MOCK_API) {
-    await deleteAccountMock(password)
-    return
+  const run = (async () => {
+    if (USE_MOCK_API) {
+      await deleteAccountMock(password)
+      return
+    }
+    const api = await loadApiClient()
+    await api.delete("/api/account", { data: { password } })
+  })()
+  accountDeletionInFlight = run
+  try {
+    await run
+  } finally {
+    if (accountDeletionInFlight === run) accountDeletionInFlight = null
   }
-  const api = await loadApiClient()
-  await api.delete("/api/account", { data: { password } })
 }
