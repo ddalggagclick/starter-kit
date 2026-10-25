@@ -56,18 +56,18 @@ def _example_evidence() -> Evidence:
         evidence_id="chunk-synthetic-01",
         source=SourceRef(
             source_id="synthetic-guide-01",
-            title="합성 상속 안내",
+            title="합성 Sample guide",
             url="https://example.invalid/guide",
             publisher="합성 발행기관",
             version="sha256-test-version",
         ),
-        text="합성 안내 문서 본문입니다.",
+        text="This is synthetic sample guide content.",
         location="page:1",
         score=0.75,
     )
 
 
-def test_search_success_does_not_echo_query_or_change_evidence_contract(monkeypatch):
+def test_검색성공은_질문을_출력하지_않고_Evidence_계약을_유지한다(monkeypatch):
     _configure_search(monkeypatch, SearchResult((_example_evidence(),)))
 
     exit_code, stdout, stderr = _run_cli_search()
@@ -83,18 +83,18 @@ def test_search_success_does_not_echo_query_or_change_evidence_contract(monkeypa
         "evidence_id": "chunk-synthetic-01",
         "source": {
             "source_id": "synthetic-guide-01",
-            "title": "합성 상속 안내",
+            "title": "합성 Sample guide",
             "url": "https://example.invalid/guide",
             "publisher": "합성 발행기관",
             "version": "sha256-test-version",
         },
-        "text": "합성 안내 문서 본문입니다.",
+        "text": "This is synthetic sample guide content.",
         "location": "page:1",
         "score": 0.75,
     }
 
 
-def test_search_empty_result_does_not_echo_query(monkeypatch):
+def test_검색결과가_없어도_질문을_출력하지_않는다(monkeypatch):
     _configure_search(monkeypatch, SearchResult(()))
 
     exit_code, stdout, stderr = _run_cli_search()
@@ -108,7 +108,7 @@ def test_search_empty_result_does_not_echo_query(monkeypatch):
     assert payload["evidence"] == []
 
 
-def test_search_error_does_not_echo_query_exception_or_database_credentials(monkeypatch):
+def test_검색오류는_질문과_예외_또는_DB_인증정보를_출력하지_않는다(monkeypatch):
     _configure_search(
         monkeypatch,
         RuntimeError(f"query={SYNTHETIC_QUERY}; url={FAKE_DATABASE_URL}"),
@@ -126,7 +126,7 @@ def test_search_error_does_not_echo_query_exception_or_database_credentials(monk
     assert "FAKE_PASSWORD_ONLY" not in stderr
 
 
-def test_search_configuration_error_does_not_print_exception_message(monkeypatch):
+def test_검색설정_오류는_예외_메시지를_출력하지_않는다(monkeypatch):
     _configure_search(
         monkeypatch,
         DatabaseConfigurationError(f"{SYNTHETIC_QUERY}; {FAKE_DATABASE_URL}"),
