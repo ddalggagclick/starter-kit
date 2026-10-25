@@ -19,10 +19,15 @@ import {
   RouterProvider,
 } from "react-router"
 import { Button } from "@/components/ui/button"
+import { AccountDeletePage } from "@/features/auth/account-delete-page"
 import { logoutRequest } from "@/features/auth/auth-api"
 import { useAuthStore } from "@/features/auth/auth-store"
+import { ForgotPasswordPage } from "@/features/auth/forgot-password-page"
 import { LoginPage } from "@/features/auth/login-page"
+import { ResetPasswordPage } from "@/features/auth/reset-password-page"
+import { SignupPage } from "@/features/auth/signup-page"
 import { useSessionRestore } from "@/features/auth/use-session-restore"
+import { VerifyEmailPage } from "@/features/auth/verify-email-page"
 import { ChatPage } from "@/features/chat/chat-page"
 import { ChecklistPage } from "@/features/checklist/checklist-page"
 import { InitialQuestionsPage } from "@/features/checklist/initial-questions-page"
@@ -72,6 +77,9 @@ function SiteHeader() {
                 <LogOut className="size-4" />
                 로그아웃
               </Button>
+              <Link to="/account/delete" className="text-xs text-muted-foreground underline">
+                회원 탈퇴
+              </Link>
             </>
           ) : (
             <Button asChild variant="outline" size="sm">
@@ -154,6 +162,12 @@ export const appRoutes: RouteObject[] = [
       { path: "guide/tax", element: <TaxGuidePage /> },
       { path: "ai", element: <ChatPage /> },
       { path: "login", element: <LoginPage /> },
+      { path: "signup", element: <SignupPage /> },
+      // 메일 링크 화면. 토큰은 # 뒤에 온다(팀원 요청).
+      { path: "auth/verify", element: <VerifyEmailPage /> },
+      { path: "auth/reset", element: <ResetPasswordPage /> },
+      { path: "auth/forgot", element: <ForgotPasswordPage /> },
+      { path: "account/delete", element: <AccountDeletePage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },
