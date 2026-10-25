@@ -88,8 +88,8 @@ const isProcedureId = (value: string): value is ProcedureId =>
 export const getProcedure = (procedureId: string, options: CallOptions = {}) =>
   respond<ProcedureDetail>(() => {
     if (!isProcedureId(procedureId)) {
-      // 404 코드 이름은 팀 오류 목록에 없어 제안 상태다.
-      throw new MockHttpError(404, { code: "NOT_FOUND", message: "없는 절차입니다." })
+      // openapi 0.2.1: p01~p08이 아닌 ID는 경로 검증에서 422 VALIDATION_ERROR (404는 만들지 않음).
+      throw new MockHttpError(422, { code: "VALIDATION_ERROR", message: "없는 절차입니다." })
     }
     return structuredClone(MOCK_PROCEDURE_DETAILS[procedureId])
   }, options)
