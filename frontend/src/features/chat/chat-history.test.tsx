@@ -198,6 +198,36 @@ describe("저장 안 된 대화 이탈 확인 (S11, D-11)", () => {
   })
 })
 
+describe("리뷰 회귀", () => {
+  it("P1: 저장하지 않은 임시 대화도 로그아웃하면 화면에서 지운다", async () => {
+    act(() => useAuthStore.getState().signIn({ accountId: "user-a", email: "a@example.com" }))
+    renderAi()
+    await ask("A의 임시 질문")
+
+    act(() => useAuthStore.getState().signOut())
+
+    await waitFor(() => expect(screen.queryByText("A의 임시 질문")).toBeNull())
+  }, 15_000)
+
+  it("P2: 실패한(S6) 첫 질문은 제목이 되지 않고, 처음 저장되는 성공 질문이 제목이 된다", async () => {
+    renderAi()
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "providerUnavailable" } })
+    fireEvent.change(screen.getByLabelText("질문"), { target: { value: "실패한 첫 질문" } })
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }))
+    await screen.findByText("일시적인 문제로 답변하지 못했습니다.")
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "answered" } })
+    await ask("성공한 질문")
+    await consentInBand()
+
+    const saved = await inheritanceDb.conversations
+      .where("namespace")
+      .equals(GUEST_NAMESPACE)
+      .toArray()
+    expect(saved.map((conversation) => conversation.title)).toEqual(["성공한 질문"])
+  }, 15_000)
+})
+
 describe("계정별 대화 분리 (4-2-2)", () => {
   it("A가 저장한 대화는 로그아웃·B 로그인 뒤 화면과 목록에 보이지 않는다", async () => {
     act(() => useAuthStore.getState().signIn({ accountId: "user-a", email: "a@example.com" }))

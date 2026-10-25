@@ -1,12 +1,16 @@
+// @vitest-environment jsdom
 // AI 대화 저장 변환 단위 테스트(3-6-1, D-14): 제목, 저장 규칙(답변·판단 유보·오류), 저장 기록 → 화면 복원.
+import { act, renderHook, waitFor } from "@testing-library/react"
+import { IDBFactory, IDBKeyRange } from "fake-indexeddb"
 import { describe, expect, it } from "vitest"
-import type { MessageRecord } from "@/shared/storage/db"
+import { GUEST_NAMESPACE, InheritanceDb, type MessageRecord } from "@/shared/storage/db"
 import {
   type ChatTurn,
   conversationTitle,
   conversationWriteInput,
   messagesToTurns,
   turnToMessages,
+  useChatStorage,
 } from "./chat-storage"
 
 const answered: ChatTurn = {
@@ -90,5 +94,29 @@ describe("messagesToTurns 복원", () => {
       title: "전화 상담 132",
       url: undefined,
     })
+  })
+})
+
+describe("useChatStorage 동의 중 완료된 답변 (리뷰 회귀 P2)", () => {
+  it("동의 처리가 끝나기 전에 끝난 답변도 동의가 확정되면 저장한다", async () => {
+    const db = new InheritanceDb("chat-grant-race", { indexedDB: new IDBFactory(), IDBKeyRange })
+    const { result } = renderHook(() => useChatStorage(db, GUEST_NAMESPACE))
+    await waitFor(() => expect(result.current.status).toBe("not-consented"))
+    const meta = { id: "c1", title: "상속포기 기한이 언제부터인가요?", createdAt: 1 }
+
+    // [저장]을 누른 직후, 동의 저장이 끝나기 전에 답변이 끝나 저장을 요청한다.
+    let granting: Promise<boolean> = Promise.resolve(false)
+    act(() => {
+      granting = result.current.grant(null, [])
+    })
+    const saving = result.current.saveTurn(meta, answered)
+    await act(async () => {
+      await granting
+      await saving
+    })
+
+    expect(await db.messages.count()).toBe(2)
+    expect((await db.conversations.get([GUEST_NAMESPACE, "c1"]))?.title).toBe(meta.title)
+    db.close()
   })
 })

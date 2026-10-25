@@ -12,7 +12,7 @@
  *   새로고침·탭 닫기는 확인 없이 초기화한다(D-11). [대화 기록 삭제]·동의 철회(4-3)는 후속 이슈다.
  */
 import { ExternalLink, Send, Square } from "lucide-react"
-import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react"
+import { type FormEvent, useCallback, useId, useState } from "react"
 import { Link, useBlocker, useLocation } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
@@ -31,7 +31,7 @@ import type { ApiFailure } from "@/shared/api/api-error"
 import { USE_MOCK_API } from "@/shared/api/data-source"
 import type { SseResultEvent } from "@/shared/api/types"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
-import { inheritanceDb } from "@/shared/storage/db"
+import { inheritanceDb, type StorageNamespace } from "@/shared/storage/db"
 import { createApiAskTransport } from "./ask-transport"
 import {
   CHAT_POLICY_ITEMS,
@@ -235,7 +235,14 @@ function WithheldBubble() {
   )
 }
 
+// 로그인 계정(저장 영역)이 바뀌면 대화 화면 전체를 새로 그린다(P1). 이전 계정의 대화·입력·진행 중 요청이 한 번에
+// 정리되고, 이전 화면에서 늦게 도착한 답변·이전 대화 열기 결과는 사라진 화면에만 반영되어 새 계정 화면에 나타나지 않는다.
 export function ChatPage() {
+  const namespace = useAuthStore(selectNamespace)
+  return <ChatScreen key={namespace} namespace={namespace} />
+}
+
+function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
   const isGuest = useAuthStore((s) => s.accountId === null)
   const {
     externalNoticeAcknowledged,
@@ -251,7 +258,6 @@ export function ChatPage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [confirmNewChat, setConfirmNewChat] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
-  const namespace = useAuthStore(selectNamespace)
   const storage = useChatStorage(inheritanceDb, namespace)
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
   const [inputError, setInputError] = useState<string | null>(null)
@@ -304,14 +310,17 @@ export function ChatPage() {
       setGuestRemaining(0)
     }
     const turn: ChatTurn = { id: Date.now(), question, outcome, retries }
+    setTurns((current) => [...current, turn])
+    // 기술 오류·사용 제한은 저장하지 않으므로 대화 정보(제목)도 만들지 않는다(P2).
+    if (outcome.kind === "error") return
+    // 대화 정보와 제목은 처음 저장되는 질문(답변·판단 유보)으로 만든다(D-14).
     const conversation = meta ?? {
       id: newConversationId(),
-      title: conversationTitle(earlierTurns[0]?.question ?? question),
+      title: conversationTitle(question),
       createdAt: Date.now(),
     }
     if (!meta) setMeta(conversation)
-    setTurns((current) => [...current, turn])
-    // 동의한 경우에만 저장된다(chat-storage가 확인). 오류·사용 제한은 저장하지 않는다.
+    // 동의한 경우에만 저장된다(chat-storage가 확인).
     void storage.saveTurn(conversation, turn)
   }
 
@@ -393,18 +402,6 @@ export function ChatPage() {
     // 보고 있던 대화를 지웠으면 화면에서도 지운다.
     if (meta?.id === conversationId) resetConversation()
   }
-
-  // 로그인 계정이 바뀌면 이전 계정에 저장된 대화는 화면에서 내린다. 저장하지 않은 임시 대화는 유지해도 된다.
-  const wasSaving = useRef(saving)
-  const previousNamespace = useRef(namespace)
-  useEffect(() => {
-    if (previousNamespace.current !== namespace) {
-      if (wasSaving.current) resetConversation()
-      setHistoryOpen(false)
-      previousNamespace.current = namespace
-    }
-    wasSaving.current = saving
-  })
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">

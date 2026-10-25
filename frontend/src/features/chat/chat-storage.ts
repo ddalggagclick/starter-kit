@@ -192,22 +192,28 @@ export const useChatStorage = (db: InheritanceDb, namespace: StorageNamespace) =
   }, [db, namespace])
 
   // 사용자가 정책을 확인하고 [저장]을 눌렀을 때(또는 S11 [이 기기에 저장하고 이동])만 호출한다(P01-C).
+  // 저장과 같은 순서 큐에서 처리한다. 동의 처리 중에 끝난 답변의 저장은 동의가 확정된 뒤에 실행되어 빠지지 않는다.
   // 성공 여부를 돌려준다.
   const grant = useCallback(
-    async (meta: ConversationMeta | null, turns: ChatTurn[]): Promise<boolean> => {
+    (meta: ConversationMeta | null, turns: ChatTurn[]): Promise<boolean> => {
       const gen = generation.current
-      const input = meta ? conversationWriteInput(meta, turns) : null
-      const result = await grantChatConsentWithConversation(db, namespace, input)
-      if (gen !== generation.current) return false
-      if (!result.ok) {
-        setStatus("failed")
-        return false
-      }
-      consented.current = true
-      if (input?.conversation) savedIds.current.add(input.conversation.id)
-      setStatus("ready")
-      await refreshList(gen)
-      return true
+      const run = queue.current.then(async () => {
+        if (gen !== generation.current) return false
+        const input = meta ? conversationWriteInput(meta, turns) : null
+        const result = await grantChatConsentWithConversation(db, namespace, input)
+        if (gen !== generation.current) return false
+        if (!result.ok) {
+          setStatus("failed")
+          return false
+        }
+        consented.current = true
+        if (input?.conversation) savedIds.current.add(input.conversation.id)
+        setStatus("ready")
+        await refreshList(gen)
+        return true
+      })
+      queue.current = run.then(() => undefined)
+      return run
     },
     [db, namespace, refreshList],
   )
