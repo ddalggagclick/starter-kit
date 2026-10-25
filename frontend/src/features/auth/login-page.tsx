@@ -1,6 +1,7 @@
 /*
  * 담당: [A] | 책임: W-09 로그인 폼·오류 표시·로그인 상태 전환.
- * PRD: E5 / 스토리 5-2 / 태스크 5-2-1. API: A13 POST /api/auth/login (경로 제안, Backend 라우터 없음 → Mock).
+ * PRD: E5 / 스토리 5-2 / 태스크 5-2-1. API: A13 POST /api/auth/login (x-confirmed: true, 경로 제안).
+ *   VITE_USE_MOCK_API=false면 실제 Backend로 로그인한다(auth-api.ts).
  * 구현: 빈 칸은 인라인 오류, 401은 사유를 구분하지 않는 같은 문구, 429는 잠시 후 재시도 안내.
  * 완료 기준: 실패 시 로그인된 것처럼 보이지 않는다. 성공하면 헤더가 로그인 상태로 바뀐다.
  * 제한사항: 회원가입·이메일 인증·비밀번호 재설정은 2구간(간트 25·27)이다. 비밀번호를 저장하지 않는다.
@@ -11,8 +12,10 @@ import { Link, useLocation, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Notice } from "@/components/ui/notice"
-import { login, MOCK_ACCOUNT } from "@/mocks/mock-api"
+import { MOCK_ACCOUNT } from "@/mocks/mock-api"
 import { toApiFailure } from "@/shared/api/api-error"
+import { USE_MOCK_API } from "@/shared/api/data-source"
+import { loginRequest } from "./auth-api"
 import { useAuthStore } from "./auth-store"
 
 type FieldErrors = { email?: string; password?: string }
@@ -47,8 +50,7 @@ export function LoginPage() {
     if (errors.email || errors.password) return
     setSubmitting(true)
     try {
-      await login(email.trim(), password)
-      signIn(email.trim())
+      signIn(await loginRequest(email.trim(), password))
       navigate(returnTo, { replace: true })
     } catch (error) {
       setFormError(loginFailureMessage(toApiFailure(error).status))
@@ -117,9 +119,11 @@ export function LoginPage() {
           </form>
           <div className="mt-4 space-y-2 text-sm text-muted-foreground">
             <p>회원가입·비밀번호 재설정은 준비 중입니다.</p>
-            <p className="rounded-md bg-muted px-3 py-2 text-xs">
-              Mock 로그인 · 실제 계정 연동 아님 — {MOCK_ACCOUNT.email} / {MOCK_ACCOUNT.password}
-            </p>
+            {USE_MOCK_API && (
+              <p className="rounded-md bg-muted px-3 py-2 text-xs">
+                Mock 로그인 · 실제 계정 연동 아님 — {MOCK_ACCOUNT.email} / {MOCK_ACCOUNT.password}
+              </p>
+            )}
             <Link to="/" className="underline underline-offset-4">
               로그인 없이 계속하기
             </Link>

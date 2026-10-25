@@ -148,7 +148,9 @@ describe("W-07 비로그인 하루 한도 (3-7-1)", () => {
 
   it("로그인 사용자에게는 남은 횟수 안내를 보이지 않는다", () => {
     useChatSessionStore.setState({ guestRemaining: 0 })
-    useAuthStore.getState().signIn("demo@example.com")
+    useAuthStore
+      .getState()
+      .signIn({ accountId: "mock:demo@example.com", email: "demo@example.com" })
     renderChat()
 
     expect(screen.queryByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")).toBeNull()

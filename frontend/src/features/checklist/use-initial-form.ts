@@ -6,6 +6,7 @@
  * 제한사항: 초기 답변을 법률 판정으로 해석하지 않는다. 서버 재검증(2-1-3)은 B1 책임이다.
  */
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { AnswerChoice, InitialAnswers, Relationship } from "@/shared/contracts/domain"
@@ -101,8 +102,16 @@ export const toFormValues = (answers: InitialAnswers | null): InitialFormValues 
   oneStopApplication: answers?.oneStopApplication ?? "",
 })
 
-export const useInitialForm = (answers: InitialAnswers | null) =>
-  useForm<InitialFormValues>({
+// 저장소의 답이 바뀌면 폼을 그 값으로 다시 채운다. 로그아웃·계정 전환으로 답이 비면 폼도 비워
+// 이전 계정의 답이 입력창에 남지 않게 한다(4-2-2). 사용자가 입력 중인 값은 저장소 답이 바뀔 때만 덮인다.
+export const useInitialForm = (answers: InitialAnswers | null) => {
+  const form = useForm<InitialFormValues>({
     resolver: zodResolver(initialFormSchema),
     defaultValues: toFormValues(answers),
   })
+  const { reset } = form
+  useEffect(() => {
+    reset(toFormValues(answers))
+  }, [answers, reset])
+  return form
+}

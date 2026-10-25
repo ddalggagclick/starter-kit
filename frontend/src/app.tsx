@@ -19,8 +19,10 @@ import {
   RouterProvider,
 } from "react-router"
 import { Button } from "@/components/ui/button"
+import { logoutRequest } from "@/features/auth/auth-api"
 import { useAuthStore } from "@/features/auth/auth-store"
 import { LoginPage } from "@/features/auth/login-page"
+import { useSessionRestore } from "@/features/auth/use-session-restore"
 import { ChatPage } from "@/features/chat/chat-page"
 import { ChecklistPage } from "@/features/checklist/checklist-page"
 import { InitialQuestionsPage } from "@/features/checklist/initial-questions-page"
@@ -43,8 +45,14 @@ const NAV_ITEMS = [
 ] as const
 
 function SiteHeader() {
+  const accountId = useAuthStore((s) => s.accountId)
   const email = useAuthStore((s) => s.email)
   const signOut = useAuthStore((s) => s.signOut)
+  // 서버 로그아웃 결과와 관계없이 화면은 로그아웃 상태로 바꾼다.
+  const onSignOut = () => {
+    void logoutRequest()
+    signOut()
+  }
   return (
     <header className="border-b bg-card/80">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
@@ -55,10 +63,12 @@ function SiteHeader() {
           상속길잡이
         </Link>
         <div className="flex items-center gap-2">
-          {email ? (
+          {accountId ? (
             <>
-              <span className="hidden text-sm text-muted-foreground sm:inline">{email}</span>
-              <Button variant="outline" size="sm" onClick={signOut}>
+              <span className="hidden text-sm text-muted-foreground sm:inline">
+                {email ?? "로그인됨"}
+              </span>
+              <Button variant="outline" size="sm" onClick={onSignOut}>
                 <LogOut className="size-4" />
                 로그아웃
               </Button>
@@ -97,6 +107,8 @@ function SiteHeader() {
 }
 
 function AppLayout() {
+  // 새로고침 후 Refresh 쿠키로 로그인 상태를 복구한다(실제 Backend 모드만).
+  useSessionRestore()
   // 동의한 경우에만 체크리스트를 이 기기에 저장·복원한다(4-2-1). 어느 화면에서 바꿔도 저장되도록 레이아웃에서 시작한다.
   useChecklistPersistence()
   return (
