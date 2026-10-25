@@ -128,6 +128,35 @@ function RetryButton({
   )
 }
 
+// S9 하루 질문 한도 안내. 429를 받았을 때와, 남은 횟수가 0이 된 순간(다음 질문 전) 모두 같은 안내를 쓴다(3-7-1, 5-6-2).
+function GuestLimitNotice({ isGuest }: { isGuest: boolean }) {
+  const location = useLocation()
+  return (
+    <Notice tone="warning" className="space-y-2">
+      <p className="font-semibold">오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.</p>
+      {isGuest ? (
+        <>
+          <p>
+            로그인하면 계속 질문할 수 있습니다. 체크리스트와 절차 안내는 그대로 이용할 수 있습니다.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm">
+              <Link to="/login" state={{ from: location.pathname }}>
+                로그인
+              </Link>
+            </Button>
+            <Button size="sm" variant="outline" disabled title="회원가입은 준비 중입니다">
+              회원가입 (준비 중)
+            </Button>
+          </div>
+        </>
+      ) : (
+        <p>내일 다시 이용해 주세요.</p>
+      )}
+    </Notice>
+  )
+}
+
 function FailureBubble({
   failure,
   isGuest,
@@ -141,35 +170,8 @@ function FailureBubble({
   canRetry: boolean
   busy: boolean
 }) {
-  const location = useLocation()
   // S9 비로그인 하루 제한 (A08 429 RATE_LIMITED)
-  if (failure.code === "RATE_LIMITED") {
-    return (
-      <Notice tone="warning" className="space-y-2">
-        <p className="font-semibold">오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.</p>
-        {isGuest ? (
-          <>
-            <p>
-              로그인하면 계속 질문할 수 있습니다. 체크리스트와 절차 안내는 그대로 이용할 수
-              있습니다.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild size="sm">
-                <Link to="/login" state={{ from: location.pathname }}>
-                  로그인
-                </Link>
-              </Button>
-              <Button size="sm" variant="outline" disabled title="회원가입은 준비 중입니다">
-                회원가입 (준비 중)
-              </Button>
-            </div>
-          </>
-        ) : (
-          <p>내일 다시 이용해 주세요.</p>
-        )}
-      </Notice>
-    )
-  }
+  if (failure.code === "RATE_LIMITED") return <GuestLimitNotice isGuest={isGuest} />
   // S9 공급자 제한 — 자동 재시도하지 않는다.
   if (failure.code === "PROVIDER_RATE_LIMIT") {
     return (
@@ -242,6 +244,9 @@ export function ChatPage() {
   const transport = USE_MOCK_API ? mockTransport : apiAskTransport
   const { ask, cancel, running, stage } = useChatStream(transport)
 
+  // 남은 횟수가 0이 되면 다음 질문을 보내 429를 받기 전에 바로 안내하고 보내기를 막는다.
+  // 남은 횟수를 모르면(null, 실제 A08은 아직 null) 서버의 429 응답으로 안내한다.
+  const guestLimitReached = isGuest && guestRemaining === 0
   const codePoints = countUnicodeCodePoints(input)
   const overLimit = codePoints > CHAT_INPUT_POLICY.maxQuestionCodePoints
   async function send(question: string, earlierTurns: Turn[], retries = 0) {
@@ -278,7 +283,7 @@ export function ChatPage() {
       setInputError("질문을 입력해 주세요.")
       return
     }
-    if (overLimit || running) return
+    if (overLimit || running || guestLimitReached) return
     setInput("")
     void send(question, turns)
   }
@@ -415,6 +420,7 @@ export function ChatPage() {
             </Button>
           </Notice>
         )}
+        {guestLimitReached && <GuestLimitNotice isGuest />}
         <label htmlFor={inputId} className="sr-only">
           질문
         </label>
@@ -441,7 +447,10 @@ export function ChatPage() {
               guestRemaining !== null &&
               ` · 오늘 남은 질문 ${guestRemaining}회 (비로그인)`}
           </p>
-          <Button type="submit" disabled={running || overLimit || !externalNoticeAcknowledged}>
+          <Button
+            type="submit"
+            disabled={running || overLimit || !externalNoticeAcknowledged || guestLimitReached}
+          >
             <Send className="size-4" />
             보내기
           </Button>

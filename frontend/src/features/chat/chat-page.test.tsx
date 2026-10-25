@@ -115,3 +115,42 @@ describe("422 입력 오류 문구", () => {
     ).toBe("질문을 입력해 주세요.")
   })
 })
+
+describe("W-07 비로그인 하루 한도 (3-7-1)", () => {
+  it("남은 횟수가 0이면 질문을 보내기 전에 바로 S9 안내와 로그인 진입을 보이고 보내기를 막는다", () => {
+    useChatSessionStore.setState({ guestRemaining: 0 })
+    renderChat()
+
+    const title = screen.getByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")
+    const notice = title.closest("[role=status]") as HTMLElement
+    expect(within(notice).getByRole("link", { name: "로그인" })).toBeTruthy()
+    expect(within(notice).getByRole("button", { name: /회원가입/ })).toBeTruthy()
+    expect((screen.getByRole("button", { name: "보내기" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+  })
+
+  it("마지막 질문의 답을 받아 남은 횟수가 0이 되는 순간 안내가 나타난다", async () => {
+    useChatSessionStore.setState({ guestRemaining: 1 })
+    renderChat()
+    expect(screen.queryByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")).toBeNull()
+
+    fireEvent.change(screen.getByLabelText("질문"), { target: { value: "상속세" } })
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }))
+
+    expect(
+      await screen.findByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.", undefined, {
+        timeout: 5000,
+      }),
+    ).toBeTruthy()
+    expect(useChatSessionStore.getState().guestRemaining).toBe(0)
+  }, 10_000)
+
+  it("로그인 사용자에게는 남은 횟수 안내를 보이지 않는다", () => {
+    useChatSessionStore.setState({ guestRemaining: 0 })
+    useAuthStore.getState().signIn("demo@example.com")
+    renderChat()
+
+    expect(screen.queryByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")).toBeNull()
+  })
+})
