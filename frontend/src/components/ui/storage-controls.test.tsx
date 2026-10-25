@@ -6,7 +6,10 @@ import { StorageControls } from "./storage-controls"
 
 afterEach(cleanup)
 
-const renderControls = (onDelete = vi.fn(async () => true), onRevoke = vi.fn(async () => true)) => {
+const renderControls = (
+  onDelete: () => Promise<boolean> = vi.fn(async () => true),
+  onRevoke: () => Promise<boolean> = vi.fn(async () => true),
+) => {
   render(
     <StorageControls
       available
@@ -21,6 +24,22 @@ const renderControls = (onDelete = vi.fn(async () => true), onRevoke = vi.fn(asy
 }
 
 describe("StorageControls", () => {
+  it("삭제 함수가 오류를 던져도 처리 중 상태에 갇히지 않고 실패 안내와 재시도를 보인다", async () => {
+    const onDelete = vi.fn(async () => {
+      throw new Error("예상 못 한 오류")
+    })
+    renderControls(onDelete)
+
+    fireEvent.click(screen.getByRole("button", { name: "체크리스트 삭제" }))
+    fireEvent.click(screen.getByRole("button", { name: "삭제: 체크리스트 기록" }))
+
+    expect(await screen.findByText(/삭제하지 못했습니다/)).toBeTruthy()
+    expect(
+      (screen.getByRole("button", { name: "체크리스트 삭제" }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy()
+  })
+
   it("삭제 확인창은 동의 유지, 철회 확인창은 동의 해제를 알리고, 취소하면 실행하지 않는다", () => {
     const { onDelete, onRevoke } = renderControls()
 

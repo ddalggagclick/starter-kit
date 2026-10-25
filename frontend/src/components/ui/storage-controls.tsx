@@ -44,12 +44,19 @@ export function StorageControls({
     onResultChange?.(next)
   }
 
+  // 삭제·철회 함수가 오류를 던져도 실패로 보이고 처리 중 상태에 갇히지 않게 한다.
   const run = async (action: Action) => {
     setConfirming(null)
     setBusy(true)
-    const ok = await (action === "delete" ? onDelete() : onRevoke())
+    let ok = false
+    try {
+      ok = await (action === "delete" ? onDelete() : onRevoke())
+    } catch {
+      ok = false
+    } finally {
+      setBusy(false)
+    }
     setResult({ action, ok })
-    setBusy(false)
   }
 
   return (

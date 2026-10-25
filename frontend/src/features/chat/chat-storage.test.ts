@@ -190,3 +190,27 @@ describe("useChatStorage 삭제·철회 (4-3-2, 4-3-3, 4-3-4)", () => {
     db.close()
   })
 })
+
+describe("리뷰 회귀 P2: 삭제 중 끝난 답변", () => {
+  it("대화 전체 삭제를 시작한 뒤 끝난 이전 대화의 답변은 다시 저장하지 않는다", async () => {
+    const db = new InheritanceDb("chat-remove-race", { indexedDB: new IDBFactory(), IDBKeyRange })
+    const { result } = renderHook(() => useChatStorage(db, GUEST_NAMESPACE))
+    await waitFor(() => expect(result.current.status).toBe("not-consented"))
+    const meta = { id: "c1", title: "질문", createdAt: 1 }
+    await act(async () => {
+      await result.current.grant(meta, [answered])
+    })
+
+    // 삭제를 시작한 직후, 같은 대화의 진행 중이던 답변이 끝나 저장을 요청한다.
+    await act(async () => {
+      const removing = result.current.removeAll([meta.id])
+      const saving = result.current.saveTurn(meta, { ...answered, id: 101 })
+      await removing
+      await saving
+    })
+
+    expect(await db.conversations.count()).toBe(0)
+    expect(await db.messages.count()).toBe(0)
+    db.close()
+  })
+})

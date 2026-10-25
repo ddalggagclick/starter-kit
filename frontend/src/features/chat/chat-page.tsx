@@ -373,14 +373,13 @@ function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
       (hasConversation || hasUnsent),
   )
 
-  // [대화 기록 삭제]·동의 철회에 성공하면 보고 있던 대화도 화면에서 지운다.
-  const afterStorageCleared = async (cleared: Promise<boolean>) => {
-    const ok = await cleared
-    if (ok) {
-      resetConversation()
-      setHistoryOpen(false)
-    }
-    return ok
+  // [대화 기록 삭제]·동의 철회: 시작할 때 진행 중인 질문을 취소하고 보고 있던 대화를 비운다.
+  // 지금 대화는 무효로 넘겨, 삭제 도중 끝난 답변이 지운 대화를 다시 만들지 않게 한다(chat-storage).
+  const clearStorage = (action: (currentIds: string[]) => Promise<boolean>) => {
+    const currentIds = meta ? [meta.id] : []
+    resetConversation()
+    setHistoryOpen(false)
+    return action(currentIds)
   }
 
   // 정책 확인 후 [저장] 또는 S11 [이 기기에 저장하고 이동]: 동의와 지금 대화를 함께 저장한다.
@@ -451,8 +450,8 @@ function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
         itemName="AI 대화 기록"
         deleteLabel={DELETE_BUTTON_LABELS.chat}
         revokeLabel="AI 대화 저장 동의 철회"
-        onDelete={() => afterStorageCleared(storage.removeAll())}
-        onRevoke={() => afterStorageCleared(storage.revoke())}
+        onDelete={() => clearStorage(storage.removeAll)}
+        onRevoke={() => clearStorage(storage.revoke)}
       />
 
       {saving && historyOpen && (

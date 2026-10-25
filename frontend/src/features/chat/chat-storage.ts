@@ -153,6 +153,8 @@ export const useChatStorage = (db: InheritanceDb, namespace: StorageNamespace) =
   const queue = useRef<Promise<void>>(Promise.resolve())
   // namespace가 바뀐 뒤 도착한 이전 영역의 결과를 버린다.
   const generation = useRef(0)
+  // 전체 삭제·철회를 시작한 시점까지의 대화. 그 뒤에 끝난 답변이 삭제된 대화를 다시 만들지 않게 저장을 건너뛴다.
+  const invalidated = useRef(new Set<string>())
 
   const refreshList = useCallback(
     async (gen: number) => {
@@ -227,6 +229,7 @@ export const useChatStorage = (db: InheritanceDb, namespace: StorageNamespace) =
       const gen = generation.current
       queue.current = queue.current.then(async () => {
         if (!consented.current || gen !== generation.current) return
+        if (invalidated.current.has(meta.id)) return
         const messages = turnToMessages(meta.id, turn, Date.now())
         if (!messages) return
         const input: ChatWriteInput = savedIds.current.has(meta.id)
@@ -283,32 +286,47 @@ export const useChatStorage = (db: InheritanceDb, namespace: StorageNamespace) =
     return run
   }, [])
 
+  // 삭제를 시작하는 즉시(큐를 기다리기 전에) 저장된 대화와 지금 화면의 대화를 무효로 표시한다.
+  const invalidate = useCallback((currentIds: string[]) => {
+    for (const id of savedIds.current) invalidated.current.add(id)
+    for (const id of currentIds) invalidated.current.add(id)
+  }, [])
+
   // [대화 기록 삭제](4-3-2): 이 계정의 대화를 모두 지우고 동의는 유지한다. 실패하면 그대로 두고 false.
-  const removeAll = useCallback((): Promise<boolean> => {
-    const gen = generation.current
-    return runInQueue(async () => {
-      const result = await deleteScopeData(db, namespace, "chat")
-      if (!result.ok || gen !== generation.current) return result.ok
-      savedIds.current = new Set()
-      setConversations([])
-      return true
-    })
-  }, [db, namespace, runInQueue])
+  // currentIds: 화면에서 진행 중인 대화(아직 저장 전일 수 있음). 그 대화의 늦은 답변도 저장하지 않는다.
+  const removeAll = useCallback(
+    (currentIds: string[] = []): Promise<boolean> => {
+      const gen = generation.current
+      invalidate(currentIds)
+      return runInQueue(async () => {
+        const result = await deleteScopeData(db, namespace, "chat")
+        if (!result.ok || gen !== generation.current) return result.ok
+        savedIds.current = new Set()
+        setConversations([])
+        return true
+      })
+    },
+    [db, namespace, runInQueue, invalidate],
+  )
 
   // AI 대화 저장 동의 철회(4-3-3): 대화와 동의를 함께 지운다. 실패하면 둘 다 남고 false(4-3-4).
-  const revoke = useCallback((): Promise<boolean> => {
-    const gen = generation.current
-    return runInQueue(async () => {
-      const result = await revokeConsent(db, namespace, "chat")
-      if (!result.ok || gen !== generation.current) return result.ok
-      consented.current = false
-      savedIds.current = new Set()
-      setConversations([])
-      setDeclined(false)
-      setStatus("not-consented")
-      return true
-    })
-  }, [db, namespace, runInQueue])
+  const revoke = useCallback(
+    (currentIds: string[] = []): Promise<boolean> => {
+      const gen = generation.current
+      invalidate(currentIds)
+      return runInQueue(async () => {
+        const result = await revokeConsent(db, namespace, "chat")
+        if (!result.ok || gen !== generation.current) return result.ok
+        consented.current = false
+        savedIds.current = new Set()
+        setConversations([])
+        setDeclined(false)
+        setStatus("not-consented")
+        return true
+      })
+    },
+    [db, namespace, runInQueue, invalidate],
+  )
 
   const isSaved = useCallback((conversationId: string) => savedIds.current.has(conversationId), [])
 

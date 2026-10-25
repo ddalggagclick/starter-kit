@@ -38,7 +38,8 @@ type ChecklistStorageState = {
   // [저장 안 함]을 누르면 이번 방문 동안 동의 띠를 접는다. 저장하지 않으므로 다음 방문에 다시 묻는다.
   declined: boolean
   // 마지막 삭제·철회 결과. 성공하면 화면 데이터가 비워져 W-02가 다른 화면으로 바뀌므로 여기서 보관한다.
-  lastAction: StorageActionResult | null
+  // 요청한 계정(namespace)과 함께 보관해 다른 계정 화면에는 보이지 않게 한다.
+  lastAction: (StorageActionResult & { namespace: StorageNamespace }) | null
 }
 
 export const useChecklistStorageStore = create<ChecklistStorageState>()(() => ({
@@ -217,10 +218,14 @@ export const grantChecklistStorage = async (db: InheritanceDb): Promise<void> =>
 
 export const declineChecklistStorage = () => useChecklistStorageStore.setState({ declined: true })
 
-// [체크리스트 삭제]. 성공 여부를 돌려준다. 저장 연결이 없으면(저장 중이 아님) false.
-export const deleteChecklistRecords = (): Promise<boolean> =>
-  activePersistence ? activePersistence.deleteData() : Promise.resolve(false)
+// 요청한 계정의 저장 연결이 지금 실행 중일 때만 돌려준다. 계정이 바뀌었으면 다른 계정 기록을 건드리지 않도록 null.
+const persistenceFor = (namespace: StorageNamespace) =>
+  activePersistence?.namespace === namespace ? activePersistence : null
 
-// 체크리스트 저장 동의 철회. 성공 여부를 돌려준다.
-export const revokeChecklistStorage = (): Promise<boolean> =>
-  activePersistence ? activePersistence.revoke() : Promise.resolve(false)
+// [체크리스트 삭제]. 요청한 계정(namespace)에만 실행하고 성공 여부를 돌려준다. 그 계정이 저장 중이 아니면 false.
+export const deleteChecklistRecords = (namespace: StorageNamespace): Promise<boolean> =>
+  persistenceFor(namespace)?.deleteData() ?? Promise.resolve(false)
+
+// 체크리스트 저장 동의 철회. 요청한 계정에만 실행하고 성공 여부를 돌려준다.
+export const revokeChecklistStorage = (namespace: StorageNamespace): Promise<boolean> =>
+  persistenceFor(namespace)?.revoke() ?? Promise.resolve(false)
