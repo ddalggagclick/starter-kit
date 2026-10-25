@@ -1,24 +1,42 @@
 /**
- * 담당: [A] | 책임: 메모리 Access Token과 401 Refresh 요청 조정.
- * PRD: E5 / 스토리 5-3 / 태스크 5-3-1, 5-3-3.
- * 구현할 기능: 동시 401에서 Refresh를 한 번만 요청하고 성공 시 원 요청을 한 번 재시도한다.
- * 완료 기준: Refresh 실패 시 인증을 해제하고 계정 기록 화면을 숨긴다.
- * 제한사항: Refresh·CSRF 쿠키를 JavaScript에서 읽거나 토큰을 LocalStorage에 저장하지 않는다.
- * 상태: PRD 태스크 미시작. 경로와 응답은 API 승인 후 연결한다.
+ * 담당: [A] | 책임: 메모리 Access Token, CSRF 헤더, 401 Refresh 요청 조정.
+ * PRD: E5 / 스토리 5-3 / 태스크 5-3-1, 5-3-3, 4-2-2(계정 ID 추출).
+ * 구현: 상태 변경 요청에 X-CSRF-Token을 붙인다. 동시 401에서 Refresh를 한 번만 요청하고 성공하면 원 요청을 한 번 재시도한다.
+ *   Refresh가 실패하면 Access Token을 지우고 등록된 리스너(인증 스토어)에 알려 계정 화면을 숨기게 한다.
+ * 계약: A14 POST /api/auth/refresh(x-confirmed: true). CSRF 발급 GET /api/auth/csrf → {csrfToken}과
+ *   헤더 이름 X-CSRF-Token은 openapi에 없고 Backend 구현(core/security.py)을 따른다(계약 없음).
+ * 제한사항: Refresh·CSRF 쿠키를 JavaScript에서 읽거나 토큰을 localStorage·IndexedDB에 저장하지 않는다.
  */
 import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from "axios"
 
 interface RetryConfig extends InternalAxiosRequestConfig {
   __retried?: boolean
+  __csrfRetried?: boolean
 }
 export interface AuthWireContract {
   csrfPath: string
   refreshPath: string
   /** 로그인·가입 등 401이 정상 응답일 수 있는 경로는 Refresh 재시도를 금지한다. */
   noRefreshRetryPaths: readonly string[]
-  /** 실제 API JSON 구조는 API 계약 담당자가 작성한다. */
   readCsrfToken(response: AxiosResponse): string
   readAccessToken(response: AxiosResponse): string
+}
+
+// 계약(A11~A16)과 Backend 구현 기준 경로·응답 필드.
+export const AUTH_WIRE: AuthWireContract = {
+  csrfPath: "/api/auth/csrf",
+  refreshPath: "/api/auth/refresh",
+  noRefreshRetryPaths: [
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/signup",
+    "/api/auth/email/verify",
+    "/api/auth/email/resend",
+    "/api/auth/password/reset-request",
+    "/api/auth/password/reset",
+  ],
+  readCsrfToken: (response) => (response.data as { csrfToken?: string })?.csrfToken ?? "",
+  readAccessToken: (response) => (response.data as { accessToken?: string })?.accessToken ?? "",
 }
 
 // 현재 탭의 Access Token을 조회·갱신하고 인증 해제 시 CSRF 토큰도 비운다.
@@ -26,6 +44,7 @@ let accessToken: string | null = null
 let csrfToken: string | null = null
 let csrfPending: Promise<string> | null = null
 let refreshPending: Promise<string> | null = null
+let authLostListener: (() => void) | null = null
 
 export const accessSession = {
   get(): string | null {
@@ -38,6 +57,33 @@ export const accessSession = {
     accessToken = null
     csrfToken = null
   },
+}
+
+// Refresh 실패로 인증이 끊기면 한 번 호출된다. 인증 스토어가 등록한다.
+export const setAuthLostListener = (listener: (() => void) | null) => {
+  authLostListener = listener
+}
+
+// Access JWT의 sub(사용자 ID)를 읽는다. 서명은 검증하지 않으며 이 기기 저장 영역 구분에만 쓴다(권한 판단에 쓰지 않음).
+// 형식이 맞지 않으면 null.
+export const accountIdFromAccessToken = (token: string): string | null => {
+  const payload = token.split(".")[1]
+  if (!payload) return null
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4)
+    const bytes = Uint8Array.from(atob(padded), (char) => char.charCodeAt(0))
+    const claims = JSON.parse(new TextDecoder().decode(bytes)) as { sub?: unknown }
+    return typeof claims.sub === "string" && claims.sub.trim() ? claims.sub : null
+  } catch {
+    return null
+  }
+}
+
+const readErrorCode = (data: unknown): string | null => {
+  const record = data as { code?: unknown; detail?: { code?: unknown } } | null
+  const code = record?.detail?.code ?? record?.code
+  return typeof code === "string" ? code : null
 }
 
 // api에 요청·응답 인터셉터를 설치해 CSRF 처리와 메모리 Access Token의 401 갱신을 적용한다.
@@ -64,7 +110,13 @@ export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): 
   api.interceptors.request.use(async (config) => {
     if (accessToken) config.headers.set("Authorization", `Bearer ${accessToken}`)
     if (["post", "put", "patch", "delete"].includes(config.method?.toLowerCase() ?? "")) {
-      config.headers.set("X-CSRF-Token", await csrf())
+      // 인증 기능이 꺼진 Backend에는 CSRF 발급 경로가 없다. 발급에 실패해도 Handoff 등 CSRF가 필요 없는 요청은 보낸다.
+      // CSRF가 필요한 경로라면 서버가 403으로 거부한다.
+      try {
+        config.headers.set("X-CSRF-Token", await csrf())
+      } catch {
+        // 헤더 없이 보낸다.
+      }
     }
     return config
   })
@@ -72,10 +124,25 @@ export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): 
   api.interceptors.response.use(
     (response) => response,
     async (error: unknown) => {
-      const failure = error as { config?: RetryConfig; response?: { status: number } }
+      const failure = error as {
+        config?: RetryConfig
+        response?: { status: number; data?: unknown }
+      }
       const original = failure.config
+      if (!original) return Promise.reject(error)
+
+      // CSRF 토큰 수명(서버 기본 1시간)이 지나면 403 CSRF_INVALID다. 새로 받아 한 번만 다시 보낸다.
       if (
-        !original ||
+        failure.response?.status === 403 &&
+        readErrorCode(failure.response.data) === "CSRF_INVALID" &&
+        !original.__csrfRetried
+      ) {
+        original.__csrfRetried = true
+        csrfToken = null
+        return api.request(original)
+      }
+
+      if (
         failure.response?.status !== 401 ||
         original.__retried ||
         original.url === wire.refreshPath ||
@@ -89,9 +156,7 @@ export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): 
       if (!refreshPending) {
         // 동시 401은 같은 Refresh 응답을 기다려 토큰 회전을 한 번만 수행한다.
         refreshPending = api
-          .post(wire.refreshPath, undefined, {
-            // API 담당자가 갱신 요청과 응답을 완성한다.
-          })
+          .post(wire.refreshPath)
           .then((response) => {
             const token = wire.readAccessToken(response)
             if (!token) throw new Error("Refresh returned no access token")
@@ -99,7 +164,9 @@ export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): 
             return token
           })
           .catch((cause) => {
+            // 무한 재시도하지 않고 인증을 해제한 뒤 화면에 알린다(5-3-3).
             accessSession.clear()
+            authLostListener?.()
             throw cause
           })
           .finally(() => {
@@ -113,5 +180,3 @@ export function attachAuthSecurity(api: AxiosInstance, wire: AuthWireContract): 
     },
   )
 }
-
-/** 요청별 접속 종료에서 AbortController를 취소한다. SSE는 별도 fetch 구현에서 처리. */

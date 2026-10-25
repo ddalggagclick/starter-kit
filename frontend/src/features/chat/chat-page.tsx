@@ -161,8 +161,7 @@ function WithheldBubble() {
 }
 
 export function ChatPage() {
-  const email = useAuthStore((s) => s.email)
-  const isGuest = email === null
+  const isGuest = useAuthStore((s) => s.accountId === null)
   const {
     externalNoticeAcknowledged,
     acknowledgeExternalNotice,
