@@ -163,14 +163,50 @@ describe("AI 대화 저장", () => {
     expect(messages.ok && messages.value.map((m) => m.id)).toEqual(["m1"])
   })
 
-  it("같은 대화 ID로 다른 계정의 대화를 덮어쓰지 않는다", async () => {
+  it("두 계정이 같은 대화 ID를 써도 각자의 대화로 따로 저장된다", async () => {
     await saveConversation(db, conversation("c1", ACCOUNT_A))
 
     expect(await saveConversation(db, conversation("c1", ACCOUNT_B))).toEqual({
-      ok: false,
-      reason: "not-found",
+      ok: true,
+      value: undefined,
     })
-    expect((await db.conversations.get("c1"))?.namespace).toBe(ACCOUNT_A)
+    expect(await db.conversations.get([ACCOUNT_A, "c1"])).toEqual(conversation("c1", ACCOUNT_A))
+    expect(await db.conversations.get([ACCOUNT_B, "c1"])).toEqual(conversation("c1", ACCOUNT_B))
+  })
+
+  it("두 계정이 같은 메시지 ID를 써도 서로의 메시지를 덮어쓰지 않는다", async () => {
+    await saveConversation(db, conversation("a1", ACCOUNT_A))
+    await saveConversation(db, conversation("b1", ACCOUNT_B))
+
+    await addMessage(db, message("m1", "a1", ACCOUNT_A, 1))
+    await addMessage(db, message("m1", "b1", ACCOUNT_B, 2))
+
+    const messagesA = await loadMessages(db, ACCOUNT_A, "a1")
+    const messagesB = await loadMessages(db, ACCOUNT_B, "b1")
+    expect(messagesA.ok && messagesA.value.map((m) => m.namespace)).toEqual([ACCOUNT_A])
+    expect(messagesB.ok && messagesB.value.map((m) => m.namespace)).toEqual([ACCOUNT_B])
+  })
+
+  it("두 계정이 같은 대화 ID로 동시에 저장해도 둘 다 남는다", async () => {
+    const results = await Promise.all([
+      saveConversation(db, conversation("c1", ACCOUNT_A)),
+      saveConversation(db, conversation("c1", ACCOUNT_B)),
+    ])
+
+    expect(results.every((result) => result.ok)).toBe(true)
+    expect((await listConversations(db, ACCOUNT_A)).ok).toBe(true)
+    expect(await db.conversations.count()).toBe(2)
+  })
+
+  it("오래된 메시지가 늦게 저장돼도 대화의 updatedAt은 과거로 돌아가지 않는다", async () => {
+    await saveConversation(db, conversation("c1", GUEST_NAMESPACE, 10))
+    await saveConversation(db, conversation("c2", GUEST_NAMESPACE, 20))
+    await addMessage(db, message("m2", "c1", GUEST_NAMESPACE, 50))
+    await addMessage(db, message("m1", "c1", GUEST_NAMESPACE, 5))
+
+    expect((await db.conversations.get([GUEST_NAMESPACE, "c1"]))?.updatedAt).toBe(50)
+    const list = await listConversations(db, GUEST_NAMESPACE)
+    expect(list.ok && list.value.map((c) => c.id)).toEqual(["c1", "c2"])
   })
 
   it("대화 하나를 지우면 그 대화의 메시지만 함께 지워진다", async () => {

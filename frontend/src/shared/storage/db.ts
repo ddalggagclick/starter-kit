@@ -43,7 +43,8 @@ export type ConversationRecord = {
   updatedAt: number
 }
 
-// 서버가 검증해 보낸 출처만 저장한다. URL을 만들거나 고치지 않는다.
+// 이 모듈은 출처를 검증하지 않고 받은 그대로 저장한다.
+// 호출하는 쪽에서 서버가 검증해 보낸 출처(SseResultEvent.sources)만 넘겨야 한다. URL을 만들거나 고치지 않는다.
 export type StoredSource = { title: string; url: string }
 
 export type MessageRecord = {
@@ -62,10 +63,13 @@ export type StorageResult<T> = { ok: true; value: T } | { ok: false; reason: Sto
 
 export const INHERITANCE_DB_NAME = "inheritance-guide"
 
+// 대화·메시지 기본 키에 namespace를 넣어, 다른 계정이 같은 ID를 써도 서로 다른 레코드가 되게 한다.
+type NamespacedKey = [StorageNamespace, string]
+
 export class InheritanceDb extends Dexie {
   checklists!: Table<ChecklistRecord, StorageNamespace>
-  conversations!: Table<ConversationRecord, string>
-  messages!: Table<MessageRecord, string>
+  conversations!: Table<ConversationRecord, NamespacedKey>
+  messages!: Table<MessageRecord, NamespacedKey>
 
   // options는 테스트에서 fake-indexeddb를 주입할 때만 쓴다.
   constructor(name: string = INHERITANCE_DB_NAME, options?: DexieOptions) {
@@ -73,8 +77,8 @@ export class InheritanceDb extends Dexie {
     // 스키마를 바꾸면 기존 사용자 기록 보존을 위해 version(2)를 추가하고 upgrade를 작성한다.
     this.version(1).stores({
       checklists: "namespace",
-      conversations: "id, namespace, [namespace+updatedAt]",
-      messages: "id, conversationId, namespace, [namespace+conversationId]",
+      conversations: "[namespace+id], namespace, [namespace+updatedAt]",
+      messages: "[namespace+id], namespace, [namespace+conversationId]",
     })
   }
 }
@@ -112,8 +116,7 @@ const attempt = async <T>(operation: () => Promise<T>): Promise<StorageResult<T>
   }
 }
 
-// 대상이 없거나 다른 namespace 소유이면 false를 돌려받아 "not-found"로 알린다.
-// 어느 쪽인지 구분하지 않아 다른 계정 기록의 존재를 드러내지 않는다.
+// 이 namespace에 대상 대화가 없으면 false를 돌려받아 "not-found"로 알린다.
 const attemptOwned = async (operation: () => Promise<boolean>): Promise<StorageResult<void>> => {
   const result = await attempt(operation)
   if (!result.ok) return result
@@ -153,25 +156,27 @@ export const saveConversation = (
   db: InheritanceDb,
   conversation: ConversationRecord,
 ): Promise<StorageResult<void>> =>
-  attemptOwned(async () => {
-    const existing = await db.conversations.get(conversation.id)
-    // 같은 ID라도 다른 namespace의 대화를 덮어쓰지 않는다.
-    if (existing && existing.namespace !== conversation.namespace) return false
+  // 키가 [namespace+id]라 조회 없이 저장해도 다른 계정 대화에 닿지 않는다. 동시 저장에도 서로 덮어쓰지 않는다.
+  attempt(async () => {
     await db.conversations.put(conversation)
-    return true
   })
 
-// 메시지 저장과 대화 updatedAt 갱신을 한 트랜잭션으로 묶어 목록 순서가 어긋나지 않게 한다.
+// 대화 존재 확인, 메시지 저장, 대화 updatedAt 갱신을 한 트랜잭션으로 묶는다.
+// 확인과 저장 사이에 대화가 지워져 주인 없는 메시지가 남는 일을 막는다.
 export const addMessage = (
   db: InheritanceDb,
   message: MessageRecord,
 ): Promise<StorageResult<void>> =>
   attemptOwned(() =>
     db.transaction("rw", db.conversations, db.messages, async () => {
-      const conversation = await db.conversations.get(message.conversationId)
-      if (!conversation || conversation.namespace !== message.namespace) return false
+      const key: NamespacedKey = [message.namespace, message.conversationId]
+      const conversation = await db.conversations.get(key)
+      if (!conversation) return false
       await db.messages.put(message)
-      await db.conversations.update(conversation.id, { updatedAt: message.createdAt })
+      // 오래된 메시지가 늦게 저장돼도 목록 순서(최신순)가 과거로 돌아가지 않게 한다.
+      await db.conversations.update(key, {
+        updatedAt: Math.max(conversation.updatedAt, message.createdAt),
+      })
       return true
     }),
   )
@@ -208,13 +213,13 @@ export const deleteConversation = (
 ): Promise<StorageResult<void>> =>
   attemptOwned(() =>
     db.transaction("rw", db.conversations, db.messages, async () => {
-      const conversation = await db.conversations.get(conversationId)
-      if (!conversation || conversation.namespace !== namespace) return false
+      const key: NamespacedKey = [namespace, conversationId]
+      if (!(await db.conversations.get(key))) return false
       await db.messages
         .where("[namespace+conversationId]")
         .equals([namespace, conversationId])
         .delete()
-      await db.conversations.delete(conversationId)
+      await db.conversations.delete(key)
       return true
     }),
   )
