@@ -240,10 +240,13 @@ describe("/account/delete (5-4-1, 5-4-3)", () => {
       await screen.findByText(/이 기기에 저장된 기록\(체크리스트·AI 대화\)을 지우지 못했습니다/),
     ).toBeTruthy()
     expect(screen.queryByText(/탈퇴했습니다/)).toBeNull()
+    // 이 기기 기록을 지우기 전에는 로그아웃하지 않는다(재시도가 그 계정 흐름에 묶여 있어야 함).
+    expect(useAuthStore.getState().accountId).toBe(ACCOUNT.accountId)
 
     vi.restoreAllMocks()
     fireEvent.click(screen.getByRole("button", { name: "이 기기 기록 다시 삭제" }))
     expect(await screen.findByText(/탈퇴했습니다/)).toBeTruthy()
+    expect(useAuthStore.getState().accountId).toBeNull()
     expect(await loadChecklist(inheritanceDb, NAMESPACE)).toEqual({ ok: true, value: null })
   })
 })

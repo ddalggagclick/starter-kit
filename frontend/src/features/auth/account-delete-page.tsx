@@ -3,7 +3,8 @@
  * PRD: E5 / 태스크 5-4-1, 5-4-3. 계약: A16 DELETE /api/account {password} (x-confirmed: true, 경로 제안).
  *   성공 응답 본문 모양은 openapi에 없다(계약 없음) — 200 상태만 성공으로 본다.
  * 구현: 비밀번호 재확인과 확인 체크 후 요청한다. ① 서버 삭제 성공 확인 → ② 이 기기의 그 계정 기록(체크리스트·대화·동의) 삭제
- *   → ③ 로그아웃. ②가 실패하면 '완료'라고 하지 않고 남은 기록을 알린 뒤 재시도를 제공한다.
+ *   → ③ 로그아웃. ②가 실패하면 로그아웃하지 않고 '완료'라고 하지도 않는다. 남은 기록을 알린 뒤 재시도를 제공하고,
+ *   재시도로 ②가 성공해야 ③을 한다(재시도가 같은 계정 흐름에 묶이도록).
  * 제한사항: 다른 기기의 기록과 서버 백업은 즉시 지워졌다고 보장하지 않는다(정책 T15·T16). 비밀번호를 저장하지 않는다.
  */
 import { type FormEvent, useId, useState } from "react"
@@ -36,9 +37,17 @@ export function AccountDeletePage() {
   const [phase, setPhase] = useState<Phase>({ kind: "form" })
   const confirmId = useId()
 
-  const finishLocal = async (namespace: StorageNamespace) => {
+  // ② 이 기기 기록 삭제 → 성공했을 때만 ③ 로그아웃. 결과(성공 여부)를 돌려준다.
+  const finishLocal = async (namespace: StorageNamespace): Promise<boolean> => {
     const result = await deleteAllNamespaceData(inheritanceDb, namespace)
-    setPhase(result.ok ? { kind: "done" } : { kind: "local-failed", namespace })
+    if (!result.ok) {
+      setPhase({ kind: "local-failed", namespace })
+      return false
+    }
+    void logoutRequest()
+    signOut()
+    setPhase({ kind: "done" })
+    return true
   }
 
   async function onSubmit(event: FormEvent) {
@@ -61,10 +70,8 @@ export function AccountDeletePage() {
       setPassword("")
       return
     }
-    // 서버 계정 삭제가 확인된 뒤에만 이 기기 기록을 지우고 로그아웃한다.
+    // 서버 계정 삭제가 확인된 뒤에만 이 기기 기록을 지운다. 로그아웃은 finishLocal이 삭제 성공 후에 한다.
     await finishLocal(namespace)
-    void logoutRequest()
-    signOut()
     setBusy(false)
     setPassword("")
   }
