@@ -131,25 +131,44 @@ export const saveChecklistWithConsent = (
 // 대화 생성과 메시지 추가를 한 번에 처리한다. 대화 동의가 없으면 not-consented.
 // 메시지의 대화가 이 namespace에 없으면 not-found이며, 같은 호출에서 먼저 저장한 대화·메시지도 되돌린다.
 // sources는 서버가 검증해 보낸 값(SseResultEvent.sources)만 넘긴다. 이 함수는 출처를 검증하지 않는다.
+export type ChatWriteInput = { conversation?: NewConversation; messages?: NewMessage[] }
+
+// 트랜잭션 안에서만 호출한다. 실패는 예외로 던져 앞선 쓰기까지 되돌린다.
+const writeChat = async (db: InheritanceDb, namespace: StorageNamespace, input: ChatWriteInput) => {
+  // 입력에 namespace가 섞여 들어와도 동의를 확인한 값으로 덮어쓰도록 마지막에 둔다.
+  if (input.conversation) await db.conversations.put({ ...input.conversation, namespace })
+  for (const message of input.messages ?? []) {
+    const key: [StorageNamespace, string] = [namespace, message.conversationId]
+    const conversation = await db.conversations.get(key)
+    if (!conversation) throw new StorageAbortError("not-found")
+    await db.messages.put({ ...message, namespace })
+    // 오래된 메시지가 늦게 저장돼도 목록 순서(최신순)가 과거로 돌아가지 않게 한다.
+    await db.conversations.update(key, {
+      updatedAt: Math.max(conversation.updatedAt, message.createdAt),
+    })
+  }
+}
+
 export const saveChatWithConsent = (
   db: InheritanceDb,
   namespace: StorageNamespace,
-  input: { conversation?: NewConversation; messages?: NewMessage[] },
+  input: ChatWriteInput,
 ): Promise<StorageResult<void>> =>
-  writeInConsentedScope(db, namespace, "chat", async () => {
-    // 입력에 namespace가 섞여 들어와도 동의를 확인한 값으로 덮어쓰도록 마지막에 둔다.
-    if (input.conversation) await db.conversations.put({ ...input.conversation, namespace })
-    for (const message of input.messages ?? []) {
-      const key: [StorageNamespace, string] = [namespace, message.conversationId]
-      const conversation = await db.conversations.get(key)
-      if (!conversation) throw new StorageAbortError("not-found")
-      await db.messages.put({ ...message, namespace })
-      // 오래된 메시지가 늦게 저장돼도 목록 순서(최신순)가 과거로 돌아가지 않게 한다.
-      await db.conversations.update(key, {
-        updatedAt: Math.max(conversation.updatedAt, message.createdAt),
-      })
-    }
-  })
+  writeInConsentedScope(db, namespace, "chat", () => writeChat(db, namespace, input))
+
+// AI 대화 동의 기록과 지금 화면의 대화 저장을 한 트랜잭션으로 처리한다.
+// 저장이 실패하면 동의도 남기지 않아, 다음 접속 때 '동의는 있는데 대화는 없는' 상태로 '저장 중'을 표시하지 않는다.
+export const grantChatConsentWithConversation = (
+  db: InheritanceDb,
+  namespace: StorageNamespace,
+  input: ChatWriteInput | null,
+): Promise<StorageResult<void>> =>
+  attemptStorage(() =>
+    db.transaction("rw", [db.consents, db.conversations, db.messages], async () => {
+      await db.consents.put({ namespace, scope: "chat", grantedAt: Date.now() })
+      if (input) await writeChat(db, namespace, input)
+    }),
+  )
 
 // [체크리스트 삭제]·[대화 기록 삭제]: 데이터만 지우고 동의는 유지한다(4-3-2).
 export const deleteScopeData = (
