@@ -273,11 +273,20 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
         "429":
-          description: RATE_LIMITED(비로그인 하루 10회) 또는 PROVIDER_RATE_LIMIT(공급자 한도). 스트림 시작 전이면 HTTP 상태, 시작 후면 error 이벤트
+          description:
+            "스트림 시작 전 HTTP 429. code로 구분하고, RATE_LIMITED는 message에 사유 키(RateLimitReason)가 온다(3-7-3).
+
+            - RATE_LIMITED + GUEST_DAILY_LIMIT: 비로그인 하루 10회 초과(#138)
+
+            - RATE_LIMITED + MEMBER_MINUTE_LIMIT: 로그인 사용자 1분 10회 초과(#143)
+
+            - PROVIDER_RATE_LIMIT: 공급자 한도(S9). 스트림 시작 후에는 error 이벤트로 온다
+
+            message는 화면 문구가 아니라 사유 구분 키다."
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/RateLimitError"
         "503":
           description: PROVIDER_UNAVAILABLE (D2 확정)
           content:
@@ -720,6 +729,32 @@ components:
           description: core/errors.py 코드
         message:
           type: string
+        requestId:
+          type: string
+    RateLimitReason:
+      type: string
+      description: 429 RATE_LIMITED의 message 값(사유 구분 키, 화면 문구 아님). GUEST_DAILY_LIMIT=비로그인 하루 10회(#138), MEMBER_MINUTE_LIMIT=로그인 사용자 1분 10회(#143)
+      enum:
+        - GUEST_DAILY_LIMIT
+        - MEMBER_MINUTE_LIMIT
+    RateLimitError:
+      type: object
+      description: A08 429 본문. code가 RATE_LIMITED면 message는 RateLimitReason, PROVIDER_RATE_LIMIT면 코드 이름
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - RATE_LIMITED
+            - PROVIDER_RATE_LIMIT
+        message:
+          anyOf:
+            - $ref: "#/components/schemas/RateLimitReason"
+            - type: string
+              enum:
+                - PROVIDER_RATE_LIMIT
         requestId:
           type: string
     Relationship:
