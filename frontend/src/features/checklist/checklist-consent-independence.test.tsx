@@ -32,7 +32,10 @@ const SPOUSE: InitialAnswers = {
 
 let local: ChecklistPersistence
 let sync: ServerChecklistSync
-let api: ServerChecklistApi & { save: ReturnType<typeof vi.fn> }
+let api: ServerChecklistApi & {
+  save: ReturnType<typeof vi.fn>
+  remove: ReturnType<typeof vi.fn>
+}
 
 beforeEach(async () => {
   await inheritanceDb.delete()
@@ -108,6 +111,9 @@ describe("이 기기 저장 동의와 서버 저장 동의의 독립 (4-6-1)", (
     await act(async () => {
       expect(await revokeServerSave(ACCOUNT)).toBe(true)
     })
+    // 철회가 실제로 서버 삭제(A17 DELETE)까지 갔는지 확인한다(리뷰 반영). 서버 띠는 다시 동의를 묻는다.
+    expect(api.remove).toHaveBeenCalledTimes(1)
+    expect(within(serverBand()).getByRole("button", { name: "서버에 저장" })).toBeTruthy()
 
     expect(screen.getByText(/이 기기에 저장 중/)).toBeTruthy()
     expect((await loadConsentStatuses(inheritanceDb, NAMESPACE)).checklist).toBe("ready")
