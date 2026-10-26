@@ -12,7 +12,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from inheritance.checklist.procedures import PROCEDURE_DETAILS, PROCEDURE_SUMMARIES
-from inheritance.checklist.rules import PROCEDURE_ORDER, PROCEDURE_TITLES
+from inheritance.checklist.rules import CONTENT_VERSION, PROCEDURE_ORDER, PROCEDURE_TITLES
+from inheritance.checklist.service import RuleChecklistService
+from inheritance.contracts.checklist import GuidanceInput
+from inheritance.contracts.domain import InitialAnswers
 from inheritance.main import create_app
 
 FRONTEND_MOCK = Path(__file__).resolve().parents[1] / "frontend" / "src" / "mocks" / "procedures.ts"
@@ -28,6 +31,7 @@ DETAIL_KEYS = {
     "contacts",
     "officialLinks",
     "relatedProcedureIds",
+    "contentVersion",
 }
 
 
@@ -44,6 +48,7 @@ def test_list_returns_eight_procedures_in_fixed_order(client):
     assert [p["procedureId"] for p in procedures] == list(PROCEDURE_ORDER)
     assert [p["name"] for p in procedures] == [PROCEDURE_TITLES[pid] for pid in PROCEDURE_ORDER]
     assert all(set(p) == {"procedureId", "name", "summary"} and p["summary"] for p in procedures)
+    assert response.json()["contentVersion"] == CONTENT_VERSION
 
 
 @pytest.mark.parametrize("procedure_id", PROCEDURE_ORDER)
@@ -78,3 +83,50 @@ def test_static_data_matches_frontend_mock_text():
         texts += [part for link in detail.official_links for part in (link.title, link.url)]
     missing = [text for text in texts if json.dumps(text, ensure_ascii=False) not in source]
     assert missing == []
+
+
+# ---- 2-2-2: 카카오(체크리스트 규칙)와 웹(A07)이 같은 콘텐츠 버전·8개 절차·공식 출처를 쓴다 ----------
+
+
+def _kakao_guidance():
+    initial = InitialAnswers(
+        relationship="spouse",
+        death_date=None,
+        death_date_unknown=True,
+        one_stop_application="unknown",
+    )
+    return RuleChecklistService().build_guidance(GuidanceInput(initial))
+
+
+def test_kakao_and_web_share_content_version_and_procedures(client):
+    kakao = _kakao_guidance()
+    web_list = client.get("/api/procedures").json()
+    assert web_list["contentVersion"] == kakao.content_version == CONTENT_VERSION
+    assert [p["procedureId"] for p in web_list["procedures"]] == [
+        g.procedure_id for g in kakao.guidance
+    ]
+    assert [p["name"] for p in web_list["procedures"]] == [g.title for g in kakao.guidance]
+    for procedure_id in PROCEDURE_ORDER:
+        detail = client.get(f"/api/procedures/{procedure_id}").json()
+        assert detail["contentVersion"] == kakao.content_version
+
+
+# 연결할 공식 안내 페이지가 없다고 팀이 확인한 절차(W-04 원고·F05 "공식 링크에서 직접 확인").
+# 확인되지 않은 링크를 지어내지 않는다. 출처가 확정되면 이 목록에서 빼고 링크를 넣는다(PRD 1-3-2).
+KNOWN_SOURCE_GAPS = {"p02"}
+
+
+def test_every_procedure_has_official_https_source_on_kakao_or_web(client):
+    kakao = {g.procedure_id: g for g in _kakao_guidance().guidance}
+    without_source = set()
+    for procedure_id in PROCEDURE_ORDER:
+        web_links = client.get(f"/api/procedures/{procedure_id}").json()["officialLinks"]
+        fallback = kakao[procedure_id].fallback
+        kakao_links = list(fallback.links) if fallback else []
+        urls = [link["url"] for link in web_links] + [link.url for link in kakao_links]
+        if not urls:
+            without_source.add(procedure_id)
+        assert all(url.startswith("https://") for url in urls)
+        assert all(link.browser_checked for link in kakao_links)
+    # 알려진 빈칸만 허용한다. 다른 절차의 출처가 사라지면 실패한다.
+    assert without_source == KNOWN_SOURCE_GAPS
