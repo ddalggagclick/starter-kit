@@ -16,9 +16,9 @@ from pydantic.alias_generators import to_camel
 from inheritance.auth.router import user_id_from_bearer
 from inheritance.auth.service import AuthService
 from inheritance.checklist.server_storage import (
-    InMemoryServerChecklistStore,
     InvalidItemStates,
     SavedChecklist,
+    ServerChecklistStore,
     validate_item_states,
 )
 from inheritance.core.errors import HTTP_STATUS, ErrorCode
@@ -41,7 +41,7 @@ def _body(saved: SavedChecklist) -> dict[str, Any]:
 
 
 def create_server_checklist_router(
-    store: InMemoryServerChecklistStore, auth: AuthService, security: WebSecuritySettings
+    store: ServerChecklistStore, auth: AuthService, security: WebSecuritySettings
 ) -> APIRouter:
     router = APIRouter(prefix="/api/me/checklist", tags=["account"])
 

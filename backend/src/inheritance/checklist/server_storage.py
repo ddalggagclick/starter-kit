@@ -15,6 +15,9 @@ from __future__ import annotations
 import json
 import threading
 from dataclasses import dataclass
+from typing import Protocol
+
+from sqlalchemy import Engine, text
 
 MAX_ITEMS = 20
 MAX_BYTES = 64 * 1024
@@ -64,3 +67,43 @@ class InMemoryServerChecklistStore:
     def delete(self, user_id: str) -> None:
         with self._lock:
             self._items.pop(user_id, None)
+
+
+# 메모리 저장소와 DB 저장소가 같은 메서드를 가진다.
+class ServerChecklistStore(Protocol):
+    def get(self, user_id: str) -> SavedChecklist | None: ...
+    def put(self, user_id: str, item_states: tuple[dict, ...]) -> SavedChecklist: ...
+    def delete(self, user_id: str) -> None: ...
+
+
+class PostgresServerChecklistStore:
+    """app.server_checklists. 계정당 한 행, itemStates는 JSONB로 통째 저장(전체 덮어쓰기)."""
+
+    def __init__(self, engine: Engine, schema: str = "app") -> None:
+        self._engine = engine
+        self._s = schema
+
+    def get(self, user_id: str) -> SavedChecklist | None:
+        sql = text(f"SELECT item_states FROM {self._s}.server_checklists WHERE user_id = :id")
+        with self._engine.connect() as conn:
+            row = conn.execute(sql, {"id": user_id}).first()
+        return SavedChecklist(tuple(row.item_states)) if row else None
+
+    def put(self, user_id: str, item_states: tuple[dict, ...]) -> SavedChecklist:
+        sql = text(
+            f"INSERT INTO {self._s}.server_checklists (user_id, item_states, updated_at) "
+            "VALUES (:id, CAST(:items AS jsonb), now()) "
+            "ON CONFLICT (user_id) DO UPDATE SET item_states = EXCLUDED.item_states, "
+            "updated_at = now()"
+        )
+        payload = json.dumps(list(item_states), ensure_ascii=False)
+        with self._engine.begin() as conn:
+            conn.execute(sql, {"id": user_id, "items": payload})
+        return SavedChecklist(item_states)
+
+    def delete(self, user_id: str) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                text(f"DELETE FROM {self._s}.server_checklists WHERE user_id = :id"),
+                {"id": user_id},
+            )
