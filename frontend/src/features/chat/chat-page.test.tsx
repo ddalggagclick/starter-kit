@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { useAuthStore } from "@/features/auth/auth-store"
+import { WITHHELD_COPY } from "@/mocks/ai-stream"
 import { ChatPage, inputErrorMessage, MAX_MANUAL_RETRIES, Sources } from "./chat-page"
 import { useChatSessionStore } from "./chat-store"
 
@@ -157,4 +158,79 @@ describe("W-07 비로그인 하루 한도 (3-7-1)", () => {
 
     expect(screen.queryByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")).toBeNull()
   })
+})
+
+describe("S6·S7·S9 안내 구분 (7-2-2)", () => {
+  const STREAM_WAIT = { timeout: 5000 }
+  const LIMIT_TITLE = "오늘 사용할 수 있는 AI 질문을 모두 사용했습니다."
+  const STATIC_INFO = /체크리스트와 절차 안내는 그대로 이용할 수 있습니다/
+
+  const askWith = (scenario: string) => {
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: scenario } })
+    fireEvent.change(screen.getByLabelText("질문"), { target: { value: "상속포기 기한" } })
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }))
+  }
+
+  it("S6 기술 오류는 질문이 남아 있다고 알리고 [다시 시도]를 준다", async () => {
+    renderChat()
+    askWith("providerUnavailable")
+
+    expect(await screen.findByText("일시적인 문제로 답변하지 못했습니다.")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy()
+    expect(screen.queryByText(WITHHELD_COPY.message)).toBeNull()
+  })
+
+  it("S7 판단 유보는 [다시 시도]를 권하지 않고 공식 확인 경로를 안내한다", async () => {
+    renderChat()
+    askWith("withheld")
+
+    expect(await screen.findByText(WITHHELD_COPY.message, undefined, STREAM_WAIT)).toBeTruthy()
+    // 링크 이름 끝에 화면낭독기용 "(새 창)"이 붙는다.
+    const official = screen.getByRole("link", { name: new RegExp(`^${WITHHELD_COPY.link.title}`) })
+    expect(official.getAttribute("href")).toBe(WITHHELD_COPY.link.url)
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull()
+    expect(screen.queryByText("일시적인 문제로 답변하지 못했습니다.")).toBeNull()
+  }, 10_000)
+
+  it("남은 횟수를 모를 때(실제 A08) 서버 429를 받으면 S9와 로그인·회원가입 진입, 정적 안내 유지를 보인다", async () => {
+    useChatSessionStore.setState({ guestRemaining: null })
+    renderChat()
+    askWith("guestLimit")
+
+    const notice = (await screen.findByText(LIMIT_TITLE)).closest("[role=status]") as HTMLElement
+    expect(within(notice).getByRole("link", { name: "로그인" })).toBeTruthy()
+    expect(within(notice).getByRole("link", { name: "회원가입" })).toBeTruthy()
+    expect(within(notice).getByText(STATIC_INFO)).toBeTruthy()
+    // 대화 안에는 한 줄만 남기고 같은 안내·버튼을 두 번 보이지 않는다(9번 통합 검증 회귀).
+    expect(screen.getAllByText(LIMIT_TITLE)).toHaveLength(1)
+    expect(screen.getAllByRole("link", { name: "회원가입" })).toHaveLength(1)
+    const conversation = screen.getByRole("region", { name: "대화" })
+    expect(within(conversation).getByText(/모두 사용해 답변하지 않았습니다/)).toBeTruthy()
+  })
+
+  it("로그인 사용자의 S9는 내일 다시 이용을 안내하고 정적 안내 유지를 알린다", async () => {
+    useAuthStore
+      .getState()
+      .signIn({ accountId: "mock:demo@example.com", email: "demo@example.com" })
+    renderChat()
+    askWith("guestLimit")
+
+    const notice = (await screen.findByText(LIMIT_TITLE)).closest("[role=status]") as HTMLElement
+    expect(within(notice).getByText(/내일 다시 이용해 주세요/)).toBeTruthy()
+    expect(within(notice).getByText(STATIC_INFO)).toBeTruthy()
+    expect(within(notice).queryByRole("link", { name: "로그인" })).toBeNull()
+  })
+
+  it("공급자 제한(S9)도 AI만 멈추고 정적 안내는 계속 쓸 수 있다고 알린다", async () => {
+    renderChat()
+    askWith("providerRateLimit")
+
+    const title = await screen.findByText(
+      "지금은 AI 질문이 많아 답변하지 못했습니다.",
+      undefined,
+      STREAM_WAIT,
+    )
+    const notice = title.closest("[role=status]") as HTMLElement
+    expect(within(notice).getByText(STATIC_INFO)).toBeTruthy()
+  }, 10_000)
 })

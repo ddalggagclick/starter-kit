@@ -94,3 +94,44 @@ describe("useChatStream", () => {
     expect(result.current.running).toBe(false)
   })
 })
+
+describe("S7 사유 코드 (7-2-2)", () => {
+  // Backend는 근거 확인 실패를 오류가 아니라 200 result(state=withheld, reasonCode)로 보낸다(openapi SseResultEvent).
+  const resultTransport =
+    (result: object): ChatTransport =>
+    async () =>
+      new Response(streamOf([`event: result\ndata: ${JSON.stringify(result)}\n\n`]), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })
+
+  it.each(["SOURCE_NOT_VERIFIED", "CITATION_MISMATCH"])(
+    "%s는 기술 오류(S6)가 아니라 판단 유보(S7)다",
+    async (reasonCode) => {
+      const { result } = renderHook(() =>
+        useChatStream(
+          resultTransport({ state: "withheld", answer: null, sources: [], reasonCode }),
+        ),
+      )
+      await act(async () => {
+        expect(await result.current.ask("질문", [])).toMatchObject({ kind: "withheld" })
+      })
+    },
+  )
+
+  it("withheld에 본문·출처가 함께 와도 답변(S3)으로 보지 않는다", async () => {
+    const { result } = renderHook(() =>
+      useChatStream(
+        resultTransport({
+          state: "withheld",
+          answer: "검증되지 않은 본문",
+          sources: [{ title: "출처", url: "https://example.com" }],
+          reasonCode: "CITATION_MISMATCH",
+        }),
+      ),
+    )
+    await act(async () => {
+      expect(await result.current.ask("질문", [])).toMatchObject({ kind: "withheld" })
+    })
+  })
+})

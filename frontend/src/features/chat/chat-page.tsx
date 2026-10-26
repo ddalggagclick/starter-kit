@@ -150,6 +150,9 @@ function RetryButton({
   )
 }
 
+// S9(사용 제한)일 때 AI만 멈추고 정적 안내는 계속 쓸 수 있음을 모든 제한 안내에 붙인다(7-2-2, 3-7-1).
+export const STATIC_INFO_NOTE = "체크리스트와 절차 안내는 그대로 이용할 수 있습니다."
+
 // S9 하루 질문 한도 안내. 429를 받았을 때와, 남은 횟수가 0이 된 순간(다음 질문 전) 모두 같은 안내를 쓴다(3-7-1, 5-6-2).
 function GuestLimitNotice({ isGuest }: { isGuest: boolean }) {
   const location = useLocation()
@@ -158,9 +161,7 @@ function GuestLimitNotice({ isGuest }: { isGuest: boolean }) {
       <p className="font-semibold">오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.</p>
       {isGuest ? (
         <>
-          <p>
-            로그인하면 계속 질문할 수 있습니다. 체크리스트와 절차 안내는 그대로 이용할 수 있습니다.
-          </p>
+          <p>로그인하면 계속 질문할 수 있습니다. {STATIC_INFO_NOTE}</p>
           <div className="flex flex-wrap gap-2">
             <Button asChild size="sm">
               <Link to="/login" state={{ from: location.pathname }}>
@@ -173,7 +174,7 @@ function GuestLimitNotice({ isGuest }: { isGuest: boolean }) {
           </div>
         </>
       ) : (
-        <p>내일 다시 이용해 주세요.</p>
+        <p>내일 다시 이용해 주세요. {STATIC_INFO_NOTE}</p>
       )}
     </Notice>
   )
@@ -192,14 +193,23 @@ function FailureBubble({
   canRetry: boolean
   busy: boolean
 }) {
-  // S9 비로그인 하루 제한 (A08 429 RATE_LIMITED)
-  if (failure.code === "RATE_LIMITED") return <GuestLimitNotice isGuest={isGuest} />
+  // S9 하루 제한 (A08 429 RATE_LIMITED). 비로그인은 429를 받으면 남은 횟수가 0이 되어 입력칸 위에 같은 안내
+  // (로그인·회원가입 진입)가 뜬다. 같은 안내·버튼이 두 번 보이고 읽히지 않게 대화 안에는 한 줄만 남긴다(9번 통합 검증에서 발견).
+  if (failure.code === "RATE_LIMITED") {
+    return isGuest ? (
+      <p className="text-sm text-muted-foreground">
+        오늘 사용할 수 있는 AI 질문을 모두 사용해 답변하지 않았습니다.
+      </p>
+    ) : (
+      <GuestLimitNotice isGuest={false} />
+    )
+  }
   // S9 공급자 제한 — 자동 재시도하지 않는다.
   if (failure.code === "PROVIDER_RATE_LIMIT") {
     return (
       <Notice tone="warning" className="space-y-2">
         <p className="font-semibold">지금은 AI 질문이 많아 답변하지 못했습니다.</p>
-        <p>잠시 후 다시 시도해 주세요.</p>
+        <p>잠시 후 다시 시도해 주세요. {STATIC_INFO_NOTE}</p>
         <RetryButton onRetry={onRetry} canRetry={canRetry} busy={busy} />
       </Notice>
     )
