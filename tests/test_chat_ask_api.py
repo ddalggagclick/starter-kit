@@ -16,7 +16,11 @@ from inheritance.auth.jwt import AccessTokenInvalid
 from inheritance.chat import router as chat_router
 from inheritance.chat.services.answer import V1ChatAnswerService
 from inheritance.chat.services.question_router import ModelQuestionRouter
-from inheritance.chat.usage_limit import GuestDailyLimiter
+from inheritance.chat.usage_limit import (
+    GuestDailyLimiter,
+    MemberMinuteLimiter,
+    member_limiter_from_env,
+)
 from inheritance.contracts.chat import AnswerReference
 from inheritance.contracts.law import LawEvidence, LawLookupResult, LawQuery
 from inheritance.core.dependencies import build_chat_service, law_from_env
@@ -342,25 +346,31 @@ def test_guest_eleventh_question_is_rate_limited_before_stream():
     limited = ask(client, "상속 절차와 서류를 알려주세요")
     # Gemini 한도(PROVIDER_RATE_LIMIT)와 다른 코드다.
     assert limited.status_code == 429
-    assert limited.json() == {"code": "RATE_LIMITED", "message": "RATE_LIMITED"}
+    # message는 사유 구분 키(비회원 하루 한도).
+    assert limited.json() == {"code": "RATE_LIMITED", "message": "GUEST_DAILY_LIMIT"}
 
 
-def test_member_is_not_limited_and_gets_null_remaining():
-    class Member:
-        def user_id_from_access(self, token):
-            if token != "good":
-                raise AccessTokenInvalid
-            return "user-1"
+class Member:
+    def user_id_from_access(self, token):
+        if token not in ("good", "other"):
+            raise AccessTokenInvalid
+        return f"user-{token}"
 
+
+def member_ask(client, token="good"):
+    return client.post(
+        "/api/ai/ask",
+        json={"question": "상속 절차와 서류를 알려주세요", "requestId": "req-1"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+
+def test_member_has_no_daily_limit_and_gets_null_remaining():
     client = make_client()
     client.app.state.auth_service = Member()
+    client.app.state.member_limiter = MemberMinuteLimiter(limit=100)
     for _ in range(11):
-        response = client.post(
-            "/api/ai/ask",
-            json={"question": "상속 절차와 서류를 알려주세요", "requestId": "req-1"},
-            headers={"Authorization": "Bearer good"},
-        )
-        assert events(response)[-1][1]["remainingToday"] is None
+        assert events(member_ask(client))[-1][1]["remainingToday"] is None
     # 틀린 토큰은 비회원으로 센다.
     wrong = client.post(
         "/api/ai/ask",
@@ -438,3 +448,32 @@ def test_trusted_proxy_uses_rightmost_forwarded_ip(monkeypatch):
     assert _guest_remaining(client, "9.9.9.9, 203.0.113.1") == 9
     assert _guest_remaining(client, "8.8.8.8, 203.0.113.1") == 8
     assert _guest_remaining(client, "203.0.113.2") == 9
+
+
+def test_member_eleventh_question_in_a_minute_is_rate_limited():
+    # 3-7-3: 회원 1분 10회는 비회원 하루 한도와 다른 사유 키로 알린다. 다른 회원은 따로 센다.
+    client = make_client()
+    client.app.state.auth_service = Member()
+    for _ in range(10):
+        assert member_ask(client).status_code == 200
+    limited = member_ask(client)
+    assert limited.status_code == 429
+    assert limited.json() == {"code": "RATE_LIMITED", "message": "MEMBER_MINUTE_LIMIT"}
+    assert member_ask(client, "other").status_code == 200
+
+
+def test_member_limiter_window_slides():
+    now = [0.0]
+    limiter = MemberMinuteLimiter(limit=2, clock=lambda: now[0])
+    assert [limiter.take("u"), limiter.take("u"), limiter.take("u")] == [True, True, False]
+    now[0] = 60.0
+    assert limiter.take("u") is True
+
+
+def test_member_limit_from_env(monkeypatch):
+    monkeypatch.setenv("CHAT_RATE_LIMIT_PER_MINUTE", "3")
+    limiter = member_limiter_from_env()
+    assert [limiter.take("u") for _ in range(4)] == [True, True, True, False]
+    monkeypatch.setenv("CHAT_RATE_LIMIT_PER_MINUTE", "abc")
+    fallback = member_limiter_from_env()  # 잘못된 값이면 기본 10회
+    assert sum(fallback.take("u") for _ in range(11)) == 10

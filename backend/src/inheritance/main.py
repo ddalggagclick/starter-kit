@@ -17,7 +17,7 @@ from inheritance.auth.db_repository import PostgresAuthRepository
 from inheritance.auth.router import auth_service_from_env, create_auth_router
 from inheritance.chat import router as chat_router
 from inheritance.chat.services.answer import ChatAnswerService
-from inheritance.chat.usage_limit import GuestDailyLimiter
+from inheritance.chat.usage_limit import GuestDailyLimiter, member_limiter_from_env
 from inheritance.checklist import router as checklist_router
 from inheritance.checklist.server_router import create_server_checklist_router
 from inheritance.checklist.server_storage import (
@@ -76,6 +76,8 @@ def create_app(chat_service: ChatAnswerService | None = None) -> FastAPI:
     app.state.auth_service = None
     # A08 비회원 하루 10회 제한(3-7-2). 로그인 사용자는 auth_service로 구분해 제한하지 않는다.
     app.state.guest_limiter = GuestDailyLimiter()
+    # 로그인 사용자 채팅 1분 10회(3-7-3, CHAT_RATE_LIMIT_PER_MINUTE).
+    app.state.member_limiter = member_limiter_from_env()
     # DATABASE_URL이 있으면 계정·A17을 Supabase(app 스키마)에, 없으면 메모리에 저장한다.
     engine = sync_db_engine_from_env()
     app.state.db_engine = engine
