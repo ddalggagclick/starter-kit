@@ -59,6 +59,7 @@ type InheritanceState = {
   setInitialAnswers: (answers: InitialAnswers, source: EntrySource) => void
   applyHandoff: (payload: HandoffPayload) => void
   restoreSaved: (saved: SavedChecklist) => boolean
+  replaceWithSaved: (saved: SavedChecklist) => void
   answerRisk: (riskId: RiskId, answer: AnswerChoice) => void
   clearRisk: (riskId: RiskId) => void
   confirmRisk: (riskId: RiskId) => void
@@ -148,6 +149,22 @@ export const useInheritanceStore = create<InheritanceState>()((set, get) => ({
       procedureStates: { ...initialProcedureStates(), ...saved.procedureStates },
     })
     return true
+  },
+
+  // 사용자가 [서버 기록 불러오기]를 골랐을 때만 쓴다. 지금 화면 답을 저장 기록으로 바꾼다(자동 병합 아님, 4-6-3).
+  // 위험 답변은 [그대로 맞음] 전까지 미확인이다(D-09).
+  replaceWithSaved: (saved) => {
+    if (!saved.answers) return
+    set({
+      answers: saved.answers,
+      entrySource: "restored",
+      riskAnswers: Object.fromEntries(
+        Object.values(saved.riskAnswers)
+          .filter((risk): risk is RiskAnswer => risk !== undefined)
+          .map((risk) => [risk.riskId, { ...risk, confirmed: false }]),
+      ),
+      procedureStates: { ...initialProcedureStates(), ...saved.procedureStates },
+    })
   },
 
   answerRisk: (riskId, answer) =>

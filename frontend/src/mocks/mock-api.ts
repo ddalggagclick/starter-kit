@@ -223,17 +223,23 @@ export const deleteAccount = (password: string, options: CallOptions = {}) =>
     return { account: "deleted", sessions: "deleted", checklist: "not_stored" }
   }, options)
 
-// ── A17 서버 체크리스트 (x-status: 제안) ───────────────────────────
-let serverChecklist: ChecklistSaved | null = null
+// ── A17 서버 체크리스트 (x-confirmed: false, 제안) ─────────────────
+// 계정마다 따로 보관한다. accessToken 자리에 계정을 구분하는 값(Mock은 계정 ID)을 받는다.
+const serverChecklists = new Map<string, ChecklistSaved>()
+
+const requireAccount = (accessToken: string | null): string => {
+  if (!accessToken)
+    throw new MockHttpError(401, { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." })
+  return accessToken
+}
 
 export const getMyChecklist = (accessToken: string | null, options: CallOptions = {}) =>
   respond<ChecklistSaved>(() => {
-    if (!accessToken)
-      throw new MockHttpError(401, { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." })
-    if (!serverChecklist?.serverSaveConsent) {
+    const saved = serverChecklists.get(requireAccount(accessToken))
+    if (!saved?.serverSaveConsent) {
       throw new MockHttpError(403, { code: "FORBIDDEN", message: "서버 저장 동의가 없습니다." })
     }
-    return structuredClone(serverChecklist)
+    return structuredClone(saved)
   }, options)
 
 export const putMyChecklist = (
@@ -242,21 +248,18 @@ export const putMyChecklist = (
   options: CallOptions = {},
 ) =>
   respond<ChecklistSaved>(() => {
-    if (!accessToken)
-      throw new MockHttpError(401, { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." })
+    const account = requireAccount(accessToken)
     if (!body.serverSaveConsent) {
       throw new MockHttpError(403, { code: "FORBIDDEN", message: "서버 저장 동의가 없습니다." })
     }
-    serverChecklist = structuredClone(body)
-    return structuredClone(serverChecklist)
+    serverChecklists.set(account, structuredClone(body))
+    return structuredClone(body)
   }, options)
 
 // DELETE = 동의 철회 + 서버 체크리스트 삭제
 export const deleteMyChecklist = (accessToken: string | null, options: CallOptions = {}) =>
   respond<{ status: 204 }>(() => {
-    if (!accessToken)
-      throw new MockHttpError(401, { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." })
-    serverChecklist = null
+    serverChecklists.delete(requireAccount(accessToken))
     return { status: 204 }
   }, options)
 
@@ -270,5 +273,5 @@ export const resetMockApiState = () => {
   mockAccount.exists = true
   mockAccount.verified = true
   mockAccount.password = MOCK_ACCOUNT.password
-  serverChecklist = null
+  serverChecklists.clear()
 }

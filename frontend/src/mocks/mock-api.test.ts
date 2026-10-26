@@ -3,7 +3,9 @@ import { createMockAskResponse, type MockAiScenario } from "./ai-stream"
 import { findRiskGuidance } from "./checklist"
 import {
   deleteAccount,
+  deleteMyChecklist,
   exchangeHandoff,
+  getMyChecklist,
   getProcedure,
   listProcedures,
   login,
@@ -12,6 +14,7 @@ import {
   MOCK_VALID_RESET_TOKEN,
   MOCK_VALID_VERIFY_TOKEN,
   MockHttpError,
+  putMyChecklist,
   resetMockApiState,
   resetPassword,
   signup,
@@ -195,5 +198,26 @@ describe("Mock 계정 상태 반영 (리뷰 회귀)", () => {
 
     await expect(deleteAccount(MOCK_ACCOUNT.password, fast)).rejects.toBeInstanceOf(MockHttpError)
     await expect(deleteAccount("changed123", fast)).resolves.toMatchObject({ account: "deleted" })
+  })
+})
+
+describe("A17 Mock 계정별 분리", () => {
+  beforeEach(() => resetMockApiState())
+
+  it("A 계정의 서버 체크리스트는 B 계정에서 조회되지 않고, A 삭제가 B에 영향을 주지 않는다", async () => {
+    await putMyChecklist("user-a", { itemStates: [{ a: 1 }], serverSaveConsent: true }, fast)
+    await putMyChecklist("user-b", { itemStates: [{ b: 1 }], serverSaveConsent: true }, fast)
+
+    await deleteMyChecklist("user-a", fast)
+
+    await expect(getMyChecklist("user-a", fast)).rejects.toMatchObject({ status: 403 })
+    await expect(getMyChecklist("user-b", fast)).resolves.toEqual({
+      itemStates: [{ b: 1 }],
+      serverSaveConsent: true,
+    })
+  })
+
+  it("로그인하지 않으면 401이다", async () => {
+    await expect(getMyChecklist(null, fast)).rejects.toMatchObject({ status: 401 })
   })
 })

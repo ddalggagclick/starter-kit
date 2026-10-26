@@ -30,6 +30,7 @@ import { countGuidance, useInheritanceStore } from "@/shared/state/inheritance-s
 import { ChecklistConsentBand } from "./checklist-consent-band"
 import { ChecklistStorageControls } from "./checklist-storage-controls"
 import { RiskQuestions } from "./risk-questions"
+import { ServerSaveBand } from "./server-save-band"
 
 const labelOf = <T extends string>(options: { value: T; label: string }[], value: T) =>
   options.find((option) => option.value === value)?.label ?? value
@@ -174,6 +175,9 @@ export function ChecklistPage() {
         </Button>
         {/* 삭제·철회 직후 이 화면으로 바뀌어도 결과 안내가 보이고, 답이 없어도 동의를 철회할 수 있다. */}
         <ChecklistStorageControls />
+        {/* 서버 쪽도 같다: 이 기기 기록을 지운 뒤에도 서버 철회·실패 재시도를 할 수 있고(검증 ②),
+            새 기기에서 로그인하면 답이 없어도 서버 기록을 불러올 수 있다(4-6-3, 리뷰 반영). */}
+        <ServerSaveBand />
       </div>
     )
   }
@@ -216,6 +220,7 @@ export function ChecklistPage() {
           <AnswerSummary answers={answers} />
           <ChecklistConsentBand />
           <ChecklistStorageControls />
+          <ServerSaveBand />
         </CardContent>
       </Card>
 
