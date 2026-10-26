@@ -111,9 +111,9 @@ def test_kakao_and_web_share_content_version_and_procedures(client):
         assert detail["contentVersion"] == kakao.content_version
 
 
-# 연결할 공식 안내 페이지가 없다고 팀이 확인한 절차(W-04 원고·F05 "공식 링크에서 직접 확인").
+# 연결할 공식 안내 페이지가 없다고 팀이 확인한 절차. 지금은 없다(p02는 2026-10-26 웹 링크 확인).
 # 확인되지 않은 링크를 지어내지 않는다. 출처가 확정되면 이 목록에서 빼고 링크를 넣는다(PRD 1-3-2).
-KNOWN_SOURCE_GAPS = {"p02"}
+KNOWN_SOURCE_GAPS: set[str] = set()
 
 
 def test_every_procedure_has_official_https_source_on_kakao_or_web(client):

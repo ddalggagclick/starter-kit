@@ -98,7 +98,17 @@ PROCEDURE_DETAILS: MappingProxyType[ProcedureId, ProcedureDetail] = MappingProxy
                 "공식 링크에서 직접 확인",
                 "주민등록표는 접수·처리기관(시군구, 읍면동 출장소)에 문의",
             ),
-            official_links=(),
+            # 2026-10-26 김현주 브라우저 확인(PRD 1-3-2).
+            official_links=(
+                OfficialLink(
+                    title="대법원 전자가족관계등록시스템",
+                    url="https://efamily.scourt.go.kr/",
+                ),
+                OfficialLink(
+                    title="정부24",
+                    url="https://www.gov.kr/",
+                ),
+            ),
             related_procedure_ids=(),
         ),
         "p03": ProcedureDetail(
