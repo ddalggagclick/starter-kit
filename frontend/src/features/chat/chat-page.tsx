@@ -4,6 +4,7 @@
  * 구현: 200 코드 포인트 입력·글자 수, 예시 질문은 입력칸만 채움, 개인정보 경고 상시 표시, 최초 외부 전송 안내,
  *   실제 status 이벤트로 진행 표시, 검증된 답변만 자동 타이핑, 출처 2개 + '추가 출처 보기', 취소,
  *   S6은 질문을 남기고 다시 시도, 비로그인 10회 소진(S9)이면 로그인·회원가입 진입.
+ *   429 RATE_LIMITED는 message로 비로그인 하루 한도와 로그인 사용자 1분 제한을 나눠 안내한다(3-7-3).
  *   VITE_USE_MOCK_API=false면 실제 A08(ask-transport.ts)로 보낸다. 출처 url이 null이면 링크 없이 제목만 보인다.
  *   같은 질문의 [다시 시도]는 최대 3회다(결정 문서 Q47).
  *   AI 대화 저장 동의(S1, 체크리스트와 별도)·이전 대화 목록(S10)·새 대화(S8)·저장 안 된 대화 이탈 확인(S11)
@@ -30,6 +31,7 @@ import {
   WITHHELD_COPY,
 } from "@/mocks/ai-stream"
 import { DELETE_BUTTON_LABELS } from "@/mocks/checklist"
+import { RATE_LIMIT_REASONS } from "@/mocks/wire-types"
 import type { ApiFailure } from "@/shared/api/api-error"
 import { USE_MOCK_API } from "@/shared/api/data-source"
 import type { SseResultEvent } from "@/shared/api/types"
@@ -150,6 +152,17 @@ function RetryButton({
   )
 }
 
+// 429 RATE_LIMITED의 제한 사유. Backend가 message로 구분해 보낸다(#138·#143).
+// 사유를 모르면(사유를 보내지 않는 서버) 로그인 여부로 정한다. 로그인 사용자에게는 하루 한도가 없고 1분 제한만 있다.
+export const rateLimitKind = (
+  failure: ApiFailure,
+  isGuest: boolean,
+): "guestDaily" | "memberMinute" => {
+  if (failure.message === RATE_LIMIT_REASONS.memberMinute) return "memberMinute"
+  if (failure.message === RATE_LIMIT_REASONS.guestDaily) return "guestDaily"
+  return isGuest ? "guestDaily" : "memberMinute"
+}
+
 // S9(사용 제한)일 때 AI만 멈추고 정적 안내는 계속 쓸 수 있음을 모든 제한 안내에 붙인다(7-2-2, 3-7-1).
 export const STATIC_INFO_NOTE = "체크리스트와 절차 안내는 그대로 이용할 수 있습니다."
 
@@ -196,6 +209,18 @@ function FailureBubble({
   // S9 하루 제한 (A08 429 RATE_LIMITED). 비로그인은 429를 받으면 남은 횟수가 0이 되어 입력칸 위에 같은 안내
   // (로그인·회원가입 진입)가 뜬다. 같은 안내·버튼이 두 번 보이고 읽히지 않게 대화 안에는 한 줄만 남긴다(9번 통합 검증에서 발견).
   if (failure.code === "RATE_LIMITED") {
+    // 로그인 사용자 1분 10회 초과(3-7-3). 하루 한도가 아니므로 "내일"을 말하지 않고, 잠시 뒤 직접 다시 시도하게 한다.
+    // 자동 재시도는 하지 않는다. [다시 시도]는 같은 질문 3회 상한(Q47)을 그대로 따른다.
+    if (rateLimitKind(failure, isGuest) === "memberMinute") {
+      return (
+        <Notice tone="warning" className="space-y-2">
+          <p className="font-semibold">짧은 시간에 질문이 많아 잠시 멈췄습니다.</p>
+          <p>1분 정도 지난 뒤 다시 질문해 주세요. {STATIC_INFO_NOTE}</p>
+          <RetryButton onRetry={onRetry} canRetry={canRetry} busy={busy} />
+        </Notice>
+      )
+    }
+    // 하루 한도. 로그인 중인데 이 사유가 오면(토큰이 서버에서 인정되지 않은 경우) 서버 판단대로 하루 한도로 안내한다.
     return isGuest ? (
       <p className="text-sm text-muted-foreground">
         오늘 사용할 수 있는 AI 질문을 모두 사용해 답변하지 않았습니다.
@@ -314,7 +339,13 @@ function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
     if (outcome.kind !== "error" && isGuest) {
       setGuestRemaining(outcome.result.remainingToday ?? null)
     }
-    if (outcome.kind === "error" && outcome.failure.code === "RATE_LIMITED" && isGuest) {
+    // 비로그인 하루 한도일 때만 남은 횟수를 0으로 둔다(1분 제한은 횟수와 무관).
+    if (
+      outcome.kind === "error" &&
+      outcome.failure.code === "RATE_LIMITED" &&
+      isGuest &&
+      rateLimitKind(outcome.failure, isGuest) === "guestDaily"
+    ) {
       setGuestRemaining(0)
     }
     const turn: ChatTurn = { id: Date.now(), question, outcome, retries }

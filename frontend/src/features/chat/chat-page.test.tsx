@@ -6,7 +6,13 @@ import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { useAuthStore } from "@/features/auth/auth-store"
 import { WITHHELD_COPY } from "@/mocks/ai-stream"
-import { ChatPage, inputErrorMessage, MAX_MANUAL_RETRIES, Sources } from "./chat-page"
+import {
+  ChatPage,
+  inputErrorMessage,
+  MAX_MANUAL_RETRIES,
+  rateLimitKind,
+  Sources,
+} from "./chat-page"
 import { useChatSessionStore } from "./chat-store"
 
 const renderChat = () =>
@@ -208,7 +214,7 @@ describe("S6·S7·S9 안내 구분 (7-2-2)", () => {
     expect(within(conversation).getByText(/모두 사용해 답변하지 않았습니다/)).toBeTruthy()
   })
 
-  it("로그인 사용자의 S9는 내일 다시 이용을 안내하고 정적 안내 유지를 알린다", async () => {
+  it("서버가 하루 한도(GUEST_DAILY_LIMIT)를 보내면 로그인 중이어도 하루 한도로 안내한다", async () => {
     useAuthStore
       .getState()
       .signIn({ accountId: "mock:demo@example.com", email: "demo@example.com" })
@@ -233,4 +239,39 @@ describe("S6·S7·S9 안내 구분 (7-2-2)", () => {
     const notice = title.closest("[role=status]") as HTMLElement
     expect(within(notice).getByText(STATIC_INFO)).toBeTruthy()
   }, 10_000)
+})
+
+describe("로그인 사용자 1분 제한 (3-7-3, MEMBER_MINUTE_LIMIT)", () => {
+  const MINUTE_TITLE = "짧은 시간에 질문이 많아 잠시 멈췄습니다."
+
+  it("하루 한도처럼 '내일'을 말하지 않고, 잠시 뒤 다시 질문하도록 [다시 시도]와 정적 안내 유지를 보인다", async () => {
+    useAuthStore
+      .getState()
+      .signIn({ accountId: "mock:demo@example.com", email: "demo@example.com" })
+    renderChat()
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "memberMinuteLimit" } })
+    fireEvent.change(screen.getByLabelText("질문"), { target: { value: "상속포기 기한" } })
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }))
+
+    const notice = (await screen.findByText(MINUTE_TITLE)).closest("[role=status]") as HTMLElement
+    expect(within(notice).getByText(/1분 정도 지난 뒤 다시 질문해 주세요/)).toBeTruthy()
+    expect(
+      within(notice).getByText(/체크리스트와 절차 안내는 그대로 이용할 수 있습니다/),
+    ).toBeTruthy()
+    expect(within(notice).getByRole("button", { name: "다시 시도" })).toBeTruthy()
+    expect(screen.queryByText(/내일 다시 이용해 주세요/)).toBeNull()
+    expect(screen.queryByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")).toBeNull()
+  })
+
+  it("제한 사유는 message로 정하고, 사유가 없으면 로그인 여부로 정한다", () => {
+    const failure = (message: string | null) => ({ status: 429, code: "RATE_LIMITED", message })
+    expect(rateLimitKind(failure("MEMBER_MINUTE_LIMIT"), false)).toBe("memberMinute")
+    // 화면의 로그인 상태와 서버 판단이 다르면 서버가 보낸 사유를 따른다.
+    expect(rateLimitKind(failure("MEMBER_MINUTE_LIMIT"), true)).toBe("memberMinute")
+    expect(rateLimitKind(failure("GUEST_DAILY_LIMIT"), false)).toBe("guestDaily")
+    expect(rateLimitKind(failure("GUEST_DAILY_LIMIT"), true)).toBe("guestDaily")
+    // 사유를 보내지 않는 서버(message가 코드 이름뿐이거나 없음)
+    expect(rateLimitKind(failure("RATE_LIMITED"), true)).toBe("guestDaily")
+    expect(rateLimitKind(failure(null), false)).toBe("memberMinute")
+  })
 })
