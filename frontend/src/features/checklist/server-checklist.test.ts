@@ -252,6 +252,35 @@ describe("이 기기·서버 삭제 분리 (리뷰 회귀)", () => {
   })
 })
 
+describe("답이 없을 때 (리뷰 회귀: 빈 기록 전송)", () => {
+  it("질문에 답하기 전에 [서버에 저장]을 눌러도 서버에 보내지 않고 동의도 기록하지 않는다", async () => {
+    const { api } = fakeApi({ consent: false, snapshot: null })
+    await startAs("user-a", api)
+
+    expect(await grantServerSave("user-a")).toBe(false)
+
+    expect(api.calls.save).toBe(0)
+    expect(server().consent).toBe("none")
+    expect(server().saveStatus).toBe("idle")
+  })
+
+  it("이 기기에 답이 없으면 [이 기기 내용으로 서버 덮어쓰기]를 해도 서버 기록과 선택 대기가 그대로다", async () => {
+    const record: ChecklistSnapshot = {
+      answers: SPOUSE,
+      riskAnswers: {},
+      procedureStates: {} as ChecklistSnapshot["procedureStates"],
+    }
+    const { api, server: stored } = fakeApi({ consent: true, snapshot: record })
+    await startAs("user-a", api)
+
+    await keepLocalOverServer("user-a")
+
+    expect(api.calls.save).toBe(0)
+    expect(stored.snapshot).toEqual(record)
+    expect(server().pending).toEqual(record)
+  })
+})
+
 describe("검증 ②: 이 기기 철회 성공 + 서버 철회 실패", () => {
   it("이 기기 기록은 지워지고, 서버에는 기록이 남았다고 표시되며 서버만 다시 시도한다", async () => {
     const db = new InheritanceDb("server-verify-2", { indexedDB: new IDBFactory(), IDBKeyRange })

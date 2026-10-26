@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 // W-02 서버 저장 띠 화면 테스트(4-5-1, 4-6-1, 4-6-3, 4-3-4 서버, 검증 ②). 요청을 세는 가짜 A17로 실행한다.
 // A17은 계약 미확정·Backend 미구현이라 실제 서버 연동 검증이 아니다.
+import { QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { createQueryClient } from "@/app"
 import { useAuthStore } from "@/features/auth/auth-store"
 import type { InitialAnswers } from "@/shared/contracts/domain"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import type { ChecklistSnapshot } from "@/shared/storage/db"
+import { ChecklistPage } from "./checklist-page"
 import { type ServerChecklistSync, startServerChecklistSync } from "./server-checklist"
 import type { ServerChecklistApi } from "./server-checklist-api"
 import { ServerSaveBand } from "./server-save-band"
@@ -114,5 +118,53 @@ describe("ServerSaveBand", () => {
       expect(screen.getByText(/서버의 체크리스트 기록을 삭제했습니다/)).toBeTruthy(),
     )
     expect(api.remove).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("답이 없는 화면 (리뷰 회귀)", () => {
+  const RECORD: ChecklistSnapshot = {
+    answers: { ...SPOUSE, relationship: "sibling" },
+    riskAnswers: {},
+    procedureStates: {} as ChecklistSnapshot["procedureStates"],
+  }
+
+  const renderChecklistPage = () => {
+    const router = createMemoryRouter([{ path: "/checklist", element: <ChecklistPage /> }], {
+      initialEntries: ["/checklist"],
+    })
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+  }
+
+  beforeEach(() => useInheritanceStore.getState().reset())
+
+  it("서버 저장 동의 전이면 동의를 묻지 않는다(보낼 답이 없다)", async () => {
+    await startAs("user-a", fakeApi({ consent: false, snapshot: null }).api)
+    render(<ServerSaveBand />)
+
+    expect(screen.queryByRole("button", { name: "서버에 저장" })).toBeNull()
+  })
+
+  it("새 기기에서 로그인하면 답이 없어도 체크리스트 화면에서 서버 기록을 불러올 수 있다 (4-6-3)", async () => {
+    await startAs("user-a", fakeApi({ consent: true, snapshot: RECORD }).api)
+    renderChecklistPage()
+
+    expect(screen.queryByRole("button", { name: "이 기기 내용으로 서버 덮어쓰기" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "서버 기록 불러오기" }))
+
+    expect(useInheritanceStore.getState().answers?.relationship).toBe("sibling")
+  })
+
+  // 화면 단위로는 띠가 놓이는지만 본다. 철회 실패 안내·재시도 흐름은 위 ServerSaveBand 테스트(검증 ②)가 확인한다.
+  // 화면 전체에서 철회 흐름까지 돌리던 테스트는 전체 실행에서 간헐 실패(원인 미확인)해 단순화했다(PR에 기록).
+  it("이 기기 기록을 지운 뒤(답이 없는 화면)에도 [서버 저장 철회]를 할 수 있다 (검증 ②)", async () => {
+    await startAs("user-a", fakeApi({ consent: true, snapshot: null }).api)
+    renderChecklistPage()
+
+    expect(screen.getByRole("link", { name: "질문에 답하기" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "서버 저장 철회" })).toBeTruthy()
   })
 })

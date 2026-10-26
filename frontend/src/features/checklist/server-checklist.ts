@@ -142,12 +142,15 @@ export const startServerChecklistSync = (
     })
 
   // 사용자가 서버 저장 정책을 확인하고 [서버에 저장]을 눌렀을 때만 호출한다(4-6-1).
+  // 보낼 답이 없으면(질문에 답하기 전, 이 기기 기록 삭제 직후) 보내지 않는다. 서버에 빈 기록을 만들지 않는다(리뷰 반영).
   const grant = () =>
     runInQueue(async () => {
       if (!isCurrent()) return false
+      const snapshot = snapshotOf()
+      if (!snapshot) return false
       patch({ saveStatus: "saving", revokeResult: null })
       try {
-        await api.save(snapshotOf())
+        await api.save(snapshot)
         if (!isCurrent()) return false
         patch({ consent: "granted", pending: null, saveStatus: "saved", declined: false })
         return true
@@ -165,8 +168,9 @@ export const startServerChecklistSync = (
   }
 
   // 사용자가 [이 기기 내용으로 서버 덮어쓰기]를 골랐을 때. 보류를 풀고 지금 화면 상태를 저장한다.
+  // 덮어쓸 답이 없으면 보류를 그대로 둔다(서버 기록을 고를 기회를 남긴다).
   const keepLocal = async () => {
-    if (!isCurrent()) return
+    if (!isCurrent() || !snapshotOf()) return
     patch({ pending: null })
     await save()
   }

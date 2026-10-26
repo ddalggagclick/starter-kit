@@ -3,6 +3,8 @@
  * PRD: 태스크 4-5-1, 4-6-1, 4-5-3, 4-6-3, 4-3-4(서버). 화면정의서 17장 접근성(문구·기호 병기, 확인창).
  * 구현: 이 기기 저장 동의와 따로 받는다(정책 확인 + 명시 체크). 서버 기록이 있으면 자동으로 합치지 않고 사용자가 고른다.
  *   서버 철회가 실패하면 서버에 기록이 남았다고 알리고 서버만 다시 시도한다. 모든 동작은 지금 로그인 계정에 고정한다.
+ *   답이 없는 화면(질문 전·이 기기 기록 삭제 뒤)에도 놓인다: 동의 요청과 덮어쓰기는 숨기고,
+ *   서버 기록 불러오기·서버 철회·실패 재시도는 그대로 보인다(리뷰 반영, 검증 ②).
  * 제한사항: A17은 계약 미확정·Backend 미구현이다. Mock 모드에서는 실제 서버 연동이 아님을 표시한다. 정책 문구는 P02 검토 전 초안.
  */
 import { useId, useState } from "react"
@@ -11,6 +13,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Notice } from "@/components/ui/notice"
 import { useAuthStore } from "@/features/auth/auth-store"
 import { USE_MOCK_API } from "@/shared/api/data-source"
+import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import {
   declineServerSave,
   grantServerSave,
@@ -40,6 +43,8 @@ export function ServerSaveBand() {
   const accountId = useAuthStore((s) => s.accountId)
   const { consent, saveStatus, pending, declined, revokeResult } = useServerChecklistStore()
   const storeAccount = useServerChecklistStore((s) => s.accountId)
+  // 서버로 보낼 답이 있는지. 없으면 [서버에 저장]·[이 기기 내용으로 서버 덮어쓰기]를 보여 주지 않는다.
+  const hasAnswers = useInheritanceStore((s) => s.answers !== null)
   const [checked, setChecked] = useState(false)
   const [confirmRevoke, setConfirmRevoke] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -109,6 +114,8 @@ export function ServerSaveBand() {
   }
 
   if (consent === "none") {
+    // 답이 없으면 동의를 묻지 않는다(보낼 내용이 없다). 직전 철회 결과만 남긴다.
+    if (!hasAnswers) return revokeNotice
     if (declined) {
       return (
         <div className="space-y-2">
@@ -170,22 +177,25 @@ export function ServerSaveBand() {
       {pending ? (
         <div className="space-y-2">
           <p className="font-medium">
-            계정(서버)에 저장된 체크리스트가 있습니다. 자동으로 합치지 않으니 사용할 기록을 골라
-            주세요.
+            {hasAnswers
+              ? "계정(서버)에 저장된 체크리스트가 있습니다. 자동으로 합치지 않으니 사용할 기록을 골라 주세요."
+              : "계정(서버)에 저장된 체크리스트가 있습니다. 불러오면 화면에 표시합니다."}
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" onClick={() => loadServerRecord(accountId)}>
               서버 기록 불러오기
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void run(() => keepLocalOverServer(accountId))}
-            >
-              이 기기 내용으로 서버 덮어쓰기
-            </Button>
+            {hasAnswers && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void run(() => keepLocalOverServer(accountId))}
+              >
+                이 기기 내용으로 서버 덮어쓰기
+              </Button>
+            )}
           </div>
         </div>
       ) : (
