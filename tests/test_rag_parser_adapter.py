@@ -14,6 +14,8 @@ from types import SimpleNamespace
 from typing import get_type_hints
 from unittest.mock import AsyncMock, Mock, patch
 
+from rag_test_fixtures import environment_with_home
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "rag"))
 
@@ -97,6 +99,19 @@ def _cli_chunking_structure() -> DocumentStructure:
 
 
 class DoclingParserAdapterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.config_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.config_dir.cleanup)
+        self.rag_config_path = Path(self.config_dir.name) / "config.json"
+        config_environment = patch.dict(os.environ, {"RAG_CONFIG_PATH": str(self.rag_config_path)})
+        config_environment.start()
+        self.addCleanup(config_environment.stop)
+
+    def _isolated_environment(self, overrides: dict[str, str] | None = None) -> dict[str, str]:
+        values = {"RAG_CONFIG_PATH": str(self.rag_config_path)}
+        values.update(overrides or {})
+        return environment_with_home(values)
+
     @staticmethod
     def _write_pdf(path: Path, text: str) -> None:
         content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode("ascii")
@@ -654,7 +669,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
     def test_상태_명령이_구현과_환경설정_실행준비를_구분한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, self._isolated_environment(), clear=True),
             patch.object(
                 rag_cli,
                 "_database_for_command",
@@ -684,11 +699,13 @@ class DoclingParserAdapterTests(unittest.TestCase):
         with (
             patch.dict(
                 os.environ,
-                {
-                    "RAG_DATABASE_URL": (
-                        "postgresql+asyncpg://rag@/starter_rag_integration?host=%2Ftmp"
-                    )
-                },
+                self._isolated_environment(
+                    {
+                        "RAG_DATABASE_URL": (
+                            "postgresql+asyncpg://rag@/starter_rag_integration?host=%2Ftmp"
+                        )
+                    }
+                ),
                 clear=True,
             ),
             patch.object(
@@ -713,11 +730,13 @@ class DoclingParserAdapterTests(unittest.TestCase):
         with (
             patch.dict(
                 os.environ,
-                {
-                    "RAG_DATABASE_URL": (
-                        "postgresql+asyncpg://user:status-secret@db.supabase.co:5432/postgres"
-                    )
-                },
+                self._isolated_environment(
+                    {
+                        "RAG_DATABASE_URL": (
+                            "postgresql+asyncpg://user:status-secret@db.supabase.co:5432/postgres"
+                        )
+                    }
+                ),
                 clear=True,
             ),
             patch.object(
@@ -781,7 +800,11 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
     def test_청킹은_명령줄_토크나이저_경로를_환경변수보다_우선한다(self) -> None:
         with (
-            patch.dict(os.environ, {"RAG_TOKENIZER_PATH": "/env/tokenizer"}, clear=True),
+            patch.dict(
+                os.environ,
+                self._isolated_environment({"RAG_TOKENIZER_PATH": "/env/tokenizer"}),
+                clear=True,
+            ),
             patch.object(rag_cli, "_chunk_file", return_value=0) as chunk_file,
         ):
             result = rag_cli.main(["chunk", "guide.pdf", "--tokenizer-path", "/cli/tokenizer"])
@@ -791,7 +814,11 @@ class DoclingParserAdapterTests(unittest.TestCase):
 
     def test_청킹은_RAG_TOKENIZER_PATH를_기본_토크나이저로_사용한다(self) -> None:
         with (
-            patch.dict(os.environ, {"RAG_TOKENIZER_PATH": "/env/tokenizer"}, clear=True),
+            patch.dict(
+                os.environ,
+                self._isolated_environment({"RAG_TOKENIZER_PATH": "/env/tokenizer"}),
+                clear=True,
+            ),
             patch.object(rag_cli, "_chunk_file", return_value=0) as chunk_file,
         ):
             result = rag_cli.main(["chunk", "guide.pdf"])
@@ -804,7 +831,7 @@ class DoclingParserAdapterTests(unittest.TestCase):
     def test_토크나이저_경로가_없으면_청킹_전에_입력_오류로_종료한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, self._isolated_environment(), clear=True),
             patch.object(
                 rag_cli,
                 "_chunk_file",
@@ -925,7 +952,11 @@ class DoclingParserAdapterTests(unittest.TestCase):
     def test_청킹_CLI_잘못된_공급자_설정은_종료_코드_2를_반환한다(self) -> None:
         stdout, stderr = StringIO(), StringIO()
         with (
-            patch.dict(os.environ, {"RAG_CHUNKING_PROVIDER": "invalid-secret"}, clear=True),
+            patch.dict(
+                os.environ,
+                self._isolated_environment({"RAG_CHUNKING_PROVIDER": "invalid-secret"}),
+                clear=True,
+            ),
             patch.object(rag_cli, "parse_document", return_value=object()),
             patch.object(
                 rag_cli,

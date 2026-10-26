@@ -62,12 +62,12 @@ class RagHitlCliTests(unittest.TestCase):
 
     def _valid_draft(self) -> dict:
         self._export()
-        data = json.loads(self.review.read_text())
+        data = json.loads(self.review.read_text(encoding="utf-8"))
         correction = data["corrections"][0]
         correction["action"] = "replace"
         removed = correction["replacement_cells"].pop()
         correction["detached_notes"].append(removed["text"])
-        self.review.write_text(json.dumps(data, ensure_ascii=False))
+        self.review.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         return data
 
     def test_검토_내보내기와_미완료_검증을_수행한다(self):
@@ -100,9 +100,9 @@ class RagHitlCliTests(unittest.TestCase):
     def test_승인_후_수정한_검토는_해시_검증에_실패한다(self):
         self._valid_draft()
         approve_review(self.review)
-        data = json.loads(self.review.read_text())
+        data = json.loads(self.review.read_text(encoding="utf-8"))
         data["corrections"][0]["detached_notes"][0] += " changed"
-        self.review.write_text(json.dumps(data, ensure_ascii=False))
+        self.review.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         with redirect_stderr(StringIO()):
             status = rag_cli.main(["review", "validate", str(self.review)])
 
@@ -111,7 +111,7 @@ class RagHitlCliTests(unittest.TestCase):
     def test_승인_상태만_바꾼_검토는_해시_검증에_실패한다(self):
         data = self._valid_draft()
         data["approval"]["state"] = "approved"
-        self.review.write_text(json.dumps(data, ensure_ascii=False))
+        self.review.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         with redirect_stderr(StringIO()):
             status = rag_cli.main(["review", "validate", str(self.review)])
 
@@ -207,11 +207,11 @@ class RagHitlCliTests(unittest.TestCase):
 
     def test_검토가_원본_식별자와_일치해야_한다(self):
         self._export()
-        data = json.loads(self.review.read_text())
+        data = json.loads(self.review.read_text(encoding="utf-8"))
         corr = data["corrections"][0]
         corr["action"] = "replace"
         corr["detached_notes"] = [corr["replacement_cells"].pop()["text"]]
-        self.review.write_text(json.dumps(data, ensure_ascii=False))
+        self.review.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         approve_review(self.review)
         with redirect_stderr(StringIO()):
             data, structure = rag_cli.read_review(
@@ -290,7 +290,7 @@ class HitlWizardTests(unittest.TestCase):
         with redirect_stdout(StringIO()):
             self.assertFalse(assist_review(empty_file, prompt=lambda _: next(answers)))
 
-        report = json.loads(empty_file.read_text())
+        report = json.loads(empty_file.read_text(encoding="utf-8"))
         correction = report["corrections"][0]
         self.assertTrue(correction["visual_confirmation"])
         self.assertEqual(correction["replacement_cells"][0]["text"], "Recovered value")
@@ -305,7 +305,7 @@ class HitlWizardTests(unittest.TestCase):
         with redirect_stdout(StringIO()):
             self.assertFalse(assist_review(self.file, prompt=lambda _: next(answers)))
 
-        correction = json.loads(self.file.read_text())["corrections"][0]
+        correction = json.loads(self.file.read_text(encoding="utf-8"))["corrections"][0]
         moved = correction["replacement_cells"][3]
         self.assertEqual((moved["start_row"], moved["end_row"]), (3, 4))
         self.assertEqual((moved["start_column"], moved["end_column"]), (0, 1))
@@ -323,7 +323,9 @@ class HitlWizardTests(unittest.TestCase):
         with redirect_stdout(StringIO()):
             self.assertFalse(assist_review(self.file, prompt=lambda _: next(answers)))
         self.assertTrue(self.file.exists())
-        self.assertEqual(json.loads(self.file.read_text())["approval"]["state"], "draft")
+        self.assertEqual(
+            json.loads(self.file.read_text(encoding="utf-8"))["approval"]["state"], "draft"
+        )
 
     def test_검토_불러오기가_식별자를_전달하고_게시한다(self):
         answers = iter(["1", "3", "Separate value", "5", "y"])

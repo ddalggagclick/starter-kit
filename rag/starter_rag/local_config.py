@@ -1,6 +1,6 @@
-# 담당: [D] | 책임: 관리자 CLI의 로컬 설정을 비공개 파일에 보관한다.
+# 담당: [D] | 책임: 관리자 CLI의 로컬 설정을 저장하고 읽는다.
 # 구현할 기능: 환경변수 우선 적용, 로컬 DB URL 검증, 안전한 설정 표시.
-# 완료 기준: 설정 파일은 저장소 밖에 0600 권한으로 저장되고 비밀값이 출력되지 않는다.
+# 완료 기준: 설정은 저장소 밖에 두고 POSIX에서는 0600 권한을 적용하며 비밀값을 출력하지 않는다.
 from __future__ import annotations
 
 import json
@@ -39,15 +39,15 @@ class ConfigError(ValueError):
 
 def config_path(environ: Mapping[str, str] | None = None) -> Path:
     values = os.environ if environ is None else environ
-    return Path(
-        values.get("RAG_CONFIG_PATH", str(Path.home() / ".config" / "starter-rag" / "config.json"))
-    ).expanduser()
+    explicit = values.get("RAG_CONFIG_PATH")
+    path = Path(explicit) if explicit else Path.home() / ".config" / "starter-rag" / "config.json"
+    return path.expanduser()
 
 
 def _read_config(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
-    if path.stat().st_mode & 0o077:
+    if os.name == "posix" and path.stat().st_mode & 0o077:
         raise ConfigError("RAG 설정 파일 권한을 0600으로 변경하세요.")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

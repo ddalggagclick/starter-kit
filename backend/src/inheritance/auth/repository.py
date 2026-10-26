@@ -13,8 +13,31 @@ from __future__ import annotations
 
 import threading
 from dataclasses import replace
+from typing import Literal, Protocol
 
 from inheritance.auth.models import OneTimeKind, OneTimeToken, RefreshSession, User
+
+ConsumeState = Literal["ok", "invalid", "reused"]
+
+
+# 메모리 저장소와 DB 저장소(db_repository.PostgresAuthRepository)가 같은 메서드를 가진다.
+class AuthRepository(Protocol):
+    def add_user(self, user: User) -> bool: ...
+    def user_by_email(self, email: str) -> User | None: ...
+    def user_by_id(self, user_id: str) -> User | None: ...
+    def update_user(self, user: User) -> None: ...
+    def delete_user(self, user_id: str) -> int: ...
+    def add_session(self, session: RefreshSession) -> None: ...
+    # 옛 토큰 사용 처리와 새 토큰 저장을 한 번(한 트랜잭션·한 잠금)에 한다. ok면 새 세션을 돌려준다.
+    def rotate_session(
+        self, token_hash: str, new_token_hash: str, new_expires_at: float, now: float
+    ) -> tuple[ConsumeState, RefreshSession | None]: ...
+    def revoke_session(self, token_hash: str) -> None: ...
+    def revoke_user_sessions(self, user_id: str) -> int: ...
+    def add_token(self, token: OneTimeToken) -> None: ...
+    def consume_token(
+        self, token_hash: str, kind: OneTimeKind, now: float
+    ) -> OneTimeToken | None: ...
 
 
 class InMemoryAuthRepository:
@@ -60,8 +83,11 @@ class InMemoryAuthRepository:
         with self._lock:
             self._sessions[session.token_hash] = replace(session)
 
-    # 회전의 핵심: 조회와 '사용됨' 표시를 한 번에 한다. 이미 사용된 세션이면 그 가족 전체를 끊는다.
-    def consume_session(self, token_hash: str, now: float) -> tuple[str, RefreshSession | None]:
+    # 회전의 핵심: 조회·'사용됨' 표시·새 세션 저장을 한 잠금 안에서 한다.
+    # 이미 사용된 세션이 다시 오면 탈취로 보고 그 계열 전체를 끊는다.
+    def rotate_session(
+        self, token_hash: str, new_token_hash: str, new_expires_at: float, now: float
+    ) -> tuple[ConsumeState, RefreshSession | None]:
         with self._lock:
             session = self._sessions.get(token_hash)
             if session is None or session.revoked or session.expires_at <= now:
@@ -72,7 +98,9 @@ class InMemoryAuthRepository:
                         item.revoked = True
                 return "reused", None
             session.used = True
-            return "ok", replace(session)
+            new = RefreshSession(new_token_hash, session.user_id, session.family_id, new_expires_at)
+            self._sessions[new_token_hash] = new
+            return "ok", replace(new)
 
     def revoke_session(self, token_hash: str) -> None:
         with self._lock:

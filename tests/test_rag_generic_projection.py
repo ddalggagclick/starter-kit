@@ -23,7 +23,7 @@ from starter_rag.ingestion.service import (  # noqa: I001 - import follows optio
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MAPPING = json.loads((ROOT / "rag/examples/source_v2_mapping.json").read_text())
+MAPPING = json.loads((ROOT / "rag/examples/source_v2_mapping.json").read_text(encoding="utf-8"))
 
 
 def _chunk(source_id="ID-01", excerpt="text", *, deterministic=True):

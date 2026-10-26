@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
+
 from starter_rag.ingestion.parser import (
     DocumentElement,
     DocumentLocation,
@@ -10,6 +13,20 @@ from starter_rag.ingestion.parser import (
     TableRowStructure,
     TableStructure,
 )
+
+_HOME_ENVIRONMENT_KEYS = ("HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH")
+
+
+def environment_with_home(
+    overrides: Mapping[str, str] | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Preserve only home-directory variables while isolating test settings."""
+    source = os.environ if environ is None else environ
+    result = {key: source[key] for key in _HOME_ENVIRONMENT_KEYS if key in source}
+    result.update(overrides or {})
+    return result
 
 
 def hitl_cell(text: str, start_row: int, end_row: int, start_column: int, end_column: int):

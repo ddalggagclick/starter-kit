@@ -106,7 +106,7 @@ def test_승인_전에는_색인을_멈추고_재개_상태를_기록한다(tmp_
     ):
         assert batch.run_batch(manifest, state, phase="all") == 3
         cli.assert_not_called()
-    saved = json.loads(state.read_text())
+    saved = json.loads(state.read_text(encoding="utf-8"))
     assert saved["documents"][batch._document_state_key("source-1", "v1")]["status"] == (
         "approval_pending"
     )
@@ -151,7 +151,7 @@ def test_승인된_문서를_순차_색인_게시하고_완료_상태를_재사�
     ]
     assert all(
         value["status"] == "published"
-        for value in json.loads(state.read_text())["documents"].values()
+        for value in json.loads(state.read_text(encoding="utf-8"))["documents"].values()
     )
 
 
@@ -185,7 +185,9 @@ def test_게시_청크_수가_최초_색인_예상과_다르면_재사용하지_
         else:
             raise AssertionError("게시 청크 수가 색인 예상과 다른 자료를 재사용했습니다.")
 
-    entry = json.loads(state.read_text())["documents"][batch._document_state_key("source-1", "v1")]
+    entry = json.loads(state.read_text(encoding="utf-8"))["documents"][
+        batch._document_state_key("source-1", "v1")
+    ]
     assert entry["status"] == "failed"
     assert entry["error_type"] == "PublishedChunkCountMismatch"
     review.assert_not_called()
@@ -228,7 +230,7 @@ def test_예상_청크_수가_없거나_신뢰할_수_없으면_게시결과를_
             else:
                 raise AssertionError("신뢰할 수 없는 청크 예상 수로 게시 자료를 재사용했습니다.")
 
-        entry = json.loads(state.read_text())["documents"][
+        entry = json.loads(state.read_text(encoding="utf-8"))["documents"][
             batch._document_state_key("source-1", "v1")
         ]
         assert entry["status"] == "failed"
@@ -251,7 +253,7 @@ def test_게시_출처_메타데이터가_현재_manifest와_다르면_재사용
         manifest, state, _ = _files(case_path)
         old_doc = batch._manifest(manifest)["documents"][0]
         identity = _published_identity(old_doc)
-        manifest_data = json.loads(manifest.read_text())
+        manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
         manifest_data["documents"][0][field] = changed_value
         manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
         current_doc = batch._manifest(manifest)["documents"][0]
@@ -287,7 +289,7 @@ def test_게시_출처_메타데이터가_현재_manifest와_다르면_재사용
             else:
                 raise AssertionError(f"{field}가 변경된 게시 자료를 재사용했습니다.")
 
-        entry = json.loads(state.read_text())["documents"][
+        entry = json.loads(state.read_text(encoding="utf-8"))["documents"][
             batch._document_state_key("source-1", "v1")
         ]
         assert entry["status"] == "failed"
@@ -324,7 +326,9 @@ def test_색인_예상_청크_수를_확인할_수_없으면_게시하지_않는
         else:
             raise AssertionError("예상 청크 수가 없는 색인 결과를 게시했습니다.")
 
-    entry = json.loads(state.read_text())["documents"][batch._document_state_key("source-1", "v1")]
+    entry = json.loads(state.read_text(encoding="utf-8"))["documents"][
+        batch._document_state_key("source-1", "v1")
+    ]
     assert entry["status"] == "failed"
     assert entry["stage"] == "index"
     assert entry["error_type"] == "ExpectedChunkCountUnavailable"
@@ -386,7 +390,7 @@ def test_변경된_PDF는_기존_게시결과와_해시가_달라_재사용하�
         else:
             raise AssertionError("변경된 PDF에 이전 게시 결과를 재사용했습니다.")
 
-    saved = json.loads(state.read_text())
+    saved = json.loads(state.read_text(encoding="utf-8"))
     entry = saved["documents"][batch._document_state_key("source-1", "v1")]
     assert entry["status"] == "failed"
     assert entry["stage"] == "verify_published"
@@ -424,7 +428,9 @@ def test_DB에_원본_해시가_없으면_게시결과를_재사용하지_않는
         else:
             raise AssertionError("DB 출처 해시가 없는 게시 결과를 재사용했습니다.")
 
-    entry = json.loads(state.read_text())["documents"][batch._document_state_key("source-1", "v1")]
+    entry = json.loads(state.read_text(encoding="utf-8"))["documents"][
+        batch._document_state_key("source-1", "v1")
+    ]
     assert entry["status"] == "failed"
     assert entry["stage"] == "verify_published"
     cli.assert_not_called()
@@ -458,7 +464,9 @@ def test_DB에_HITL_승인_해시가_없으면_게시결과를_재사용하지_�
         else:
             raise AssertionError("DB HITL 승인 해시가 없는 게시 결과를 재사용했습니다.")
 
-    entry = json.loads(state.read_text())["documents"][batch._document_state_key("source-1", "v1")]
+    entry = json.loads(state.read_text(encoding="utf-8"))["documents"][
+        batch._document_state_key("source-1", "v1")
+    ]
     assert entry["status"] == "failed"
     assert entry["stage"] == "verify_published"
     cli.assert_not_called()
@@ -493,7 +501,9 @@ def test_승인_해시가_DB와_다르면_게시결과를_재사용하지_않는
         else:
             raise AssertionError("DB 승인 해시가 다른 게시 결과를 재사용했습니다.")
 
-    entry = json.loads(state.read_text())["documents"][batch._document_state_key("source-1", "v1")]
+    entry = json.loads(state.read_text(encoding="utf-8"))["documents"][
+        batch._document_state_key("source-1", "v1")
+    ]
     assert entry["status"] == "failed"
     assert entry["stage"] == "verify_published"
     cli.assert_not_called()
@@ -501,7 +511,7 @@ def test_승인_해시가_DB와_다르면_게시결과를_재사용하지_않는
 
 def test_같은_Source_ID의_서로_다른_버전을_독립적으로_게시하고_재사용한다(tmp_path: Path) -> None:
     manifest, state, _ = _files(tmp_path)
-    manifest_data = json.loads(manifest.read_text())
+    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
     manifest_data["documents"][1]["source_id"] = "source-1"
     manifest_data["documents"][1]["version"] = "v2"
     manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
@@ -537,7 +547,7 @@ def test_같은_Source_ID의_서로_다른_버전을_독립적으로_게시하�
         assert batch.run_batch(manifest, state, phase="all") == 0
 
     assert calls == [("index", "v1"), ("publish", "v1"), ("index", "v2"), ("publish", "v2")]
-    saved = json.loads(state.read_text())
+    saved = json.loads(state.read_text(encoding="utf-8"))
     assert saved["schema_version"] == 2
     assert saved["documents"][batch._document_state_key("source-1", "v1")]["status"] == (
         "published"
@@ -549,7 +559,7 @@ def test_같은_Source_ID의_서로_다른_버전을_독립적으로_게시하�
 
 def test_여러_버전_중_부분_실패를_버전별로_저장하고_재개한다(tmp_path: Path) -> None:
     manifest, state, _ = _files(tmp_path)
-    manifest_data = json.loads(manifest.read_text())
+    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
     manifest_data["documents"][1]["source_id"] = "source-1"
     manifest_data["documents"][1]["version"] = "v2"
     manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
@@ -598,7 +608,7 @@ def test_여러_버전_중_부분_실패를_버전별로_저장하고_재개한�
         patch.object(batch, "_capture_cli", side_effect=capture),
     ):
         assert batch.run_batch(manifest, state, phase="all") == 1
-        failed = json.loads(state.read_text())
+        failed = json.loads(state.read_text(encoding="utf-8"))
         assert failed["documents"][batch._document_state_key("source-1", "v1")]["status"] == (
             "published"
         )
@@ -609,7 +619,7 @@ def test_여러_버전_중_부분_실패를_버전별로_저장하고_재개한�
         }
         assert batch.run_batch(manifest, state, phase="all") == 0
 
-    saved = json.loads(state.read_text())
+    saved = json.loads(state.read_text(encoding="utf-8"))
     assert saved["documents"][batch._document_state_key("source-1", "v1")]["status"] == (
         "published"
     )
@@ -646,7 +656,7 @@ def test_기존_단일_버전_상태는_안전하게_새_키로_이관한다(tmp
 
 def test_버전이_모호한_기존_상태는_변경하지_않고_재개를_거부한다(tmp_path: Path) -> None:
     manifest_path, state_path, _ = _files(tmp_path)
-    manifest_data = json.loads(manifest_path.read_text())
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest_data["documents"][1]["source_id"] = "source-1"
     manifest_data["documents"][1]["version"] = "v2"
     manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
@@ -701,7 +711,7 @@ def test_상태의_문서_단계가_손상되면_재개를_거부한다(tmp_path
 
 def test_배치_평가_보고서는_경로를_지정하지_않으면_표준출력에만_출력한다(tmp_path: Path) -> None:
     manifest, state, _ = _files(tmp_path)
-    manifest_data = json.loads(manifest.read_text())
+    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
     manifest_data["evaluation"] = {"cases": "cases.csv", "gold": "gold.json"}
     manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
     report_path = state.with_suffix(".evaluation.json")
@@ -726,7 +736,7 @@ def test_배치_평가_보고서는_경로를_지정하지_않으면_표준출�
 
 def test_배치_평가_보고서는_지정한_경로에_저장한다(tmp_path: Path) -> None:
     manifest, state, _ = _files(tmp_path)
-    manifest_data = json.loads(manifest.read_text())
+    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
     manifest_data["evaluation"] = {"cases": "cases.csv", "gold": "gold.json"}
     manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
     output = tmp_path / "reports" / "evaluation.json"
@@ -751,12 +761,12 @@ def test_배치_평가_보고서는_지정한_경로에_저장한다(tmp_path: P
             == 0
         )
 
-    assert json.loads(output.read_text()) == report
+    assert json.loads(output.read_text(encoding="utf-8")) == report
 
 
 def test_평가_실패는_이전_완료_상태를_실패로_갱신한다(tmp_path: Path) -> None:
     manifest, state, _ = _files(tmp_path)
-    manifest_data = json.loads(manifest.read_text())
+    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
     manifest_data["evaluation"] = {"cases": "cases.csv", "gold": "gold.json"}
     manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
     report = {
@@ -772,7 +782,7 @@ def test_평가_실패는_이전_완료_상태를_실패로_갱신한다(tmp_pat
     ):
         assert batch.run_batch(manifest, state, phase="evaluate") == 0
 
-    assert json.loads(state.read_text())["evaluation"] == "complete"
+    assert json.loads(state.read_text(encoding="utf-8"))["evaluation"] == "complete"
     with (
         patch("starter_rag.batch.database_url_from_environment", return_value="local-test-url"),
         patch.object(batch, "_published_version_identity", return_value=None),
@@ -788,7 +798,7 @@ def test_평가_실패는_이전_완료_상태를_실패로_갱신한다(tmp_pat
         else:
             raise AssertionError("평가 오류가 성공으로 처리됐습니다.")
 
-    saved = json.loads(state.read_text())
+    saved = json.loads(state.read_text(encoding="utf-8"))
     assert saved["evaluation"] == "failed"
     assert saved["evaluation_error_type"] == "RuntimeError"
 
