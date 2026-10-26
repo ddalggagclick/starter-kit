@@ -221,3 +221,18 @@ describe("A17 Mock 계정별 분리", () => {
     await expect(getMyChecklist(null, fast)).rejects.toMatchObject({ status: 401 })
   })
 })
+
+describe("A08 429 제한 사유 (Backend #138·#143과 같은 message)", () => {
+  it("비로그인 하루 한도는 GUEST_DAILY_LIMIT, 로그인 1분 제한은 MEMBER_MINUTE_LIMIT", async () => {
+    const guest = await ask("guestLimit")
+    const member = await ask("memberMinuteLimit")
+    expect([guest.status, await guest.json()]).toEqual([
+      429,
+      expect.objectContaining({ code: "RATE_LIMITED", message: "GUEST_DAILY_LIMIT" }),
+    ])
+    expect([member.status, await member.json()]).toEqual([
+      429,
+      expect.objectContaining({ code: "RATE_LIMITED", message: "MEMBER_MINUTE_LIMIT" }),
+    ])
+  })
+})

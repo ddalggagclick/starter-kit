@@ -5,6 +5,8 @@
  *   HTTP 상태 + JSON, 시작 후 오류는 error 이벤트로 보낸다. signal을 끊으면 스트림을 멈춘다.
  * 제한사항: 실제 Gemini·RAG 호출이 아니며 답변·출처는 예시다. AI 실동작 완료로 표시하지 않는다.
  */
+
+import { RATE_LIMIT_REASONS } from "@/shared/api/types"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
 import type {
   AskAiRequest,
@@ -23,6 +25,7 @@ export type MockAiScenario =
   | "providerUnavailable"
   | "providerTimeout"
   | "guestLimit"
+  | "memberMinuteLimit"
   | "providerRateLimit"
 
 // 각 시나리오가 화면정의서의 어느 상태로 가는지 Mock 패널에 보여준다.
@@ -33,7 +36,8 @@ export const MOCK_AI_SCENARIO_LABELS: Record<MockAiScenario, string> = {
   withheld: "S7 판단 유보 · 출처 0개",
   providerUnavailable: "S6 기술 오류 · 503 PROVIDER_UNAVAILABLE",
   providerTimeout: "S6 기술 오류 · 504 PROVIDER_TIMEOUT (스트림 중)",
-  guestLimit: "S9 사용 제한 · 429 RATE_LIMITED (비로그인 10회)",
+  guestLimit: "S9 사용 제한 · 429 RATE_LIMITED (비로그인 하루 10회, GUEST_DAILY_LIMIT)",
+  memberMinuteLimit: "S9 사용 제한 · 429 RATE_LIMITED (로그인 1분 10회, MEMBER_MINUTE_LIMIT)",
   providerRateLimit: "S9 사용 제한 · PROVIDER_RATE_LIMIT (스트림 중)",
 }
 
@@ -200,10 +204,12 @@ export const createMockAskResponse = async (
     })
   }
   // 스트림 시작 전 오류는 HTTP 상태로 돌려준다.
-  if (scenario === "guestLimit") {
+  // 실제 Backend처럼 message에 제한 사유를 넣는다(사람이 읽는 문장이 아니다).
+  if (scenario === "guestLimit" || scenario === "memberMinuteLimit") {
     return jsonResponse(429, {
       code: "RATE_LIMITED",
-      message: ERROR_MESSAGES.RATE_LIMITED,
+      message:
+        scenario === "guestLimit" ? RATE_LIMIT_REASONS.guestDaily : RATE_LIMIT_REASONS.memberMinute,
       requestId: request.requestId,
     })
   }
