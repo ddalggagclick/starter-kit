@@ -7,6 +7,7 @@ import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import {
   accountNamespace,
   type ChecklistSnapshot,
+  GUEST_NAMESPACE,
   InheritanceDb,
   loadChecklist,
 } from "@/shared/storage/db"
@@ -95,6 +96,55 @@ describe("요청 차단 (4-6-1)", () => {
 
     expect(server().consent).toBe("none")
     expect(api.calls).toEqual({ read: 1, save: 0, remove: 0 })
+  })
+})
+
+describe("이 기기 저장 동의와 서버 저장 분리 (4-5-1, 4-6-1)", () => {
+  // 4-5-1: 로컬(이 기기) 동의만으로는 서버(DB)에 올리지 않는다. 서버 저장은 별도 서버 동의가 있어야 한다.
+  const startLocal = async (name: string, namespace: ReturnType<typeof accountNamespace>) => {
+    const db = new InheritanceDb(name, { indexedDB: new IDBFactory(), IDBKeyRange })
+    const local = startChecklistPersistence(db, namespace)
+    await local.ready
+    return { db, local }
+  }
+
+  it("로그인 + 이 기기 저장 동의만 있으면 이 기기에는 저장하고 서버에는 하나도 보내지 않는다", async () => {
+    const { db, local } = await startLocal("local-only-member", accountNamespace("user-a"))
+    const { api } = fakeApi({ consent: false, snapshot: null })
+    await startAs("user-a", api)
+    memory().setInitialAnswers(SPOUSE, "direct")
+
+    await grantChecklistStorage(db)
+    memory().setGuidanceRead("p01", true)
+    await sync.flush()
+
+    await vi.waitFor(async () => {
+      const saved = await loadChecklist(db, accountNamespace("user-a"))
+      expect(saved.ok && saved.value?.procedureStates.p01.guidanceRead).toBe(true)
+    })
+    expect(api.calls.save).toBe(0)
+    expect(server().consent).toBe("none")
+    local.stop()
+    db.close()
+  })
+
+  it("비로그인 + 이 기기 저장 동의가 있어도 서버 요청은 0건이다", async () => {
+    const { db, local } = await startLocal("local-only-guest", GUEST_NAMESPACE)
+    const { api } = fakeApi({ consent: true, snapshot: null })
+    await startAs(null, api)
+    memory().setInitialAnswers(SPOUSE, "direct")
+
+    await grantChecklistStorage(db)
+    memory().setGuidanceRead("p02", true)
+    await sync.flush()
+
+    await vi.waitFor(async () => {
+      const saved = await loadChecklist(db, GUEST_NAMESPACE)
+      expect(saved.ok && saved.value?.procedureStates.p02.guidanceRead).toBe(true)
+    })
+    expect(api.calls).toEqual({ read: 0, save: 0, remove: 0 })
+    local.stop()
+    db.close()
   })
 })
 
