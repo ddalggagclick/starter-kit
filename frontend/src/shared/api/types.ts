@@ -16,3 +16,12 @@ export type SseStatusEvent = Schemas["SseStatusEvent"]
 export type SseResultEvent = Schemas["SseResultEvent"]
 export type SseErrorEvent = Schemas["SseErrorEvent"]
 export type SseSource = Schemas["SseSource"]
+
+// A08 429 RATE_LIMITED(스트림 시작 전)의 message로 제한 사유를 구분한다(3-7-3).
+// Backend #138(비회원 하루 10회)·#143(로그인 사용자 1분 10회), API 담당자 확인(2026-10-26).
+// 실제 화면과 Mock이 함께 쓰는 wire 값이라 Mock 파일이 아니라 여기에 둔다(리뷰 반영).
+// openapi에 아직 없어 생성 타입에서 꺼낼 수 없다. openapi에 반영되면 생성 타입으로 바꾼다.
+export const RATE_LIMIT_REASONS = {
+  guestDaily: "GUEST_DAILY_LIMIT",
+  memberMinute: "MEMBER_MINUTE_LIMIT",
+} as const

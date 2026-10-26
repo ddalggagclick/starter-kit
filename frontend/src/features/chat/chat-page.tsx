@@ -31,10 +31,9 @@ import {
   WITHHELD_COPY,
 } from "@/mocks/ai-stream"
 import { DELETE_BUTTON_LABELS } from "@/mocks/checklist"
-import { RATE_LIMIT_REASONS } from "@/mocks/wire-types"
 import type { ApiFailure } from "@/shared/api/api-error"
 import { USE_MOCK_API } from "@/shared/api/data-source"
-import type { SseResultEvent } from "@/shared/api/types"
+import { RATE_LIMIT_REASONS, type SseResultEvent } from "@/shared/api/types"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
 import { inheritanceDb, type StorageNamespace } from "@/shared/storage/db"
 import { createApiAskTransport } from "./ask-transport"

@@ -66,12 +66,6 @@ export type SseErrorCode =
   | "PROVIDER_UNAVAILABLE"
   | "PROVIDER_TIMEOUT"
 export type SseErrorEvent = { code: SseErrorCode; message: string; requestId?: string }
-// A08 429 RATE_LIMITED(스트림 시작 전)의 message로 제한 사유를 구분한다.
-// Backend #138(비회원 하루 10회)·#143(로그인 사용자 1분 10회), API 담당자 확인(2026-10-26). openapi에는 아직 없다.
-export const RATE_LIMIT_REASONS = {
-  guestDaily: "GUEST_DAILY_LIMIT",
-  memberMinute: "MEMBER_MINUTE_LIMIT",
-} as const
 
 export type SseEvent =
   | { event: "status"; data: SseStatusEvent }

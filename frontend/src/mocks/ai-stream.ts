@@ -5,15 +5,16 @@
  *   HTTP 상태 + JSON, 시작 후 오류는 error 이벤트로 보낸다. signal을 끊으면 스트림을 멈춘다.
  * 제한사항: 실제 Gemini·RAG 호출이 아니며 답변·출처는 예시다. AI 실동작 완료로 표시하지 않는다.
  */
+
+import { RATE_LIMIT_REASONS } from "@/shared/api/types"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
-import {
-  type AskAiRequest,
-  type ErrorBody,
-  RATE_LIMIT_REASONS,
-  type SseErrorEvent,
-  type SseEvent,
-  type SseResultEvent,
-  type SseSource,
+import type {
+  AskAiRequest,
+  ErrorBody,
+  SseErrorEvent,
+  SseEvent,
+  SseResultEvent,
+  SseSource,
 } from "./wire-types"
 
 export type MockAiScenario =
