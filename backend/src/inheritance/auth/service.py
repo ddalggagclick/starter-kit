@@ -26,7 +26,7 @@ from typing import Protocol
 from inheritance.auth.jwt import AccessTokenCodec
 from inheritance.auth.models import OneTimeKind, OneTimeToken, RefreshSession, User
 from inheritance.auth.password import hash_password, password_policy_ok, verify_password
-from inheritance.auth.repository import InMemoryAuthRepository
+from inheritance.auth.repository import AuthRepository
 
 VERIFY_TTL_SECONDS = 24 * 60 * 60
 RESET_TTL_SECONDS = 30 * 60
@@ -114,7 +114,7 @@ class _SlidingWindow:
 class AuthService:
     def __init__(
         self,
-        repository: InMemoryAuthRepository,
+        repository: AuthRepository,
         access: AccessTokenCodec,
         email: EmailSender | None = None,
         refresh_ttl_seconds: int = 7 * 24 * 60 * 60,

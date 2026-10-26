@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
 from inheritance.auth.email_sender import smtp_sender_from_env
 from inheritance.auth.jwt import AccessTokenCodec, AccessTokenInvalid
-from inheritance.auth.repository import InMemoryAuthRepository
+from inheritance.auth.repository import AuthRepository, InMemoryAuthRepository
 from inheritance.auth.schemas import (
     CsrfResponse,
     DeleteAccountRequest,
@@ -181,7 +181,10 @@ def create_auth_router(service: AuthService, security: WebSecuritySettings) -> A
 
 # JWT·CSRF 비밀값(32자 이상)이 없으면 None(main이 인증 경로를 열지 않음).
 # 인증 서비스와 보안 설정을 한 번 만든다. A17·A08도 같은 서비스로 Access 토큰을 확인한다.
-def auth_service_from_env() -> tuple[AuthService, WebSecuritySettings] | None:
+# repository를 넘기면(예: PostgresAuthRepository) 그 저장소를, 없으면 메모리 저장소를 쓴다.
+def auth_service_from_env(
+    repository: AuthRepository | None = None,
+) -> tuple[AuthService, WebSecuritySettings] | None:
     signing_key = os.environ.get("JWT_SIGNING_KEY", "")
     csrf_secret = os.environ.get("CSRF_SECRET", "")
     if len(signing_key) < 32 or len(csrf_secret) < 32:
@@ -194,5 +197,6 @@ def auth_service_from_env() -> tuple[AuthService, WebSecuritySettings] | None:
     )
     # SMTP 설정이 없으면 메일을 보내지 않는다(NoEmailSender).
     email = smtp_sender_from_env(origin)
-    service = AuthService(InMemoryAuthRepository(), AccessTokenCodec(signing_key), email)
+    store = repository or InMemoryAuthRepository()
+    service = AuthService(store, AccessTokenCodec(signing_key), email)
     return service, security

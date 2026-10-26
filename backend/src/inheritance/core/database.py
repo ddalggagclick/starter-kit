@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import AsyncIterator
 from urllib.parse import urlsplit
 
+from sqlalchemy import Engine, create_engine, make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -18,6 +21,8 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from .config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def create_db_engine(settings: Settings) -> AsyncEngine:
@@ -53,3 +58,29 @@ async def db_session(factory: async_sessionmaker[AsyncSession]) -> AsyncIterator
 async def dispose_db_engine(engine: AsyncEngine) -> None:
     """FastAPI lifespan shutdown에서 호출."""
     await engine.dispose()
+
+
+def create_sync_db_engine(settings: Settings) -> Engine:
+    """인증·A17 저장소용 동기 엔진(psycopg). 인증 라우터가 동기 함수라 스레드에서 쓴다."""
+    url = make_url(settings.database_url).set(drivername="postgresql+psycopg")
+    hostname = url.host or ""
+    require_tls = settings.production or hostname.endswith(".pooler.supabase.com")
+    return create_engine(
+        url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout_seconds,
+        pool_pre_ping=True,
+        connect_args={"sslmode": "require"} if require_tls else {},
+    )
+
+
+def sync_db_engine_from_env() -> Engine | None:
+    """DATABASE_URL이 없으면 None(메모리 저장소). 설정이 잘못되면 None으로 두고 원인 문구는 버린다."""
+    if not os.environ.get("DATABASE_URL", "").strip():
+        return None
+    try:
+        return create_sync_db_engine(Settings.from_env())
+    except ValueError:
+        logger.warning("app.db", extra={"event": "app.db", "status": "invalid_settings"})
+        return None

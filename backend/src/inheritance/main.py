@@ -13,13 +13,19 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
+from inheritance.auth.db_repository import PostgresAuthRepository
 from inheritance.auth.router import auth_service_from_env, create_auth_router
 from inheritance.chat import router as chat_router
 from inheritance.chat.services.answer import ChatAnswerService
 from inheritance.chat.usage_limit import GuestDailyLimiter
 from inheritance.checklist import router as checklist_router
 from inheritance.checklist.server_router import create_server_checklist_router
-from inheritance.checklist.server_storage import InMemoryServerChecklistStore
+from inheritance.checklist.server_storage import (
+    InMemoryServerChecklistStore,
+    PostgresServerChecklistStore,
+    ServerChecklistStore,
+)
+from inheritance.core.database import sync_db_engine_from_env
 from inheritance.core.errors import install_error_handlers
 from inheritance.core.health import router as health_router
 from inheritance.core.origin import DEFAULT_FRONTEND_ORIGIN
@@ -46,6 +52,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+        if (engine := getattr(app.state, "db_engine", None)) is not None:
+            engine.dispose()
 
 
 # Health·인계·절차·AI 질문 라우터와 CORS를 구성한다. 인증·DB Settings는 업무 라우터 조립 전까지 읽지 않는다.
@@ -68,9 +76,17 @@ def create_app(chat_service: ChatAnswerService | None = None) -> FastAPI:
     app.state.auth_service = None
     # A08 비회원 하루 10회 제한(3-7-2). 로그인 사용자는 auth_service로 구분해 제한하지 않는다.
     app.state.guest_limiter = GuestDailyLimiter()
-    if (auth := auth_service_from_env()) is not None:
+    # DATABASE_URL이 있으면 계정·A17을 Supabase(app 스키마)에, 없으면 메모리에 저장한다.
+    engine = sync_db_engine_from_env()
+    app.state.db_engine = engine
+    repository = PostgresAuthRepository(engine) if engine is not None else None
+    if (auth := auth_service_from_env(repository)) is not None:
         service, security = auth
-        checklist_store = InMemoryServerChecklistStore()
+        checklist_store: ServerChecklistStore = (
+            PostgresServerChecklistStore(engine)
+            if engine is not None
+            else InMemoryServerChecklistStore()
+        )
         service.on_account_deleted(checklist_store.delete)  # 탈퇴 시 서버 체크리스트도 삭제(5-4-2)
         app.include_router(create_auth_router(service, security))
         app.include_router(create_server_checklist_router(checklist_store, service, security))
