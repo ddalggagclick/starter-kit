@@ -13,10 +13,13 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
-from inheritance.auth.router import auth_router_from_env
+from inheritance.auth.router import auth_service_from_env, create_auth_router
 from inheritance.chat import router as chat_router
 from inheritance.chat.services.answer import ChatAnswerService
+from inheritance.chat.usage_limit import GuestDailyLimiter
 from inheritance.checklist import router as checklist_router
+from inheritance.checklist.server_router import create_server_checklist_router
+from inheritance.checklist.server_storage import InMemoryServerChecklistStore
 from inheritance.core.errors import install_error_handlers
 from inheritance.core.health import router as health_router
 from inheritance.core.origin import DEFAULT_FRONTEND_ORIGIN
@@ -61,9 +64,17 @@ def create_app(chat_service: ChatAnswerService | None = None) -> FastAPI:
     app.include_router(handoff_router.router)
     app.include_router(checklist_router.router)
     app.include_router(chat_router.router)
-    # 인증(A11~A16)은 JWT·CSRF 비밀값이 있을 때만 연다. 저장소는 ERD 승인 전이라 메모리다.
-    if (auth_router := auth_router_from_env()) is not None:
-        app.include_router(auth_router)
+    # 인증(A11~A16)과 A17 서버 체크리스트는 JWT·CSRF 비밀값이 있을 때만 연다. 저장소는 ERD 승인 전이라 메모리다.
+    app.state.auth_service = None
+    # A08 비회원 하루 10회 제한(3-7-2). 로그인 사용자는 auth_service로 구분해 제한하지 않는다.
+    app.state.guest_limiter = GuestDailyLimiter()
+    if (auth := auth_service_from_env()) is not None:
+        service, security = auth
+        checklist_store = InMemoryServerChecklistStore()
+        service.on_account_deleted(checklist_store.delete)  # 탈퇴 시 서버 체크리스트도 삭제(5-4-2)
+        app.include_router(create_auth_router(service, security))
+        app.include_router(create_server_checklist_router(checklist_store, service, security))
+        app.state.auth_service = service  # A08이 로그인 사용자와 비회원을 구분할 때 쓴다.
     # A08 서비스는 실행 진입점이 core/dependencies.build_chat_service로 만들어 넘긴다. 없으면 503.
     app.state.chat_service = chat_service
     # TODO [통합/API 담당]: 업무 router 및 lifespan 의존성 구성은 ERD/API 승인 후 연결한다.

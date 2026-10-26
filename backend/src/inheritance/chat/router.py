@@ -40,7 +40,9 @@ def get_chat_service(request: Request) -> ChatAnswerService | None:
 
 @router.post("/ask", operation_id="A08_askAi", response_model=None)
 async def ask_ai(
-    body: AskRequest, service: Annotated[ChatAnswerService | None, Depends(get_chat_service)]
+    body: AskRequest,
+    request: Request,
+    service: Annotated[ChatAnswerService | None, Depends(get_chat_service)],
 ) -> StreamingResponse | JSONResponse:
     previous = tuple(body.previous_questions)
     try:
@@ -51,8 +53,16 @@ async def ask_ai(
     if service is None:
         code = ErrorCode.PROVIDER_UNAVAILABLE
         return JSONResponse(error_body(code), status_code=HTTP_STATUS[code])
+    remaining = None
+    limiter = getattr(request.app.state, "guest_limiter", None)
+    if limiter is not None and not _is_member(request):
+        remaining = limiter.take(request.client.host if request.client else "unknown")
+        if remaining is None:
+            # 비회원 하루 10회 초과(3-7-2). 스트림을 열기 전이라 HTTP 429로 답한다.
+            code = ErrorCode.RATE_LIMITED
+            return JSONResponse(error_body(code), status_code=HTTP_STATUS[code])
     return StreamingResponse(
-        _events(service, body.question, body.request_id, previous),
+        _events(service, body.question, body.request_id, previous, remaining),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -60,7 +70,11 @@ async def ask_ai(
 
 # 서비스는 별도 작업으로 돌리고, 진행 단계와 최종 결과를 큐로 받아 순서대로 내보낸다.
 async def _events(
-    service: ChatAnswerService, question: str, request_id: str, previous: tuple[str, ...]
+    service: ChatAnswerService,
+    question: str,
+    request_id: str,
+    previous: tuple[str, ...],
+    remaining: int | None = None,
 ) -> AsyncIterator[str]:
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     started = time.perf_counter()
@@ -79,7 +93,7 @@ async def _events(
             # None은 취소된 요청이다. 보낼 결과가 없다.
             if result is not None:
                 _log(request_id, result.outcome.status, _code(result), started)
-                await queue.put(_result_event(result))
+                await queue.put(_result_event(result, remaining))
         finally:
             await queue.put(None)
 
@@ -93,7 +107,7 @@ async def _events(
             await task
 
 
-def _result_event(result: ChatAnswerResult) -> str:
+def _result_event(result: ChatAnswerResult, remaining: int | None = None) -> str:
     outcome = result.outcome
     if result.error_code is not None:
         return _error_event(result.error_code, outcome.request_id)
@@ -108,8 +122,8 @@ def _result_event(result: ChatAnswerResult) -> str:
         # 사유: 근거 0건 SOURCE_NOT_VERIFIED, 인용 불일치 CITATION_MISMATCH, 그 밖(답변 형식 오류)은 null.
         reason = result.reason_code.value if result.reason_code is not None else None
         data = {"state": "withheld", "answer": None, "sources": [], "reasonCode": reason}
-    # remainingToday(A10)는 횟수 저장 방식 결정 전이라 null로 보낸다.
-    return _sse("result", {"reasonCode": None, **data, "remainingToday": None})
+    # remainingToday: 비회원이면 오늘 남은 횟수(이번 질문 포함해 센 뒤), 로그인 사용자는 null.
+    return _sse("result", {"reasonCode": None, **data, "remainingToday": remaining})
 
 
 def _error_event(code: ErrorCode, request_id: str) -> str:
@@ -136,3 +150,16 @@ def _log(request_id: str, status: str, error_code: str | None, started: float) -
             "trace_id": request_id,
         },
     )
+
+
+# 유효한 Access 토큰이 있으면 로그인 사용자다. 토큰이 없거나 틀리면 비회원으로 센다(A08은 로그인 불필요).
+def _is_member(request: Request) -> bool:
+    auth = getattr(request.app.state, "auth_service", None)
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if auth is None or scheme.lower() != "bearer" or not token:
+        return False
+    try:
+        auth.user_id_from_access(token)
+    except Exception:  # noqa: BLE001 - 잘못된 토큰은 비회원으로 본다. 원인은 남기지 않는다.
+        return False
+    return True
