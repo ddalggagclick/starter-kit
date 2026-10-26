@@ -1,4 +1,4 @@
-# 담당: [B] | 책임: 비회원 AI 질문 하루 10회 서버 제한.
+# 담당: [B] | 책임: 비회원 AI 질문 하루 10회·회원 1분 10회 서버 제한.
 # PRD: E3 / 태스크 3-7-2, 3-7-3 (openapi A08 429 RATE_LIMITED, result.remainingToday).
 # 구현할 기능: 비회원을 접속 IP의 비밀키 해시로 구분해 한국 시간 하루 단위로 센다.
 # 완료 기준: 11번째 질문은 스트림을 열기 전에 429 RATE_LIMITED, 로그인 사용자는 제한하지 않는다.
@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import secrets
 import threading
+import time
+from collections import defaultdict, deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 
@@ -56,3 +59,44 @@ class GuestDailyLimiter:
                 return None
             self._counts[visitor] = used + 1
             return self._limit - used - 1
+
+
+MEMBER_PER_MINUTE_LIMIT = 10
+GUEST_DAILY_REASON = "GUEST_DAILY_LIMIT"
+MEMBER_MINUTE_REASON = "MEMBER_MINUTE_LIMIT"
+
+
+class MemberMinuteLimiter:
+    """로그인 사용자 채팅 1분 10회(3-7-3, CHAT_RATE_LIMIT_PER_MINUTE). 사용자 ID별 최근 60초를 센다."""
+
+    def __init__(
+        self,
+        limit: int = MEMBER_PER_MINUTE_LIMIT,
+        window_seconds: float = 60.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._limit = limit
+        self._window = window_seconds
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._hits: dict[str, deque[float]] = defaultdict(deque)
+
+    # 한도 안이면 기록하고 True, 넘으면 기록하지 않고 False. 확인과 기록을 한 번에 한다.
+    def take(self, user_id: str) -> bool:
+        now = self._clock()
+        with self._lock:
+            hits = self._hits[user_id]
+            while hits and now - hits[0] >= self._window:
+                hits.popleft()
+            if len(hits) >= self._limit:
+                return False
+            hits.append(now)
+            return True
+
+
+def member_limiter_from_env() -> MemberMinuteLimiter:
+    try:
+        limit = int(os.environ.get("CHAT_RATE_LIMIT_PER_MINUTE", MEMBER_PER_MINUTE_LIMIT))
+    except ValueError:
+        limit = MEMBER_PER_MINUTE_LIMIT
+    return MemberMinuteLimiter(max(limit, 1))

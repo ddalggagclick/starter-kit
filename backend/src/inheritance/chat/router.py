@@ -28,6 +28,7 @@ from inheritance.auth.jwt import AccessTokenInvalid
 from inheritance.chat.schemas import AskRequest
 from inheritance.chat.services.answer import AnswerStage, ChatAnswerResult, ChatAnswerService
 from inheritance.chat.services.context import validate_chat_input
+from inheritance.chat.usage_limit import GUEST_DAILY_REASON, MEMBER_MINUTE_REASON
 from inheritance.core.errors import HTTP_STATUS, ErrorCode, error_body
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -55,14 +56,18 @@ async def ask_ai(
     if service is None:
         code = ErrorCode.PROVIDER_UNAVAILABLE
         return JSONResponse(error_body(code), status_code=HTTP_STATUS[code])
+    # 3-7-3: 비회원 하루 10회 / 회원 1분 10회 / Gemini 429를 서로 다른 사유로 알린다.
+    # 앞의 둘은 RATE_LIMITED(message로 구분), Gemini 한도는 스트림 안의 PROVIDER_RATE_LIMIT이다.
     remaining = None
-    limiter = getattr(request.app.state, "guest_limiter", None)
-    if limiter is not None and not _is_member(request):
-        remaining = limiter.take(_client_ip(request))
+    member = _member_id(request)
+    if member is not None:
+        member_limiter = getattr(request.app.state, "member_limiter", None)
+        if member_limiter is not None and not member_limiter.take(member):
+            return _rate_limited(MEMBER_MINUTE_REASON)
+    elif (guest_limiter := getattr(request.app.state, "guest_limiter", None)) is not None:
+        remaining = guest_limiter.take(_client_ip(request))
         if remaining is None:
-            # 비회원 하루 10회 초과(3-7-2). 스트림을 열기 전이라 HTTP 429로 답한다.
-            code = ErrorCode.RATE_LIMITED
-            return JSONResponse(error_body(code), status_code=HTTP_STATUS[code])
+            return _rate_limited(GUEST_DAILY_REASON)
     return StreamingResponse(
         _events(service, body.question, body.request_id, previous, remaining),
         media_type="text/event-stream",
@@ -154,18 +159,23 @@ def _log(request_id: str, status: str, error_code: str | None, started: float) -
     )
 
 
-# 유효한 Access 토큰이 있으면 로그인 사용자다. 토큰이 없거나 틀리면 비회원으로 센다(A08은 로그인 불필요).
-def _is_member(request: Request) -> bool:
+# 스트림을 열기 전이라 HTTP 429로 답한다. message는 화면 문구가 아니라 사유 구분 키다.
+def _rate_limited(reason: str) -> JSONResponse:
+    code = ErrorCode.RATE_LIMITED
+    return JSONResponse(error_body(code, reason), status_code=HTTP_STATUS[code])
+
+
+# 유효한 Access 토큰이 있으면 로그인 사용자 ID, 없거나 틀리면 None(비회원으로 센다, A08은 로그인 불필요).
+def _member_id(request: Request) -> str | None:
     auth = getattr(request.app.state, "auth_service", None)
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     if auth is None or scheme.lower() != "bearer" or not token:
-        return False
+        return None
     try:
-        auth.user_id_from_access(token)
+        return auth.user_id_from_access(token)
     except AccessTokenInvalid:
         # 틀리거나 만료된 토큰은 비회원으로 센다. 그 밖의 예외는 버그라 숨기지 않는다.
-        return False
-    return True
+        return None
 
 
 # Render 같은 프록시 뒤에서는 request.client가 프록시 IP다. GUEST_LIMIT_TRUST_PROXY=true일 때만
