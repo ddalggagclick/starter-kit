@@ -227,6 +227,22 @@ describe("/account/delete (5-4-1, 5-4-3)", () => {
     expect(await inheritanceDb.consents.where("namespace").equals(NAMESPACE).count()).toBe(0)
   })
 
+  it("탈퇴 뒤 이 기기 체크리스트 화면에 그 계정의 답이 남지 않는다 (5-4-3 잔여 노출)", async () => {
+    await seedAccountRecord()
+    useAuthStore.getState().signIn(ACCOUNT)
+    const router = renderAt("/checklist")
+    expect(await screen.findByText(/이 기기에 저장한 답변을 불러왔습니다/)).toBeTruthy()
+
+    await act(() => router.navigate("/account/delete"))
+    submitDelete(MOCK_ACCOUNT.password)
+    expect(await screen.findByText(/탈퇴했습니다/)).toBeTruthy()
+
+    await act(() => router.navigate("/checklist"))
+    expect(screen.getByRole("link", { name: "질문에 답하기" })).toBeTruthy()
+    expect(screen.queryByText("내 답변")).toBeNull()
+    expect(useInheritanceStore.getState().answers).toBeNull()
+  })
+
   it("다른 기기 기록이 자동으로 지워진다고 안내하지 않는다", async () => {
     useAuthStore.getState().signIn(ACCOUNT)
     renderAt("/account/delete")
