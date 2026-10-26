@@ -193,6 +193,8 @@ paths:
                           type: string
                         summary:
                           type: string
+                  contentVersion:
+                    $ref: "#/components/schemas/ContentVersion"
       x-confirmed: true
       x-path-proposed: false
   /api/procedures/{procedureId}:
@@ -301,6 +303,37 @@ paths:
                 $ref: "#/components/schemas/Error"
       x-confirmed: true
       x-path-proposed: true
+  /api/auth/csrf:
+    get:
+      tags:
+        - auth
+      operationId: auth_csrf
+      summary: CSRF 토큰 발급
+      x-status: 구현 완료
+      description:
+        "상태를 바꾸는 인증·계정 요청(A11~A16, A17 PUT·DELETE) 전에 호출합니다.
+
+        HttpOnly CSRF 쿠키를 심고 같은 토큰을 본문 csrfToken으로 돌려줍니다. 유효한 쿠키가 있으면 같은 토큰을 다시 줍니다.
+
+        화면은 이 값을 `X-CSRF-Token` 헤더로 보냅니다. 쿠키와 헤더가 없거나 다르면 403 CSRF_INVALID, 허용되지 않은 Origin이면 403 ORIGIN_FORBIDDEN입니다.
+
+        응답은 Cache-Control: no-store이며, 토큰을 브라우저 저장소에 영구 보관하지 않습니다."
+      responses:
+        "200":
+          description: 발급(또는 기존 토큰 재사용)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - csrfToken
+                properties:
+                  csrfToken:
+                    type: string
+        "403":
+          description: ORIGIN_FORBIDDEN (허용되지 않은 Origin)
+      x-confirmed: true
+      x-path-proposed: false
   /api/auth/signup:
     post:
       tags:
@@ -330,7 +363,11 @@ paths:
         "201":
           description: 가입 완료. 이메일 인증 전에는 로그인 불가
         "409":
-          description: 이미 가입된 이메일 (팀 코드 오류 목록에 없음 → 제안)
+          description: EMAIL_TAKEN (이미 가입된 이메일, core/errors.py)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "422":
           $ref: "#/components/responses/ValidationError"
       x-confirmed: true
@@ -358,7 +395,11 @@ paths:
         "200":
           description: 인증 완료
         "400":
-          description: 만료·이미 사용 (제안)
+          description: TOKEN_INVALID (만료·이미 사용·없음을 구분하지 않음)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
       x-confirmed: true
       x-path-proposed: true
   /api/auth/email/resend:
@@ -518,7 +559,11 @@ paths:
         "200":
           description: 변경 완료
         "400":
-          description: 만료·이미 사용 (제안)
+          description: TOKEN_INVALID (만료·이미 사용·없음을 구분하지 않음)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "422":
           $ref: "#/components/responses/ValidationError"
       x-confirmed: true
@@ -546,7 +591,29 @@ paths:
                   type: string
       responses:
         "200":
-          description: 계정·세션·서버 체크리스트 삭제 결과
+          description: 계정·세션·서버 체크리스트 삭제 결과. checklist는 서버 체크리스트 저장소(A17)가 연결된 앱이면 deleted(기록이 없어도 deleted), 연결되지 않은 앱이면 not_stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - account
+                  - sessions
+                  - checklist
+                properties:
+                  account:
+                    type: string
+                    enum:
+                      - deleted
+                  sessions:
+                    type: string
+                    enum:
+                      - deleted
+                  checklist:
+                    type: string
+                    enum:
+                      - deleted
+                      - not_stored
         "401":
           description: UNAUTHENTICATED
         "403":
@@ -559,7 +626,7 @@ paths:
         - account
       operationId: A17_getChecklist
       summary: A17 서버 저장 체크리스트 조회
-      x-status: 제안 (구현 시 확정)
+      x-status: 구현 완료 (2026-10-26 팀 회의 결정)
       security:
         - bearerAuth: []
       responses:
@@ -572,15 +639,16 @@ paths:
         "401":
           description: UNAUTHENTICATED
         "403":
-          description: FORBIDDEN (서버 저장 동의 없음)
-      x-confirmed: false
-      x-path-proposed: true
+          description: FORBIDDEN (서버 저장 동의 없음 = 저장된 기록 없음)
+      x-confirmed: true
+      x-path-proposed: false
     put:
       tags:
         - account
       operationId: A17_putChecklist
-      summary: A17 서버 체크리스트 저장 (전체 덮어쓰기는 제안)
-      x-status: 제안 (구현 시 확정)
+      summary: A17 서버 체크리스트 저장 (전체 덮어쓰기)
+      x-status: 구현 완료 (2026-10-26 팀 회의 결정)
+      description: X-CSRF-Token 헤더 필요(GET /api/auth/csrf). 서버는 이 기기 기록과 자동으로 합치지 않고 마지막 저장으로 덮어쓴다(4-6-3).
       security:
         - bearerAuth: []
       requestBody:
@@ -599,25 +667,33 @@ paths:
         "401":
           description: UNAUTHENTICATED
         "403":
-          description: FORBIDDEN (서버 저장 동의 없음)
-      x-confirmed: false
-      x-path-proposed: true
+          description: FORBIDDEN (serverSaveConsent가 false. 철회는 DELETE) / CSRF_INVALID / ORIGIN_FORBIDDEN
+        "422":
+          description: VALIDATION_ERROR (itemStates 형식 오류)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-confirmed: true
+      x-path-proposed: false
     delete:
       tags:
         - account
       operationId: A17_deleteChecklist
       summary: A17 동의 철회 + 서버 체크리스트 삭제
-      x-status: 제안 (구현 시 확정)
+      x-status: 구현 완료 (2026-10-26 팀 회의 결정)
       security:
         - bearerAuth: []
       responses:
         "204":
-          description: 삭제됨
+          description: 삭제됨(기록이 없어도 204)
         "401":
           description: UNAUTHENTICATED
-      x-confirmed: false
-      x-path-proposed: true
-      description: DELETE = 서버 저장 동의 철회와 서버 체크리스트 삭제를 함께 처리(정의서 비고).
+        "403":
+          description: CSRF_INVALID / ORIGIN_FORBIDDEN
+      x-confirmed: true
+      x-path-proposed: false
+      description: DELETE = 서버 저장 동의 철회와 서버 체크리스트 삭제를 함께 처리(정의서 비고). X-CSRF-Token 헤더 필요.
   /health:
     get:
       tags:
@@ -876,6 +952,12 @@ components:
           items:
             $ref: "#/components/schemas/ProcedureId"
           description: 함께 보면 좋은 절차 0~3개 (필드 이름·저장 위치는 제안, D4 보류)
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+    ContentVersion:
+      type: string
+      example: q98-f1c0959+su-v0.5
+      description: 안내 콘텐츠 버전(A07 목록·상세에 항상 포함, #148). 카카오 체크리스트 규칙과 같은 값(checklist/rules.py CONTENT_VERSION 한 곳에서 정함). 값이 바뀌면 안내가 갱신된 것
     SseEvents:
       description: text/event-stream 한 건의 data. 이벤트 이름(event:)에 따라 아래 중 하나입니다.
       oneOf:
@@ -978,7 +1060,9 @@ components:
         url:
           type: string
           format: uri
-      description: 출처 필드는 제안(RAG 계약 확정 후 맞춤)
+          nullable: true
+          description: 공식 HTTPS 주소. 안내 자료 출처는 URL이 없으면 null(전화번호·기관 안내 등, #96). 법령 출처는 항상 있음
+      description: 출처 제목과 공식 주소
     SseResultEvent:
       type: object
       description: "event: result (1번). 출처 0개면 state=withheld"
@@ -1000,7 +1084,7 @@ components:
         remainingToday:
           type: integer
           nullable: true
-          description: 비로그인 하루 10회 중 남은 횟수 (A10, J2). 필드 이름은 제안
+          description: 비로그인은 하루 10회 중 이번 질문까지 센 뒤 남은 횟수(KST 자정 초기화, A10·J2). 로그인 사용자는 null(1분 10회 제한은 429로만 알림)
         reasonCode:
           type: string
           nullable: true
