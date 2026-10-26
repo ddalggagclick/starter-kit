@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import threading
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -20,6 +21,7 @@ EMBEDDING_MODEL_REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"
 EMBEDDING_DIMENSION = 768
 QUERY_PROMPT = "task: search result | query: "
 DOCUMENT_PROMPT = "title: none | text: "
+TEXT_ONLY_ENV = "RAG_EMBEDDING_TEXT_ONLY"
 
 
 class EmbeddingError(RuntimeError):
@@ -46,12 +48,15 @@ def _load_sentence_transformer(model_id: str, revision: str) -> Any:
         from sentence_transformers import SentenceTransformer
     except ImportError as exc:  # pragma: no cover - packaging failure depends on environment
         raise RuntimeError("sentence-transformers is not installed") from exc
-    return SentenceTransformer(
-        model_id,
-        revision=revision,
-        local_files_only=True,
-        trust_remote_code=False,
-    )
+
+    kwargs: dict[str, Any] = {
+        "revision": revision,
+        "local_files_only": True,
+        "trust_remote_code": False,
+    }
+    if os.getenv(TEXT_ONLY_ENV, "").strip().lower() in {"1", "true", "yes", "on"}:
+        kwargs["config_kwargs"] = {"vision_config": None, "audio_config": None}
+    return SentenceTransformer(model_id, **kwargs)
 
 
 def _as_vector_rows(output: object) -> list[list[float]]:

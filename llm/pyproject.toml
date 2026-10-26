@@ -11,8 +11,12 @@ dependencies = [
     "langchain-core>=1,<2",
     "langchain-google-genai>=4,<5",
     "langchain-groq>=1,<2",  # 3-2-4: Gemini 제한·장애 시 자동 전환 대상
-    "langchain-ollama>=1,<2",  # 3-2-4: 전환 순서의 선택 항목(로컬 전용, LLM_FAILOVER_PROVIDERS에 ollama를 적을 때만 사용)
     "pydantic>=2,<3",
+]
+
+[project.optional-dependencies]
+ollama = [  # 로컬 개발 전용; 운영 설치에서는 제외
+    "langchain-ollama>=1,<2",
 ]
 
 [build-system]
