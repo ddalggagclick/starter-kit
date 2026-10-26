@@ -231,11 +231,11 @@ class AuthService:
             raise AuthError("unauthenticated")
         if not verify_password(password, user.password_hash):
             raise AuthError("forbidden")
-        sessions = self._repo.delete_user(user_id)
-        # 5-4-2: 계정을 지운 뒤 서버에 남은 계정 자료도 지운다.
+        # 5-4-2: 서버에 남은 계정 자료를 먼저 지우고 계정을 지운다. 자료 삭제가 실패하면 계정은 남아
+        # 다시 탈퇴할 수 있다(계정만 사라지고 자료가 남는 상태를 만들지 않는다).
         for hook in self._account_deleted:
             hook(user_id)
-        return sessions
+        return self._repo.delete_user(user_id)
 
     def _issue(self, user_id: str, family_id: str, now: float) -> IssuedTokens:
         refresh_token = secrets.token_urlsafe(32)

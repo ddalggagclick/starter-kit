@@ -12,6 +12,7 @@ import logging
 
 import pytest
 from fastapi.testclient import TestClient
+from inheritance.auth.jwt import AccessTokenInvalid
 from inheritance.chat import router as chat_router
 from inheritance.chat.services.answer import V1ChatAnswerService
 from inheritance.chat.services.question_router import ModelQuestionRouter
@@ -348,7 +349,7 @@ def test_member_is_not_limited_and_gets_null_remaining():
     class Member:
         def user_id_from_access(self, token):
             if token != "good":
-                raise ValueError("invalid")
+                raise AccessTokenInvalid
             return "user-1"
 
     client = make_client()
@@ -411,3 +412,29 @@ def test_chat_code_has_no_database_access():
             )
             found += [f"{source.name}:{n}" for n in names if n.startswith(banned)]
     assert found == []
+
+
+def _guest_remaining(client, forwarded: str) -> int:
+    response = client.post(
+        "/api/ai/ask",
+        json={"question": "상속 절차와 서류를 알려주세요", "requestId": "req-1"},
+        headers={"X-Forwarded-For": forwarded},
+    )
+    return events(response)[-1][1]["remainingToday"]
+
+
+def test_proxy_header_ignored_unless_trusted(monkeypatch):
+    # 설정이 없으면 X-Forwarded-For를 믿지 않는다(꾸민 헤더로 횟수를 우회할 수 없다).
+    monkeypatch.delenv("GUEST_LIMIT_TRUST_PROXY", raising=False)
+    client = make_client()
+    assert _guest_remaining(client, "1.1.1.1") == 9
+    assert _guest_remaining(client, "2.2.2.2") == 8
+
+
+def test_trusted_proxy_uses_rightmost_forwarded_ip(monkeypatch):
+    # Render: 프록시가 맨 오른쪽에 실제 접속 IP를 붙인다. 왼쪽(사용자가 꾸민 값)은 무시한다.
+    monkeypatch.setenv("GUEST_LIMIT_TRUST_PROXY", "true")
+    client = make_client()
+    assert _guest_remaining(client, "9.9.9.9, 203.0.113.1") == 9
+    assert _guest_remaining(client, "8.8.8.8, 203.0.113.1") == 8
+    assert _guest_remaining(client, "203.0.113.2") == 9

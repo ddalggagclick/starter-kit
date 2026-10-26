@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import suppress
@@ -23,6 +24,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from inheritance.auth.jwt import AccessTokenInvalid
 from inheritance.chat.schemas import AskRequest
 from inheritance.chat.services.answer import AnswerStage, ChatAnswerResult, ChatAnswerService
 from inheritance.chat.services.context import validate_chat_input
@@ -56,7 +58,7 @@ async def ask_ai(
     remaining = None
     limiter = getattr(request.app.state, "guest_limiter", None)
     if limiter is not None and not _is_member(request):
-        remaining = limiter.take(request.client.host if request.client else "unknown")
+        remaining = limiter.take(_client_ip(request))
         if remaining is None:
             # 비회원 하루 10회 초과(3-7-2). 스트림을 열기 전이라 HTTP 429로 답한다.
             code = ErrorCode.RATE_LIMITED
@@ -160,6 +162,17 @@ def _is_member(request: Request) -> bool:
         return False
     try:
         auth.user_id_from_access(token)
-    except Exception:  # noqa: BLE001 - 잘못된 토큰은 비회원으로 본다. 원인은 남기지 않는다.
+    except AccessTokenInvalid:
+        # 틀리거나 만료된 토큰은 비회원으로 센다. 그 밖의 예외는 버그라 숨기지 않는다.
         return False
     return True
+
+
+# Render 같은 프록시 뒤에서는 request.client가 프록시 IP다. GUEST_LIMIT_TRUST_PROXY=true일 때만
+# X-Forwarded-For의 맨 오른쪽 값(프록시가 직접 붙인 실제 접속 IP)을 쓴다. 왼쪽 값은 사용자가 꾸밀 수 있다.
+def _client_ip(request: Request) -> str:
+    if os.environ.get("GUEST_LIMIT_TRUST_PROXY", "").strip().lower() == "true":
+        forwarded = [part.strip() for part in request.headers.get("x-forwarded-for", "").split(",")]
+        if forwarded and forwarded[-1]:
+            return forwarded[-1]
+    return request.client.host if request.client else "unknown"

@@ -179,12 +179,7 @@ def create_auth_router(service: AuthService, security: WebSecuritySettings) -> A
     return router
 
 
-# JWT·CSRF 비밀값(32자 이상)이 없으면 인증 경로를 열지 않는다(None → main이 라우터를 붙이지 않음).
-def auth_router_from_env() -> APIRouter | None:
-    auth = auth_service_from_env()
-    return create_auth_router(*auth) if auth is not None else None
-
-
+# JWT·CSRF 비밀값(32자 이상)이 없으면 None(main이 인증 경로를 열지 않음).
 # 인증 서비스와 보안 설정을 한 번 만든다. A17·A08도 같은 서비스로 Access 토큰을 확인한다.
 def auth_service_from_env() -> tuple[AuthService, WebSecuritySettings] | None:
     signing_key = os.environ.get("JWT_SIGNING_KEY", "")
