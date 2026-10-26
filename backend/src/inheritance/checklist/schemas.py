@@ -27,6 +27,8 @@ class ProcedureSummary(CamelModel):
 
 class ProcedureListResponse(CamelModel):
     procedures: tuple[ProcedureSummary, ...] = Field(min_length=8, max_length=8)
+    # 2-2-2: 카카오(체크리스트 규칙)와 같은 안내 콘텐츠 버전(rules.CONTENT_VERSION 한 곳에서 정한다).
+    content_version: str
 
 
 class OfficialLink(CamelModel):
@@ -47,3 +49,8 @@ class ProcedureDetail(CamelModel):
     official_links: tuple[OfficialLink, ...]
     # 함께 보면 좋은 절차는 D4 보류라 지금은 항상 빈 목록이다.
     related_procedure_ids: tuple[ProcedureId, ...] = Field(default=(), max_length=3)
+
+
+class ProcedureDetailResponse(ProcedureDetail):
+    # 2-2-2: 카카오와 같은 안내 콘텐츠 버전.
+    content_version: str
