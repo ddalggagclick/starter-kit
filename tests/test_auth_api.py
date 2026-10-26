@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from inheritance.auth.email_sender import SmtpEmailSender, smtp_sender_from_env
 from inheritance.auth.jwt import AccessTokenCodec
 from inheritance.auth.repository import InMemoryAuthRepository
-from inheritance.auth.router import auth_router_from_env, create_auth_router
+from inheritance.auth.router import auth_service_from_env, create_auth_router
 from inheritance.auth.service import AuthService
 from inheritance.core.security import WebSecuritySettings
 from inheritance.main import create_app
@@ -241,11 +241,11 @@ def test_raw_password_and_tokens_are_not_stored(env):
 def test_auth_routes_closed_without_secrets(monkeypatch):
     monkeypatch.delenv("JWT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("CSRF_SECRET", raising=False)
-    assert auth_router_from_env() is None
+    assert auth_service_from_env() is None
     assert TestClient(create_app()).post("/api/auth/login", json={}).status_code == 404
     monkeypatch.setenv("JWT_SIGNING_KEY", "j" * 32)
     monkeypatch.setenv("CSRF_SECRET", "c" * 32)
-    assert auth_router_from_env() is not None
+    assert auth_service_from_env() is not None
 
 
 # ---- 리뷰 반영(PR #93): 재설정 메일 폭탄 방지, 동시 요청 ----------------------------

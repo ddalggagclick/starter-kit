@@ -131,6 +131,15 @@ class AuthService:
         self._failures = _SlidingWindow(login_failure_window_seconds)
         self._resends = _SlidingWindow(DAY_SECONDS)
         self._reset_requests = _SlidingWindow(DAY_SECONDS)
+        # 탈퇴 시 함께 지울 계정 자료(예: A17 서버 체크리스트). 저장 기능이 자기 삭제 함수를 등록한다.
+        self._account_deleted: list[Callable[[str], None]] = []
+
+    def on_account_deleted(self, hook: Callable[[str], None]) -> None:
+        self._account_deleted.append(hook)
+
+    @property
+    def deletes_server_checklist(self) -> bool:
+        return bool(self._account_deleted)
 
     # A11: 이메일 인증 전에는 로그인할 수 없다.
     def signup(self, email: str, password: str) -> None:
@@ -222,6 +231,10 @@ class AuthService:
             raise AuthError("unauthenticated")
         if not verify_password(password, user.password_hash):
             raise AuthError("forbidden")
+        # 5-4-2: 서버에 남은 계정 자료를 먼저 지우고 계정을 지운다. 자료 삭제가 실패하면 계정은 남아
+        # 다시 탈퇴할 수 있다(계정만 사라지고 자료가 남는 상태를 만들지 않는다).
+        for hook in self._account_deleted:
+            hook(user_id)
         return self._repo.delete_user(user_id)
 
     def _issue(self, user_id: str, family_id: str, now: float) -> IssuedTokens:

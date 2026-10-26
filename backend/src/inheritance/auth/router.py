@@ -72,7 +72,8 @@ def _run(action: Callable[..., Any], *args: Any) -> Any:
         raise _http_error(error) from None
 
 
-def _user_id(service: AuthService, authorization: str | None) -> str:
+# Authorization: Bearer 토큰에서 사용자 ID를 꺼낸다. 없거나 틀리면 401 UNAUTHENTICATED.
+def user_id_from_bearer(service: AuthService, authorization: str | None) -> str:
     scheme, _, token = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise _http_error(AuthError("unauthenticated"))
@@ -168,17 +169,19 @@ def create_auth_router(service: AuthService, security: WebSecuritySettings) -> A
         response: Response,
         authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, str]:
-        user_id = _user_id(service, authorization)
+        user_id = user_id_from_bearer(service, authorization)
         _run(service.delete_account, user_id, body.password)
         clear_refresh_cookie(response, security)
-        # 응답 모양은 openapi에 없어 제안 값이다. 서버 체크리스트 저장(A17)은 아직 없다.
-        return {"account": "deleted", "sessions": "deleted", "checklist": "not_stored"}
+        # 응답 모양은 openapi에 없어 제안 값이다. A17이 연결돼 있으면 서버 체크리스트도 함께 지운다.
+        checklist = "deleted" if service.deletes_server_checklist else "not_stored"
+        return {"account": "deleted", "sessions": "deleted", "checklist": checklist}
 
     return router
 
 
-# JWT·CSRF 비밀값(32자 이상)이 없으면 인증 경로를 열지 않는다(None → main이 라우터를 붙이지 않음).
-def auth_router_from_env() -> APIRouter | None:
+# JWT·CSRF 비밀값(32자 이상)이 없으면 None(main이 인증 경로를 열지 않음).
+# 인증 서비스와 보안 설정을 한 번 만든다. A17·A08도 같은 서비스로 Access 토큰을 확인한다.
+def auth_service_from_env() -> tuple[AuthService, WebSecuritySettings] | None:
     signing_key = os.environ.get("JWT_SIGNING_KEY", "")
     csrf_secret = os.environ.get("CSRF_SECRET", "")
     if len(signing_key) < 32 or len(csrf_secret) < 32:
@@ -192,4 +195,4 @@ def auth_router_from_env() -> APIRouter | None:
     # SMTP 설정이 없으면 메일을 보내지 않는다(NoEmailSender).
     email = smtp_sender_from_env(origin)
     service = AuthService(InMemoryAuthRepository(), AccessTokenCodec(signing_key), email)
-    return create_auth_router(service, security)
+    return service, security

@@ -12,9 +12,11 @@ import logging
 
 import pytest
 from fastapi.testclient import TestClient
+from inheritance.auth.jwt import AccessTokenInvalid
 from inheritance.chat import router as chat_router
 from inheritance.chat.services.answer import V1ChatAnswerService
 from inheritance.chat.services.question_router import ModelQuestionRouter
+from inheritance.chat.usage_limit import GuestDailyLimiter
 from inheritance.contracts.chat import AnswerReference
 from inheritance.contracts.law import LawEvidence, LawLookupResult, LawQuery
 from inheritance.core.dependencies import build_chat_service, law_from_env
@@ -110,7 +112,7 @@ def test_status_events_then_verified_answer(question, stages, cited):
     title, url = expected[cited]
     assert len(result["sources"]) == 1
     assert result["sources"][0]["url"] == url and title in result["sources"][0]["title"]
-    assert result["remainingToday"] is None and result["reasonCode"] is None
+    assert result["remainingToday"] == 9 and result["reasonCode"] is None
 
 
 def test_zero_evidence_is_withheld_without_writing():
@@ -122,7 +124,7 @@ def test_zero_evidence_is_withheld_without_writing():
         "state": "withheld",
         "answer": None,
         "sources": [],
-        "remainingToday": None,
+        "remainingToday": 9,
         "reasonCode": "SOURCE_NOT_VERIFIED",
     }
 
@@ -324,3 +326,115 @@ def test_answer_format_error_reason_is_null():
 def test_answered_reason_is_null():
     result = events(ask(make_client(), "상속 절차와 서류를 알려주세요"))[-1][1]
     assert (result["state"], result["reasonCode"]) == ("answered", None)
+
+
+# ---- 비회원 하루 10회 제한(3-7-2, 3-7-3) -------------------------------------------
+
+
+def test_guest_eleventh_question_is_rate_limited_before_stream():
+    client = make_client()
+    remaining = [events(ask(client, "상속 절차와 서류를 알려주세요"))[-1][1]["remainingToday"]]
+    remaining += [
+        events(ask(client, "상속 절차와 서류를 알려주세요"))[-1][1]["remainingToday"]
+        for _ in range(9)
+    ]
+    assert remaining == [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
+    limited = ask(client, "상속 절차와 서류를 알려주세요")
+    # Gemini 한도(PROVIDER_RATE_LIMIT)와 다른 코드다.
+    assert limited.status_code == 429
+    assert limited.json() == {"code": "RATE_LIMITED", "message": "RATE_LIMITED"}
+
+
+def test_member_is_not_limited_and_gets_null_remaining():
+    class Member:
+        def user_id_from_access(self, token):
+            if token != "good":
+                raise AccessTokenInvalid
+            return "user-1"
+
+    client = make_client()
+    client.app.state.auth_service = Member()
+    for _ in range(11):
+        response = client.post(
+            "/api/ai/ask",
+            json={"question": "상속 절차와 서류를 알려주세요", "requestId": "req-1"},
+            headers={"Authorization": "Bearer good"},
+        )
+        assert events(response)[-1][1]["remainingToday"] is None
+    # 틀린 토큰은 비회원으로 센다.
+    wrong = client.post(
+        "/api/ai/ask",
+        json={"question": "상속 절차와 서류를 알려주세요", "requestId": "req-1"},
+        headers={"Authorization": "Bearer bad"},
+    )
+    assert events(wrong)[-1][1]["remainingToday"] == 9
+
+
+def test_limiter_resets_daily_and_never_keeps_raw_ip():
+    day = ["2026-10-26"]
+    limiter = GuestDailyLimiter(limit=2, today=lambda: day[0])
+    assert [limiter.take("203.0.113.7") for _ in range(3)] == [1, 0, None]
+    assert limiter.take("198.51.100.1") == 1
+    assert "203.0.113.7" not in repr(vars(limiter))
+    day[0] = "2026-10-27"
+    assert limiter.take("203.0.113.7") == 1
+
+
+def test_unavailable_service_does_not_spend_guest_quota():
+    client = TestClient(create_app())
+    for _ in range(12):
+        assert (
+            client.post(
+                "/api/ai/ask", json={"question": "상속 절차", "requestId": "req-1"}
+            ).status_code
+            == 503
+        )
+
+
+# ---- 4-5-2: AI 질문·답변 원문은 PostgreSQL에 영구 저장하지 않는다 ---------------------------
+
+
+def test_chat_code_has_no_database_access():
+    import ast
+    from pathlib import Path
+
+    chat_root = Path(__file__).resolve().parents[1] / "backend" / "src" / "inheritance" / "chat"
+    banned = ("sqlalchemy", "asyncpg", "psycopg", "inheritance.core.database", "alembic")
+    found = []
+    for source in chat_root.rglob("*.py"):
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            names = (
+                [a.name for a in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+                if isinstance(node, ast.ImportFrom)
+                else []
+            )
+            found += [f"{source.name}:{n}" for n in names if n.startswith(banned)]
+    assert found == []
+
+
+def _guest_remaining(client, forwarded: str) -> int:
+    response = client.post(
+        "/api/ai/ask",
+        json={"question": "상속 절차와 서류를 알려주세요", "requestId": "req-1"},
+        headers={"X-Forwarded-For": forwarded},
+    )
+    return events(response)[-1][1]["remainingToday"]
+
+
+def test_proxy_header_ignored_unless_trusted(monkeypatch):
+    # 설정이 없으면 X-Forwarded-For를 믿지 않는다(꾸민 헤더로 횟수를 우회할 수 없다).
+    monkeypatch.delenv("GUEST_LIMIT_TRUST_PROXY", raising=False)
+    client = make_client()
+    assert _guest_remaining(client, "1.1.1.1") == 9
+    assert _guest_remaining(client, "2.2.2.2") == 8
+
+
+def test_trusted_proxy_uses_rightmost_forwarded_ip(monkeypatch):
+    # Render: 프록시가 맨 오른쪽에 실제 접속 IP를 붙인다. 왼쪽(사용자가 꾸민 값)은 무시한다.
+    monkeypatch.setenv("GUEST_LIMIT_TRUST_PROXY", "true")
+    client = make_client()
+    assert _guest_remaining(client, "9.9.9.9, 203.0.113.1") == 9
+    assert _guest_remaining(client, "8.8.8.8, 203.0.113.1") == 8
+    assert _guest_remaining(client, "203.0.113.2") == 9
