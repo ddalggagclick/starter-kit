@@ -99,9 +99,10 @@ class PostgresAuthRepository:
                 },
             )
 
-    # 행을 잠그고(FOR UPDATE) 확인과 '사용됨' 표시를 한 트랜잭션에서 한다. 이미 쓴 토큰이면 그 계열 전체를 끊는다.
-    def consume_session(
-        self, token_hash: str, now: float
+    # 한 트랜잭션 안에서 행을 잠그고(FOR UPDATE) 확인 → '사용됨' 표시 → 새 세션 저장까지 한다.
+    # 중간에 실패하면 모두 되돌아가 옛 토큰도 그대로 남는다. 이미 쓴 토큰이면 그 계열 전체를 끊는다.
+    def rotate_session(
+        self, token_hash: str, new_token_hash: str, new_expires_at: float, now: float
     ) -> tuple[ConsumeState, RefreshSession | None]:
         select = text(
             f"SELECT user_id, family_id, expires_at, used, revoked "
@@ -124,10 +125,21 @@ class PostgresAuthRepository:
                 text(f"UPDATE {self._s}.refresh_sessions SET used = true WHERE token_hash = :hash"),
                 {"hash": token_hash},
             )
-        session = RefreshSession(
-            token_hash, row.user_id, row.family_id, row.expires_at.timestamp(), used=True
-        )
-        return "ok", session
+            new = RefreshSession(new_token_hash, row.user_id, row.family_id, new_expires_at)
+            conn.execute(
+                text(
+                    f"INSERT INTO {self._s}.refresh_sessions "
+                    "(token_hash, user_id, family_id, expires_at, used, revoked) "
+                    "VALUES (:hash, :user, :family, :exp, false, false)"
+                ),
+                {
+                    "hash": new.token_hash,
+                    "user": new.user_id,
+                    "family": new.family_id,
+                    "exp": _ts(new.expires_at),
+                },
+            )
+        return "ok", new
 
     def revoke_session(self, token_hash: str) -> None:
         with self._engine.begin() as conn:

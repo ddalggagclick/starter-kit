@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 from urllib.parse import urlsplit
 
 from sqlalchemy import Engine, create_engine, make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -75,12 +76,21 @@ def create_sync_db_engine(settings: Settings) -> Engine:
     )
 
 
+class DatabaseConfigurationError(RuntimeError):
+    """DATABASE_URL이 있는데 잘못됨. 메모리 저장소로 넘어가지 않고 서버 시작을 멈춘다(PR #142 리뷰)."""
+
+
 def sync_db_engine_from_env() -> Engine | None:
-    """DATABASE_URL이 없으면 None(메모리 저장소). 설정이 잘못되면 None으로 두고 원인 문구는 버린다."""
+    """DATABASE_URL이 비어 있으면 None(메모리 저장소). 있는데 잘못되면 시작 실패.
+
+    조용히 메모리로 넘어가면 재시작 때 계정이 사라지는데도 알아채기 어렵다. 오류 문구에 접속 정보는 넣지 않는다.
+    """
     if not os.environ.get("DATABASE_URL", "").strip():
         return None
     try:
         return create_sync_db_engine(Settings.from_env())
-    except ValueError:
-        logger.warning("app.db", extra={"event": "app.db", "status": "invalid_settings"})
-        return None
+    except (ValueError, ArgumentError):
+        logger.error("app.db", extra={"event": "app.db", "status": "invalid_settings"})
+        raise DatabaseConfigurationError(
+            "DATABASE_URL 설정이 올바르지 않습니다(Supabase Session Pooler 5432 확인)"
+        ) from None

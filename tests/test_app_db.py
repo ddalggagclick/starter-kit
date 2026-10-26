@@ -18,7 +18,8 @@ from alembic.config import Config
 from inheritance.auth.db_repository import PostgresAuthRepository
 from inheritance.auth.models import OneTimeToken, RefreshSession, User
 from inheritance.checklist.server_storage import PostgresServerChecklistStore
-from inheritance.core.database import sync_db_engine_from_env
+from inheritance.core.database import DatabaseConfigurationError, sync_db_engine_from_env
+from inheritance.main import create_app
 
 POOLER = (
     "postgresql+asyncpg://postgres.abcdefghijklmnopqrst:secret-pw"
@@ -45,11 +46,28 @@ def test_alembic_app_revision_sql(monkeypatch):
     assert "secret-pw" not in sql
 
 
-def test_engine_none_without_or_with_invalid_database_url(monkeypatch):
+def test_engine_none_without_database_url(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     assert sync_db_engine_from_env() is None
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pw@127.0.0.1:5432/postgres")
-    assert sync_db_engine_from_env() is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql+asyncpg://user:secret-pw@127.0.0.1:5432/postgres",  # Pooler 아님
+        "not a url secret-pw",  # SQLAlchemy ArgumentError
+    ],
+)
+def test_invalid_database_url_stops_startup_without_secrets(monkeypatch, url):
+    # PR #142 리뷰: 설정 오류를 메모리 저장소로 조용히 넘기지 않는다.
+    monkeypatch.setenv("DATABASE_URL", url)
+    with pytest.raises(DatabaseConfigurationError) as caught:
+        sync_db_engine_from_env()
+    assert "secret-pw" not in str(caught.value)
+    monkeypatch.setenv("JWT_SIGNING_KEY", "j" * 32)
+    monkeypatch.setenv("CSRF_SECRET", "c" * 32)
+    with pytest.raises(DatabaseConfigurationError):
+        create_app()
 
 
 def test_engine_uses_psycopg_and_tls_for_pooler(monkeypatch):
@@ -103,13 +121,13 @@ def test_db_refresh_rotation_and_reuse_detection(engine, user):
     now = time.time()
     family = uuid.uuid4().hex
     repo.add_session(RefreshSession("h1-" + family, user.user_id, family, now + 600))
-    repo.add_session(RefreshSession("h2-" + family, user.user_id, family, now + 600))
-    state, session = repo.consume_session("h1-" + family, now)
-    assert state == "ok" and session.user_id == user.user_id
-    # 같은 토큰을 다시 쓰면 재사용 탐지 → 같은 계열 전체 무효
-    assert repo.consume_session("h1-" + family, now)[0] == "reused"
-    assert repo.consume_session("h2-" + family, now)[0] == "invalid"
-    assert repo.consume_session("missing", now)[0] == "invalid"
+    # 한 트랜잭션에서 옛 토큰 사용 처리 + 새 토큰 저장
+    state, new = repo.rotate_session("h1-" + family, "h2-" + family, now + 600, now)
+    assert state == "ok" and new.user_id == user.user_id and new.family_id == family
+    # 같은 옛 토큰을 다시 쓰면 재사용 탐지 → 새로 받은 토큰까지 같은 계열 전체 무효
+    assert repo.rotate_session("h1-" + family, "h3-" + family, now + 600, now)[0] == "reused"
+    assert repo.rotate_session("h2-" + family, "h4-" + family, now + 600, now)[0] == "invalid"
+    assert repo.rotate_session("missing", "h5-" + family, now + 600, now)[0] == "invalid"
 
 
 @integration
@@ -139,12 +157,14 @@ def test_db_checklist_overwrite_and_cascade_delete(engine, user):
     assert repo.delete_user(user.user_id) == 1
     # 사용자 삭제 → 세션·체크리스트 CASCADE
     assert store.get(user.user_id) is None
-    assert repo.consume_session("s-" + user.user_id, time.time())[0] == "invalid"
+    later = time.time()
+    assert repo.rotate_session("s-" + user.user_id, "n-" + user.user_id, later + 60, later)[0] == (
+        "invalid"
+    )
 
 
 def test_app_uses_db_repositories_only_with_database_url(monkeypatch):
     from inheritance.auth.repository import InMemoryAuthRepository
-    from inheritance.main import create_app
 
     monkeypatch.setenv("JWT_SIGNING_KEY", "j" * 32)
     monkeypatch.setenv("CSRF_SECRET", "c" * 32)
@@ -157,3 +177,31 @@ def test_app_uses_db_repositories_only_with_database_url(monkeypatch):
     db_app = create_app()  # 엔진은 접속을 미루므로 여기서 DB에 연결하지 않는다.
     assert isinstance(db_app.state.auth_service._repo, PostgresAuthRepository)
     db_app.state.db_engine.dispose()
+
+
+def test_rotation_is_atomic_under_concurrency():
+    # PR #142 리뷰: 같은 Refresh 토큰으로 동시에 갱신해도 정확히 1건만 성공하고 새 세션은 1개만 생긴다.
+    import threading
+
+    from inheritance.auth.repository import InMemoryAuthRepository
+
+    repo = InMemoryAuthRepository()
+    repo.add_user(User("u1", "u1@example.com", "hash"))
+    now = time.time()
+    repo.add_session(RefreshSession("old", "u1", "fam", now + 600))
+    results: list[str] = []
+
+    def rotate(i: int) -> None:
+        results.append(repo.rotate_session("old", f"new-{i}", now + 600, now)[0])
+
+    threads = [threading.Thread(target=rotate, args=(i,)) for i in range(20)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    # 성공은 정확히 1건. 첫 재사용 탐지로 계열이 끊긴 뒤의 요청은 invalid가 된다.
+    assert results.count("ok") == 1
+    assert set(results) - {"ok"} <= {"reused", "invalid"} and "reused" in results
+    # 재사용이 탐지돼 성공한 쪽의 새 토큰도 끊겼다(탈취 대응).
+    winner = next(f"new-{i}" for i in range(20) if repo._sessions.get(f"new-{i}"))
+    assert repo._sessions[winner].revoked is True

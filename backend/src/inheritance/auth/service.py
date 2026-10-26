@@ -188,10 +188,15 @@ class AuthService:
         if not refresh_token:
             raise AuthError("refresh_invalid")
         now = self._clock()
-        state, session = self._repo.consume_session(_hash(refresh_token), now)
-        if state != "ok" or session is None or self._repo.user_by_id(session.user_id) is None:
+        new_token = secrets.token_urlsafe(32)
+        # 옛 토큰 사용 처리와 새 토큰 저장을 한 번에(원자적으로) 한다. 사용자가 지워지면 세션도 함께 지워진다.
+        state, session = self._repo.rotate_session(
+            _hash(refresh_token), _hash(new_token), now + self._refresh_ttl, now
+        )
+        if state != "ok" or session is None:
             raise AuthError("refresh_invalid")
-        return self._issue(session.user_id, session.family_id, now)
+        access_token = self._access.issue(session.user_id, int(now))
+        return IssuedTokens(access_token, self._access.ttl_seconds, new_token)
 
     def logout(self, refresh_token: str | None) -> None:
         if refresh_token:
