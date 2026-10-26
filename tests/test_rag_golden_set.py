@@ -129,7 +129,8 @@ class SourceV2EvaluationCliTests(unittest.TestCase):
                     evaluate_source_v2_golden(dataset_path=dataset, out_path=output), 0
                 )
             self.assertEqual(
-                json.loads(output.read_text())["status"], "measured_retrieval_relevance_only"
+                json.loads(output.read_text(encoding="utf-8"))["status"],
+                "measured_retrieval_relevance_only",
             )
             self.assertIn(f"RESULT: {output}", stdout.getvalue())
 

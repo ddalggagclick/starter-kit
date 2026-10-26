@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import tempfile
 import unittest
@@ -160,7 +161,9 @@ class RagHitlReviewTests(unittest.TestCase):
 
     def test_승인_검토를_원본과_수정내용에_묶는다(self):
         write_review(self.path, self._correct(self._review()))
-        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+        if os.name == "posix":
+            # Windows chmod exposes a read-only flag, not POSIX permission bits.
+            self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
         with self.assertRaises(ReviewError):
             read_review(self.path, require_approved=True)
         approve_review(self.path)
@@ -168,14 +171,27 @@ class RagHitlReviewTests(unittest.TestCase):
             self.path, require_approved=True, source=self.pdf, source_id="guide-1", version="v1"
         )
         self.assertEqual(len(result.elements), 4)
-        data = json.loads(self.path.read_text())
-        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        if os.name == "posix":
+            # Windows chmod exposes a read-only flag, not POSIX permission bits.
+            self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
         self.assertTrue(data["approval"]["approved_by"])
         self.assertTrue(data["approval"]["approved_at"].endswith("+00:00"))
         data["corrections"][0]["detached_notes"][0] += " edited"
-        self.path.write_text(json.dumps(data))
+        self.path.write_text(json.dumps(data), encoding="utf-8")
         with self.assertRaises(ReviewError):
             read_review(self.path, require_approved=True)
+
+    def test_검토_JSON은_UTF8_한글을_보존한다(self):
+        data = self._correct(self._review())
+        data["source"]["source_id"] = "guide-한글"
+
+        write_review(self.path, data)
+
+        serialized = self.path.read_bytes().decode("utf-8")
+        restored, _ = read_review(self.path)
+        self.assertIn("guide-한글", serialized)
+        self.assertEqual(restored["source"]["source_id"], "guide-한글")
 
     def test_원본이_바뀌면_승인을_무효화한다(self):
         write_review(self.path, self._correct(self._review()))

@@ -10,6 +10,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import ANY, AsyncMock, patch
 
+from rag_test_fixtures import environment_with_home
 from starter_rag import cli as rag_cli
 
 
@@ -19,6 +20,17 @@ class SourceV2CliTests(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.source_path = Path(self.temp_dir.name) / "Source_v2.xlsx"
         self.source_path.touch()
+        self.rag_config_path = Path(self.temp_dir.name) / "config.json"
+        config_environment = patch.dict(
+            "os.environ", {"RAG_CONFIG_PATH": str(self.rag_config_path)}
+        )
+        config_environment.start()
+        self.addCleanup(config_environment.stop)
+
+    def _isolated_environment(self, overrides: dict[str, str] | None = None) -> dict[str, str]:
+        values = {"RAG_CONFIG_PATH": str(self.rag_config_path)}
+        values.update(overrides or {})
+        return environment_with_home(values)
 
     def test_검증명령은계약정보를출력한다(self) -> None:
         stdout = StringIO()
@@ -132,7 +144,7 @@ class SourceV2CliTests(unittest.TestCase):
     def test_소스_v2_색인은_환경_토크나이저와_기본_격리_컬렉션을_사용한다(self) -> None:
         environment = {"RAG_TOKENIZER_PATH": "/env/tokenizer"}
         with (
-            patch.dict("os.environ", environment, clear=True),
+            patch.dict("os.environ", self._isolated_environment(environment), clear=True),
             patch.object(rag_cli, "_load_tokenizer", return_value=object()) as load_tokenizer,
             patch.object(
                 rag_cli,
@@ -166,7 +178,7 @@ class SourceV2CliTests(unittest.TestCase):
     def test_일반_색인은_URL없이_색인만_수행한다(self) -> None:
         environment = {"RAG_TOKENIZER_PATH": "/env/tokenizer"}
         with (
-            patch.dict("os.environ", environment, clear=True),
+            patch.dict("os.environ", self._isolated_environment(environment), clear=True),
             patch.object(rag_cli, "_index_file", return_value=0) as index,
             patch.object(rag_cli, "_publish") as publish,
         ):
@@ -201,7 +213,11 @@ class SourceV2CliTests(unittest.TestCase):
         publish.assert_not_called()
 
     def test_합성_색인은_별도_collection과_표시된_제목을_요구한다(self) -> None:
-        with patch.dict("os.environ", {"RAG_TOKENIZER_PATH": "/env/tokenizer"}, clear=True):
+        with patch.dict(
+            "os.environ",
+            self._isolated_environment({"RAG_TOKENIZER_PATH": "/env/tokenizer"}),
+            clear=True,
+        ):
             stderr = StringIO()
             with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
                 rag_cli.main(
@@ -227,7 +243,7 @@ class SourceV2CliTests(unittest.TestCase):
         stderr = StringIO()
 
         with (
-            patch.dict("os.environ", {}, clear=True),
+            patch.dict("os.environ", self._isolated_environment(), clear=True),
             redirect_stderr(stderr),
         ):
             exit_code = rag_cli.main(["index", str(self.source_path), "--type", "source-v2"])
