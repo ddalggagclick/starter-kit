@@ -108,12 +108,22 @@ describe("W-04 상세", () => {
     expect(sections.map((d) => d.open)).toEqual([false, true, true, true])
   })
 
-  it("공식 링크가 없는 p02는 '공식 링크에서 직접 확인'과 이유를 보인다", async () => {
+  it("p02는 대법원 전자가족관계등록시스템·정부24 공식 링크를 새 탭으로 보이고 링크 없음 안내는 없다", async () => {
     renderAt("/procedures/p02")
     const sources = await screen.findByRole("region", { name: "공식 출처" })
-    expect(within(sources).queryAllByRole("link")).toHaveLength(0)
-    expect(within(sources).getByText("공식 링크에서 직접 확인하세요.")).toBeTruthy()
-    expect(within(sources).getByText(/연결할 공식 안내 페이지가 없습니다/)).toBeTruthy()
+    const links = within(sources).getAllByRole("link")
+    // 2026-10-26 B1 확인 링크(요청 원문 순서)
+    expect(
+      links.map((link) => [
+        link.textContent?.replace("(새 창)", "").trim(),
+        link.getAttribute("href"),
+      ]),
+    ).toEqual([
+      ["대법원 전자가족관계등록시스템", "https://efamily.scourt.go.kr/"],
+      ["정부24", "https://www.gov.kr/"],
+    ])
+    expect(links.every((link) => link.getAttribute("target") === "_blank")).toBe(true)
+    expect(within(sources).queryByText(/연결할 공식 안내 페이지가 없습니다/)).toBeNull()
   })
 
   it("오류 제보 Mock 모달은 열고 닫히며 전송 기능이 없다", async () => {

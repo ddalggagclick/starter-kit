@@ -57,13 +57,12 @@ describe("A07 절차 Mock", () => {
     ])
   })
 
-  it("관련 절차는 D4 보류라 비어 있고, p02를 뺀 절차는 공식 링크가 있다", async () => {
+  it("관련 절차는 D4 보류라 비어 있고, 모든 절차에 공식 링크가 있다", async () => {
     for (const { procedureId } of (await listProcedures(fast)).procedures) {
       const detail = await getProcedure(procedureId, fast)
       expect(detail.relatedProcedureIds).toEqual([])
-      // p02는 팀 시트 주소가 발급 신청 화면이라 링크를 넣지 않기로 했다(2026-10-22 원고 결정).
-      if (procedureId === "p02") expect(detail.officialLinks).toEqual([])
-      else expect(detail.officialLinks.length).toBeGreaterThan(0)
+      // p02도 2026-10-26 B1 확인 링크를 넣어 이제 모든 절차에 공식 링크가 있다(2026-10-22 결정 변경).
+      expect(detail.officialLinks.length).toBeGreaterThan(0)
     }
   })
 
