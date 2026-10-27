@@ -28,6 +28,7 @@ from inheritance.chat.services.citation_validation import (
     CitationValidator,
     CitationValidatorPort,
     extract_cited_ids,
+    number_citations,
 )
 from inheritance.chat.services.context import validate_chat_input
 from inheritance.chat.services.prompt_builder import AnswerPromptBuilder, AnswerPromptBuilderPort
@@ -130,7 +131,10 @@ class V1ChatAnswerService:
             references = self._validator.validate_and_resolve(extract_cited_ids(text), rag, laws)
         except CitationMismatch:
             return _withheld(request_id, ErrorCode.CITATION_MISMATCH)
-        return ChatAnswerResult(AnswerOutcome("answered", text, references, request_id))
+        # references는 처음 인용된 순서라 본문의 [n]이 references[n-1]을 가리킨다.
+        return ChatAnswerResult(
+            AnswerOutcome("answered", number_citations(text), references, request_id)
+        )
 
     async def _gather(
         self, question: str, decision: RouteDecision, notify: ProgressCallback

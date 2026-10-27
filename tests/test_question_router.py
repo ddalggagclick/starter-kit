@@ -188,7 +188,7 @@ def test_fake_flow_classifies_once_and_answers_once(question, searched, looked_u
     # Fake는 user 메시지의 첫 [[근거ID]]를 인용한다(#69). 프롬프트는 [안내자료]가 [법령 조문]보다 앞이다.
     cited = "rag-1" if searched else "law-1"
     assert result.outcome.status == "answered" and result.error_code is None
-    assert result.outcome.answer_text.endswith(f"[[{cited}]]")
+    assert result.outcome.answer_text.endswith("[1]")
     assert [ref.evidence_id for ref in result.outcome.references] == [cited]
 
 

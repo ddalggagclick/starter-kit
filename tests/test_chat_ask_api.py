@@ -108,7 +108,7 @@ def test_status_events_then_verified_answer(question, stages, cited):
     assert [data["stage"] for _, data in items[:-1]] == stages
     result = items[-1][1]
     assert result["state"] == "answered"
-    assert result["answer"].endswith(f"[[{cited}]]")
+    assert result["answer"].endswith("[1]") and cited not in result["answer"]
     expected = {
         "rag-1": ("상속 절차 안내", RAG.source.url),
         "law-1": ("민법", ARTICLE.official_url),
