@@ -1,9 +1,19 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 # [통합] Vercel Large Functions: Docker image used as a Vercel Function.
 # Build from repository root. Never copy local venv, model cache, or credentials.
-FROM python:3.13-slim-bookworm AS build
+FROM --platform=linux/amd64 node:24.22.1-bookworm-slim@sha256:2dd9a4f758e173b65fee15388f7706af6fb01ef50cf7a2c0538711d67a6981ae AS node-runtime
+ENV npm_config_cache=/opt/npm-cache
 
-COPY --from=ghcr.io/astral-sh/uv:0.10.0 /uv /usr/local/bin/uv
+# Prewarm npx's cache with the exact package version and verify offline execution.
+RUN test "$(node --version)" = "v24.22.1" \
+    && npm --version \
+    && npx --version \
+    && npx --yes --package=korean-law-mcp@4.15.7 -- sh -c 'command -v korean-law-mcp' \
+    && npm_config_offline=true npx --yes --package=korean-law-mcp@4.15.7 -- sh -c 'command -v korean-law-mcp'
+
+FROM --platform=linux/amd64 python:3.13-slim-bookworm@sha256:89c04d97d1f3f0a04ea357a27d000ba4efb18536d2d68a54611f76d5c1b5fe99 AS build
+
+COPY --from=ghcr.io/astral-sh/uv:0.10.0@sha256:be9de3400e4a2046a9de5b065d2128284bf848ff857326bfc4dd372fc2c22639 /uv /usr/local/bin/uv
 WORKDIR /app
 ENV UV_PYTHON_DOWNLOADS=never \
     UV_LINK_MODE=copy \
@@ -57,8 +67,11 @@ snapshot_download(
 PY
 
 # Keep only the runtime virtualenv, model cache, and application entrypoint.
-FROM python:3.13-slim-bookworm AS runtime
+FROM --platform=linux/amd64 python:3.13-slim-bookworm@sha256:89c04d97d1f3f0a04ea357a27d000ba4efb18536d2d68a54611f76d5c1b5fe99 AS runtime
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -70,6 +83,19 @@ ENV PATH=/app/.venv/bin:$PATH \
 COPY --from=build /app/.venv /app/.venv
 COPY --from=build /opt/hf-cache /opt/hf-cache
 COPY backend/app_entry.py /app/backend/app_entry.py
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=node-runtime /opt/npm-cache /opt/npm-cache
+
+# Keep npx offline in production and validate its pinned build-time cache.
+RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && npm config set cache /opt/npm-cache --location=global \
+    && npm config set offline true --location=global \
+    && test "$(node --version)" = "v24.22.1" \
+    && npm --version \
+    && npx --version \
+    && npx --yes --package=korean-law-mcp@4.15.7 -- sh -c 'command -v korean-law-mcp'
 
 # Vercel container functions expect an HTTP listener at PORT (default: 80).
 EXPOSE 80
