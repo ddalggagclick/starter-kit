@@ -5,13 +5,14 @@ import "fake-indexeddb/auto"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createMemoryRouter, RouterProvider } from "react-router"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { appRoutes, createQueryClient } from "@/app"
 import { useAuthStore } from "@/features/auth/auth-store"
 import { resetMockApiState } from "@/mocks/mock-api"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { grantConsent } from "@/shared/storage/consent"
 import { accountNamespace, GUEST_NAMESPACE, inheritanceDb } from "@/shared/storage/db"
+import { ChatConsentBand } from "./chat-history"
 import { useChatSessionStore } from "./chat-store"
 
 const ANSWER_TIMEOUT = { timeout: 6000 }
@@ -40,6 +41,8 @@ const ask = async (question: string) => {
 
 const consentInBand = async () => {
   const band = await screen.findByRole("region", { name: "AI 대화 저장" })
+  // #197: 동의는 [저장 설정]을 눌러 여는 모달에서 받는다(모달은 띠 안에 그려진다).
+  fireEvent.click(within(band).getByRole("button", { name: "저장 설정" }))
   fireEvent.click(within(band).getByLabelText("AI 대화 저장 정책을 확인했습니다"))
   fireEvent.click(within(band).getByRole("button", { name: "저장" }))
   await screen.findByText(/AI 대화 저장: ● 이 기기에 저장 중/)
@@ -280,4 +283,29 @@ describe("계정별 대화 분리 (4-2-2)", () => {
     expect(screen.queryByRole("button", { name: /이전 대화/ })).toBeNull()
     expect(screen.queryByText("A의 질문")).toBeNull()
   }, 15_000)
+})
+
+// #197: 동의 모달 자체 동작. 저장 흐름 전체는 위 화면 테스트가 확인한다.
+describe("ChatConsentBand 모달 (#197)", () => {
+  it("[저장 설정]을 눌러야 모달이 열리고, 체크 전에는 [저장]이 막히며, Esc로 닫으면 고르지 않은 것이다", () => {
+    const onDecline = vi.fn()
+    render(
+      <ChatConsentBand
+        status="not-consented"
+        declined={false}
+        onGrant={vi.fn(async () => true)}
+        onDecline={onDecline}
+      />,
+    )
+
+    expect(screen.queryByRole("dialog")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "저장 설정" }))
+    expect(screen.getByRole("dialog", { name: "AI 대화를 이 기기에 저장할까요?" })).toBeTruthy()
+    expect((screen.getByRole("button", { name: "저장" }) as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(onDecline).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "저장 설정" })).toBeTruthy()
+  })
 })
