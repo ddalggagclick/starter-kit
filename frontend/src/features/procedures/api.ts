@@ -8,11 +8,11 @@
  */
 import { useQuery } from "@tanstack/react-query"
 import { getProcedure, listProcedures } from "@/mocks/mock-api"
-import type { ProcedureDetail, ProcedureListResponse } from "@/mocks/wire-types"
 import { loadApiClient, USE_MOCK_API } from "@/shared/api/data-source"
 import type { operations } from "@/shared/api/schema"
 import type { ProcedureDetailWire } from "@/shared/api/types"
 import type { ProcedureId } from "@/shared/contracts/domain"
+import type { ProcedureDetail, ProcedureListResponse } from "@/shared/contracts/procedure"
 
 type ProcedureListWire =
   operations["A07_listProcedures"]["responses"][200]["content"]["application/json"]

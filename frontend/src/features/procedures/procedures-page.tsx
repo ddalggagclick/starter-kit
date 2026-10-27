@@ -7,8 +7,8 @@
 import { ChevronRight } from "lucide-react"
 import { Link } from "react-router"
 import { Notice } from "@/components/ui/notice"
-import { COMMON_RISK_WARNING } from "@/mocks/checklist"
-import { MOCK_DEADLINE_TAGS } from "@/mocks/procedures"
+import { COMMON_RISK_WARNING } from "@/shared/content/checklist"
+import { MOCK_DEADLINE_TAGS } from "@/shared/content/procedures"
 import { procedureNumber, useProcedureList } from "./api"
 import { RecheckBadge } from "./guidance-read-toggle"
 

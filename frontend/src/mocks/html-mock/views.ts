@@ -3,17 +3,14 @@
  * 제한사항: 화면 배치 확인용 와이어프레임이다. 정식 React 화면·디자인 시스템을 대신하지 않는다.
  *   모든 화면 맨 위에 공통 위험 경고를 둔다(Q70). 상태는 색만으로 구분하지 않고 문구를 함께 쓴다.
  */
-import type { ProcedureId } from "@/shared/contracts/domain"
-import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
+
 import {
   GUEST_DAILY_LIMIT,
-  MOCK_AI_SCENARIO_LABELS,
   MOCK_EXAMPLE_QUESTIONS,
-  type MockAiScenario,
   PRIVACY_WARNING,
   SSE_STAGE_LABELS,
   WITHHELD_COPY,
-} from "../ai-stream"
+} from "@/shared/content/chat"
 import {
   COMMON_RISK_WARNING,
   CONSENT_COPY,
@@ -27,16 +24,23 @@ import {
   RELATIONSHIP_OPTIONS,
   RISK_QUESTIONS,
   STORAGE_STATUS_LABELS,
-} from "../checklist"
-import { conversationTitle, EMPTY_CONVERSATIONS_COPY, LEAVE_CONFIRM_COPY } from "../conversations"
-import { FEEDBACK_MOCK_COPY, INHERITANCE_TAX_GUIDE, RELATIONSHIP_GUIDE } from "../general-info"
-import { MOCK_ACCOUNT, MOCK_VALID_HANDOFF_TOKEN } from "../mock-api"
+} from "@/shared/content/checklist"
+import {
+  FEEDBACK_MOCK_COPY,
+  INHERITANCE_TAX_GUIDE,
+  RELATIONSHIP_GUIDE,
+} from "@/shared/content/general-info"
 import {
   findProcedureName,
   MOCK_DEADLINE_TAGS,
   MOCK_PROCEDURE_DETAILS,
   MOCK_PROCEDURE_SUMMARIES,
-} from "../procedures"
+} from "@/shared/content/procedures"
+import type { ProcedureId } from "@/shared/contracts/domain"
+import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
+import { MOCK_AI_SCENARIO_LABELS, type MockAiScenario } from "../ai-stream"
+import { conversationTitle, EMPTY_CONVERSATIONS_COPY, LEAVE_CONFIRM_COPY } from "../conversations"
+import { MOCK_ACCOUNT, MOCK_VALID_HANDOFF_TOKEN } from "../mock-api"
 import type { OfficialLink, SseSource } from "../wire-types"
 import type { ChatMessage, MockState } from "./state"
 

@@ -4,7 +4,7 @@
 -->
 # Mock (10/23 1차 발표 · 화면 개발용)
 
-**실제 Backend · LLM · RAG · DB 연동이 아닙니다.** 문구 · 기한 · 링크는 검수 전 예시입니다.
+**실제 Backend · LLM · RAG · DB 연동이 아닙니다.** 가짜 서버 응답과 Mock 전용 문구만 둡니다.
 
 ## 근거
 
@@ -15,13 +15,21 @@
 
 | 파일 | 내용 | API / 화면 |
 |---|---|---|
-| `wire-types.ts` | openapi 스키마를 옮긴 Mock 전용 타입 | 전체 |
-| `procedures.ts` | 절차 8개 목록 · 상세 · 기한 꼬리표 | A07 · W-02 · W-03 · W-04 · K-04 |
-| `checklist.ts` | 초기 3문항 · 위험 질문 3개 · 공통 경고 · 저장 상태 · 진입 시나리오 | W-01 · W-02 R/P/C · K-01~K-03 |
-| `ai-stream.ts` | SSE `Response` 생성기 · 시나리오(S3/S6/S7/S9) · S1/S7 문구 | A08 · W-07 |
+| `wire-types.ts` | openapi 스키마를 옮긴 Mock 전용 타입(절차 화면 타입은 `shared/contracts/procedure.ts`에서 가져옴) | 전체 |
+| `ai-stream.ts` | SSE `Response` 생성기 · 시나리오(S3/S6/S7/S9) | A08 · W-07 |
 | `conversations.ts` | 이전 대화 · S8 · S11 문구 | W-07 S8 · S10 · S11 |
-| `general-info.ts` | 상속 관계 · 상속세 · 오류 제보 Mock | W-05 · W-06 · W-08 |
 | `mock-api.ts` | 지연 · 취소 · HTTP 오류를 흉내 내는 함수 | A05 · A07 · A08 · A11~A17 |
+
+### 실제 화면 문구는 `shared/content/`로 옮겼습니다 (2026-10-27)
+
+실제 서비스 화면에 나가는 문구가 이 폴더에 있어 가짜 데이터로 오해되던 문제를 고쳤습니다. 문구는 바꾸지 않고 위치만 옮겼습니다. Mock과 화면이 같은 파일을 함께 씁니다.
+
+| 파일 | 내용 | 화면 |
+|---|---|---|
+| `shared/content/procedures.ts` | 절차 8개 원고(작성자 공식 원문 대조) · 기한 꼬리표 · 공식 링크. 백엔드 시험이 이 파일과 원고를 비교 | A07 · W-02 · W-03 · W-04 · K-04 |
+| `shared/content/checklist.ts` | 초기 3문항 · 위험 질문 3개 · 공통 경고 · 저장 상태 · 진입 시나리오 | W-01 · W-02 R/P/C · K-01~K-03 |
+| `shared/content/general-info.ts` | 상속 관계 · 상속세(B1 검수 완료) · 오류 제보 문구 | W-05 · W-06 · W-08 |
+| `shared/content/chat.ts` | 예시 질문 · 개인정보 경고 · 판단 유보 · 진행 단계 · 하루 한도 | W-07 |
 
 ## 확인용 값
 

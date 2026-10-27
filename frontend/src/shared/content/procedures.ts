@@ -1,5 +1,6 @@
 /*
  * 담당: [A] | 책임: A07 절차 목록·상세 데이터 (W-02·W-03·W-04·K-04 표시용).
+ * 이동: 2026-10-27 frontend/src/mocks에서 옮겼다(실제 화면 문구를 Mock과 분리). 문구는 바꾸지 않았다.
  * 근거: "W-04 공식 안내 원고 — p01~p08" (김현주, 2026-10-22, PRD 2-3-3·1-3-2).
  *   작성자가 공식 원문과 대조를 마쳤다(2026-10-22). B3 1차 검수 표시는 아직 없으므로 '검수 완료'로 표시하지 않는다.
  *   절차 번호는 백엔드 D6 기준이다(p08 = 고인 명의 휴대전화). 원고 칸 = openapi A07 ProcedureDetail.
@@ -10,7 +11,7 @@
  *   사용자 개인의 기한·자격·법적 효과를 판단하지 않는다.
  */
 import type { ProcedureId } from "@/shared/contracts/domain"
-import type { OfficialLink, ProcedureDetail, ProcedureSummary } from "./wire-types"
+import type { OfficialLink, ProcedureDetail, ProcedureSummary } from "@/shared/contracts/procedure"
 
 export const PROCEDURE_IDS: readonly ProcedureId[] = [
   "p01",

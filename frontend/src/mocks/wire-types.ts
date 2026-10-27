@@ -4,7 +4,7 @@
  * 제한사항: 승인된 생성 타입(shared/api/schema.d.ts)을 대신하지 않는다. Mock 밖에서 import하지 않는다.
  *   API 담당자 승인 후 openapi-typescript 생성 타입으로 교체한다.
  */
-import type { AnswerChoice, ProcedureId, Relationship, RiskId } from "@/shared/contracts/domain"
+import type { AnswerChoice, Relationship, RiskId } from "@/shared/contracts/domain"
 
 // components/schemas/Error — code는 core/errors.py 기준
 export type ErrorBody = { code: string; message: string; requestId?: string }
@@ -19,27 +19,13 @@ export type HandoffPayload = {
   risks?: { riskId: RiskId; answer: AnswerChoice }[]
 }
 
-// A07 목록 (openapi 0.2.1 x-confirmed: true)
-export type ProcedureSummary = { procedureId: ProcedureId; name: string; summary: string }
-export type ProcedureListResponse = { procedures: ProcedureSummary[] }
-
-export type OfficialLink = { title: string; url: string }
-
-// A07 상세. 이름(name)은 상세 스키마에 없어 목록의 name과 합쳐 표시한다.
-export type ProcedureDetail = {
-  procedureId: ProcedureId
-  action: string
-  deadline: string
-  risk: string
-  agency: string
-  documents: string[]
-  methods: string[]
-  exceptions: string[]
-  contacts: string[]
-  officialLinks: OfficialLink[]
-  // 0~3개. 필드 이름·저장 위치는 D4 보류
-  relatedProcedureIds: ProcedureId[]
-}
+// A07 화면용 절차 타입은 shared/contracts/procedure.ts로 옮겼다(실제 화면과 함께 씀). Mock 코드는 여기서 그대로 가져온다.
+export type {
+  OfficialLink,
+  ProcedureDetail,
+  ProcedureListResponse,
+  ProcedureSummary,
+} from "@/shared/contracts/procedure"
 
 // A08 요청
 export type AskAiRequest = {

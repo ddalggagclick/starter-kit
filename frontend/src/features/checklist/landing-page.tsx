@@ -9,7 +9,7 @@ import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Notice } from "@/components/ui/notice"
-import { COMMON_RISK_WARNING, LANDING_COPY, LEGAL_DISCLAIMER } from "@/mocks/checklist"
+import { COMMON_RISK_WARNING, LANDING_COPY, LEGAL_DISCLAIMER } from "@/shared/content/checklist"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 
 const ENTRY_LINKS = [

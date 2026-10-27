@@ -1,5 +1,6 @@
 /*
  * 담당: [A] | 책임: W-05 상속 관계 · W-06 상속세 안내 문구(검수 완료), W-08 오류 제보 Mock 문구.
+ * 이동: 2026-10-27 frontend/src/mocks에서 옮겼다(실제 화면 문구를 Mock과 분리). 문구는 바꾸지 않았다.
  * 근거: 화면정의서 v1.4 06장(유지 화면), PRD 2-6-1·2-6-3·2-6-4.
  * 검수: W-05·W-06은 B1 김현주 검수 완료(2026-10-26, PRD 2-6-2). 법제처 OPEN API로 조회한 현행 조문과 대조했다:
  *   민법 제1000조·제1003조, 상속세 및 증여세법 제67조, 국세기본법 제5조의2. 검수 제안 문장(A)~(D)를 원문대로 반영했다.
@@ -7,7 +8,7 @@
  * 제한사항: 일반 설명이며 개인별 상속인 판정·세액 계산을 하지 않는다.
  *   W-08은 외부 Google Forms 연결 예정이나 주소가 정해지지 않아 Mock 모달만 둔다(실제 전송 없음).
  */
-import type { OfficialLink } from "./wire-types"
+import type { OfficialLink } from "@/shared/contracts/procedure"
 
 export type InfoSection = { heading: string; body: string[] }
 

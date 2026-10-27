@@ -6,8 +6,8 @@
  * 제한사항: 실제 하루 제한 계산은 서버(A10) 책임이다. 대화 원문은 여기에 저장하지 않는다.
  */
 import { create } from "zustand"
-import { GUEST_DAILY_LIMIT } from "@/mocks/ai-stream"
 import { USE_MOCK_API } from "@/shared/api/data-source"
+import { GUEST_DAILY_LIMIT } from "@/shared/content/chat"
 
 type ChatSessionState = {
   externalNoticeAcknowledged: boolean

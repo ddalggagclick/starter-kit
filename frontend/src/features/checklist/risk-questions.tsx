@@ -8,8 +8,8 @@
  */
 import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
-import { COMMON_RISK_WARNING, findRiskGuidance, RISK_QUESTIONS } from "@/mocks/checklist"
-import { findProcedureName } from "@/mocks/procedures"
+import { COMMON_RISK_WARNING, findRiskGuidance, RISK_QUESTIONS } from "@/shared/content/checklist"
+import { findProcedureName } from "@/shared/content/procedures"
 import type { AnswerChoice } from "@/shared/contracts/domain"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 

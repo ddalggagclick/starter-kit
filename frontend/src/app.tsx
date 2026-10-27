@@ -39,8 +39,8 @@ import { ProcedureDetailPage } from "@/features/procedures/procedure-detail"
 import { ProceduresPage } from "@/features/procedures/procedures-page"
 import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
 import { cn } from "@/lib/utils"
-import { LEGAL_DISCLAIMER } from "@/mocks/checklist"
 import { USE_MOCK_API } from "@/shared/api/data-source"
+import { LEGAL_DISCLAIMER } from "@/shared/content/checklist"
 
 const NAV_ITEMS = [
   { to: "/checklist", label: "체크리스트" },

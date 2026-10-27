@@ -12,14 +12,14 @@ import { ArrowLeft, ExternalLink } from "lucide-react"
 import { Link, useParams } from "react-router"
 import { Notice } from "@/components/ui/notice"
 import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
-import { COMMON_RISK_WARNING } from "@/mocks/checklist"
+import type { ProcedureDetailWire } from "@/shared/api/types"
+import { COMMON_RISK_WARNING } from "@/shared/content/checklist"
 import {
   CHECK_OFFICIAL_SOURCE,
   findProcedureName,
   OFFICIAL_LINK_GAP_NOTES,
   PROCEDURE_CONTENT_STATUS,
-} from "@/mocks/procedures"
-import type { ProcedureDetailWire } from "@/shared/api/types"
+} from "@/shared/content/procedures"
 import { useProcedureDetail } from "./api"
 import { GuidanceReadToggle, RecheckBadge } from "./guidance-read-toggle"
 

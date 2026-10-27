@@ -6,10 +6,14 @@
  *   토큰·비밀번호를 브라우저 저장소에 쓰지 않는다.
  */
 
+import {
+  MOCK_PROCEDURE_DETAILS,
+  MOCK_PROCEDURE_SUMMARIES,
+  PROCEDURE_IDS,
+} from "@/shared/content/procedures"
 import type { ProcedureId } from "@/shared/contracts/domain"
 import { passwordPolicyOk } from "@/shared/contracts/password-policy"
 import { createMockAskResponse, type MockAskOptions } from "./ai-stream"
-import { MOCK_PROCEDURE_DETAILS, MOCK_PROCEDURE_SUMMARIES, PROCEDURE_IDS } from "./procedures"
 import type {
   AskAiRequest,
   ChecklistSaved,
