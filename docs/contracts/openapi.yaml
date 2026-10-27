@@ -68,7 +68,7 @@ paths:
         - handoff
       operationId: A04_issueHandoff
       summary: A04 인계 토큰 발급 (카카오 서버 → 백엔드, 서버 간 호출)
-      x-status: 협의완료 · 구현(김현주 로컬 시험, 저장소 미반영) · 비밀 헤더 이름은 제안
+      x-status: 협의완료 · 구현 완료 (헤더 X-Handoff-Secret)
       description:
         "웹 공개 API가 아닙니다. 사용자가 카카오에서 [웹 체크리스트에서 보기]를 누른 시점에 호출합니다.
 
@@ -81,7 +81,7 @@ paths:
         - name: X-Handoff-Secret
           in: header
           required: true
-          description: 서버 간 비밀값(HANDOFF_SERVER_SECRET). 헤더 이름은 제안. 로그 금지.
+          description: 서버 간 비밀값(HANDOFF_SERVER_SECRET). 로그 금지.
           schema:
             type: string
       requestBody:
@@ -127,7 +127,7 @@ paths:
         - handoff
       operationId: A05_exchangeHandoff
       summary: A05 인계 토큰 교환 (웹 진입 시 1회)
-      x-status: 협의완료 · 경로는 제안 · 오류 400 확정(D1)
+      x-status: 협의완료 · 구현 완료 · 오류 400 확정(D1)
       description:
         "웹(이정민)이 링크의 `handoff` 값을 읽어 본문으로 보내고, 주소에서 토큰을 지웁니다(J3).
 
@@ -164,7 +164,7 @@ paths:
                 code: HANDOFF_INVALID
                 message: 연결이 만료되었거나 이미 사용되었습니다.
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/procedures:
     get:
       tags:
@@ -231,7 +231,7 @@ paths:
         - ai
       operationId: A08_askAi
       summary: A08 AI 질문 (분류→검색→답변, SSE 수신)
-      x-status: 협의완료 (10/20) · 경로 제안
+      x-status: 협의완료 (10/20) · 구현 완료
       description:
         "응답은 `text/event-stream`. 이벤트는 status → result 또는 error.
 
@@ -302,7 +302,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/auth/csrf:
     get:
       tags:
@@ -340,7 +340,7 @@ paths:
         - auth
       operationId: A11_signup
       summary: A11 회원가입
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       requestBody:
         required: true
         content:
@@ -371,14 +371,14 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/auth/email/verify:
     post:
       tags:
         - auth
       operationId: A12_verifyEmail
       summary: A12 이메일 인증 확인
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       description: 링크 24시간, 1회만 사용
       requestBody:
         required: true
@@ -401,14 +401,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/auth/email/resend:
     post:
       tags:
         - auth
       operationId: A12_resendEmail
       summary: A12 인증 메일 재전송
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       description: 60초 간격, 하루 5회
       requestBody:
         required: true
@@ -428,14 +428,14 @@ paths:
         "429":
           description: RATE_LIMITED
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/auth/login:
     post:
       tags:
         - auth
       operationId: A13_login
       summary: A13 로그인
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       requestBody:
         required: true
         content:
@@ -469,14 +469,14 @@ paths:
         "429":
           description: RATE_LIMITED (15분 안에 5번 실패)
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/auth/refresh:
     post:
       tags:
         - auth
       operationId: A14_refresh
       summary: A14 토큰 재발급
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       description: 본문 없음. Refresh 쿠키 + 출처 확인·지정 헤더로 CSRF 방어
       responses:
         "200":
@@ -493,26 +493,26 @@ paths:
         "403":
           description: CSRF_INVALID / ORIGIN_FORBIDDEN
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/auth/logout:
     post:
       tags:
         - auth
       operationId: A14_logout
       summary: A14 로그아웃
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       responses:
         "204":
           description: 로그아웃
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/auth/password/reset-request:
     post:
       tags:
         - auth
       operationId: A15_resetRequest
       summary: A15 비밀번호 재설정 메일 요청
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       description: 가입 여부를 알리지 않고 항상 같은 응답
       requestBody:
         required: true
@@ -530,14 +530,14 @@ paths:
         "202":
           description: 접수
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/auth/password/reset:
     post:
       tags:
         - auth
       operationId: A15_resetPassword
       summary: A15 새 비밀번호 설정
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       description: 링크 30분·1회. 변경 시 모든 기기 로그아웃
       requestBody:
         required: true
@@ -567,14 +567,14 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/account:
     delete:
       tags:
         - account
       operationId: A16_deleteAccount
       summary: A16 회원 탈퇴
-      x-status: 협의완료 · 경로 제안
+      x-status: 협의완료 · 구현 완료
       description: 비밀번호를 한 번 더 입력. 실제 삭제 확인 전에 "완료"라고 하지 않고, 부분 실패는 알림
       security:
         - bearerAuth: []
@@ -619,7 +619,7 @@ paths:
         "403":
           description: FORBIDDEN
       x-confirmed: true
-      x-path-proposed: true
+      x-path-proposed: false
   /api/me/checklist:
     get:
       tags:
@@ -788,7 +788,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     HandoffUnauthorized:
-      description: 비밀값 불일치 (코드 이름은 제안)
+      description: 비밀값 불일치 (코드 UNAUTHENTICATED)
       content:
         application/json:
           schema:
@@ -873,7 +873,7 @@ components:
         - deathDate
         - deathDateUnknown
         - oneStopApplication
-      description: "JSON 이름은 camelCase(제안), 값은 contracts/domain.py 기준.
+      description: "JSON 이름은 camelCase(I01), 값은 contracts/domain.py 기준.
 
         deathDate가 null이면 deathDateUnknown은 true, 날짜가 있으면 false여야 합니다(불일치는 422).
 
@@ -1029,7 +1029,7 @@ components:
           description: 체크리스트 개별 상태
         serverSaveConsent:
           type: boolean
-          description: 서버 저장 동의 여부(필드 이름은 제안). 로그인했을 때만 저장
+          description: 서버 저장 동의 여부. 로그인했을 때만 저장
     ChecklistSaved:
       type: object
       properties:
@@ -1092,7 +1092,7 @@ components:
             - SOURCE_NOT_VERIFIED
             - CITATION_MISMATCH
             - null
-          description: withheld일 때 사유 (S7). 필드 이름은 제안
+          description: withheld일 때 사유 (S7)
     SseErrorEvent:
       type: object
       description: "event: error (1번)"
