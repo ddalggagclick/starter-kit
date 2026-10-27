@@ -1,7 +1,10 @@
 /*
  * 담당: [A] | 책임: W-02 로그인 사용자의 서버(계정) 체크리스트 저장 동의·상태·불러오기·철회 띠.
- * PRD: 태스크 4-5-1, 4-6-1, 4-5-3, 4-6-3, 4-3-4(서버). 화면정의서 17장 접근성(문구·기호 병기, 확인창).
+ * PRD: 태스크 4-5-1, 4-6-1, 4-5-3, 4-6-3, 4-3-4(서버). 화면정의서 D-03, 17장 접근성(문구·기호 병기, 확인창).
  * 구현: 이 기기 저장 동의와 따로 받는다(정책 확인 + 명시 체크). 서버 기록이 있으면 자동으로 합치지 않고 사용자가 고른다.
+ *   #197(현주 님 UI 제안·디자인 시스템 7.4): 화면에는 상태 한 줄과 버튼만 두고, 동의는 [서버 저장 설정]을 누르면 모달로 묻는다.
+ *   로그인 후 서버 기록이 있으면 고르는 모달이 한 번 저절로 열린다. 닫으면(나중에 고르기) [선택하기]로 다시 연다.
+ *   고르면(불러오기·덮어쓰기·저장) 상태가 바뀌어 모달이 저절로 닫힌다.
  *   서버 철회가 실패하면 서버에 기록이 남았다고 알리고 서버만 다시 시도한다. 모든 동작은 지금 로그인 계정에 고정한다.
  *   답이 없는 화면(질문 전·이 기기 기록 삭제 뒤)에도 놓인다: 동의 요청과 덮어쓰기는 숨기고,
  *   서버 기록 불러오기·서버 철회·실패 재시도는 그대로 보인다(리뷰 반영, 검증 ②).
@@ -10,10 +13,12 @@
 import { useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { Modal } from "@/components/ui/modal"
 import { Notice } from "@/components/ui/notice"
 import { useAuthStore } from "@/features/auth/auth-store"
 import { USE_MOCK_API } from "@/shared/api/data-source"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
+import type { ChecklistSnapshot } from "@/shared/storage/db"
 import {
   declineServerSave,
   grantServerSave,
@@ -47,6 +52,10 @@ export function ServerSaveBand() {
   const hasAnswers = useInheritanceStore((s) => s.answers !== null)
   const [checked, setChecked] = useState(false)
   const [confirmRevoke, setConfirmRevoke] = useState(false)
+  // 서버 저장 동의 모달 열림
+  const [consentOpen, setConsentOpen] = useState(false)
+  // 사용자가 닫은 서버 기록. 새 서버 기록(다른 로그인 등)이 오면 다시 한 번 저절로 연다.
+  const [dismissedPending, setDismissedPending] = useState<ChecklistSnapshot | null>(null)
   const [busy, setBusy] = useState(false)
   const checkboxId = useId()
 
@@ -127,68 +136,98 @@ export function ServerSaveBand() {
       )
     }
     return (
-      <section aria-label="서버 저장" className="space-y-2 rounded-lg border p-3 text-sm">
-        <p className="font-medium">로그인한 계정(서버)에도 체크리스트를 저장할까요?{mockNote}</p>
-        <details>
-          <summary className="cursor-pointer underline underline-offset-4">
-            서버 저장 정책 보기
-          </summary>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
-            {SERVER_POLICY_ITEMS.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </details>
-        <div className="flex items-center gap-2">
-          <input
-            id={checkboxId}
-            type="checkbox"
-            checked={checked}
-            onChange={(event) => setChecked(event.target.checked)}
-          />
-          <label htmlFor={checkboxId}>서버 저장 정책을 확인했습니다</label>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            disabled={!checked || busy}
-            onClick={() => void run(() => grantServerSave(accountId))}
-          >
-            서버에 저장
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={declineServerSave}>
-            저장 안 함
+      <section aria-label="서버 저장" className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-muted-foreground">서버 저장: 미동의 · 저장 안 됨{mockNote}</p>
+          <Button type="button" size="sm" variant="outline" onClick={() => setConsentOpen(true)}>
+            서버 저장 설정
           </Button>
         </div>
-        {saveStatus === "failed" && (
-          <p role="alert" className="text-sm text-danger-foreground">
-            서버에 저장하지 못했습니다. 동의는 기록되지 않았습니다. 다시 시도해 주세요.
-          </p>
-        )}
         {revokeNotice}
+        {consentOpen && (
+          <Modal onClose={() => setConsentOpen(false)}>
+            <Modal.Header title={`로그인한 계정(서버)에도 체크리스트를 저장할까요?${mockNote}`} />
+            <Modal.Body>
+              <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                {SERVER_POLICY_ITEMS.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+              <div className="flex items-center gap-2">
+                <input
+                  id={checkboxId}
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => setChecked(event.target.checked)}
+                />
+                <label htmlFor={checkboxId}>서버 저장 정책을 확인했습니다</label>
+              </div>
+              {saveStatus === "failed" && (
+                <p role="alert" className="text-danger-foreground">
+                  서버에 저장하지 못했습니다. 동의는 기록되지 않았습니다. 다시 시도해 주세요.
+                </p>
+              )}
+            </Modal.Body>
+            <Modal.Actions>
+              <Button
+                type="button"
+                disabled={!checked || busy}
+                onClick={() => void run(() => grantServerSave(accountId))}
+              >
+                서버에 저장
+              </Button>
+              <Button type="button" variant="outline" onClick={declineServerSave}>
+                저장 안 함
+              </Button>
+            </Modal.Actions>
+          </Modal>
+        )}
       </section>
     )
   }
 
   // consent === "granted"
+  // 서버 기록이 있고 사용자가 아직 닫지 않았으면 고르는 모달을 연다.
+  const choiceOpen = pending !== null && pending !== dismissedPending
   return (
-    <section aria-label="서버 저장" className="space-y-2 rounded-lg border p-3 text-sm">
+    <section aria-label="서버 저장" className="flex flex-wrap items-center gap-2">
       {pending ? (
-        <div className="space-y-2">
-          <p className="font-medium">
-            {hasAnswers
-              ? "계정(서버)에 저장된 체크리스트가 있습니다. 자동으로 합치지 않으니 사용할 기록을 골라 주세요."
-              : "계정(서버)에 저장된 체크리스트가 있습니다. 불러오면 화면에 표시합니다."}
+        <>
+          <p role="status" className="text-xs text-muted-foreground">
+            서버 저장 멈춤 · 서버 기록 선택 필요{mockNote}
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={() => loadServerRecord(accountId)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setDismissedPending(null)}
+          >
+            선택하기
+          </Button>
+        </>
+      ) : (
+        <p role="status" className="text-xs text-muted-foreground">
+          서버 저장: {SAVE_STATUS_LABELS[saveStatus] || "● 계정(서버)에 저장 중"}
+          {mockNote}
+        </p>
+      )}
+      {choiceOpen && (
+        <Modal onClose={() => setDismissedPending(pending)}>
+          <Modal.Header
+            title="계정(서버)에 저장된 체크리스트가 있습니다"
+            subtitle={
+              hasAnswers
+                ? "자동으로 합치지 않으니 사용할 기록을 골라 주세요."
+                : "불러오면 화면에 표시합니다."
+            }
+          />
+          <Modal.Actions>
+            <Button type="button" onClick={() => loadServerRecord(accountId)}>
               서버 기록 불러오기
             </Button>
             {hasAnswers && (
               <Button
                 type="button"
-                size="sm"
                 variant="outline"
                 disabled={busy}
                 onClick={() => void run(() => keepLocalOverServer(accountId))}
@@ -196,13 +235,8 @@ export function ServerSaveBand() {
                 이 기기 내용으로 서버 덮어쓰기
               </Button>
             )}
-          </div>
-        </div>
-      ) : (
-        <p role="status" className="text-xs text-muted-foreground">
-          서버 저장: {SAVE_STATUS_LABELS[saveStatus] || "● 계정(서버)에 저장 중"}
-          {mockNote}
-        </p>
+          </Modal.Actions>
+        </Modal>
       )}
       {saveStatus === "failed" && (
         <Button
@@ -224,7 +258,8 @@ export function ServerSaveBand() {
       >
         서버 저장 철회
       </Button>
-      {revokeNotice}
+      {/* 한 줄(flex) 안에서도 안내가 폭 전체를 쓰게 한다 */}
+      {revokeNotice && <div className="w-full">{revokeNotice}</div>}
       {confirmRevoke && (
         <ConfirmDialog
           title="서버 저장 동의를 철회할까요?"

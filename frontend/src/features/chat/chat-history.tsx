@@ -2,11 +2,14 @@
  * 담당: [A] | 책임: W-07 AI 대화 저장 동의 띠(S1), 이전 대화 목록(S10).
  * PRD: 태스크 4-1-1(W-07), 3-6-2, 3-6-3. 화면정의서 D-03·D-05·D-10·D-14, 17장 접근성.
  * 구현: 동의는 정책 확인 체크 후 [저장]만 가능하고 [저장]·[저장 안 함]은 기본 선택 없이 동등하다.
+ *   #197(현주 님 UI 제안·디자인 시스템 7.4, 체크리스트와 같은 방식): 화면에는 상태 한 줄과 [저장 설정]만 두고,
+ *   누르면 모달에서 정책·확인 체크·[저장]·[저장 안 함]을 보인다. 고르면 상태가 바뀌어 모달이 저절로 닫힌다.
  *   상태는 문구·기호로 표시해 색만으로 구분하지 않는다.
  * 제한사항: 정책 문구는 P02 검토 전 초안이다. [대화 기록 삭제] 전체 삭제·동의 철회(4-3)는 후속 이슈다.
  */
 import { useId, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Modal } from "@/components/ui/modal"
 import { CONSENT_COPY, STORAGE_STATUS_LABELS } from "@/shared/content/checklist"
 import type { ConversationRecord } from "@/shared/storage/db"
 import { type ChatStorageStatus, conversationDate } from "./chat-storage"
@@ -29,6 +32,7 @@ export function ChatConsentBand({
   onGrant: () => Promise<boolean>
   onDecline: () => void
 }) {
+  const [open, setOpen] = useState(false)
   const [checked, setChecked] = useState(false)
   const [saving, setSaving] = useState(false)
   const checkboxId = useId()
@@ -49,45 +53,50 @@ export function ChatConsentBand({
   }
 
   return (
-    <section aria-label="AI 대화 저장" className="space-y-2 rounded-lg border p-3 text-sm">
-      <p className="font-medium">{CONSENT_COPY.chat.question}</p>
+    <section aria-label="AI 대화 저장" className="flex flex-wrap items-center gap-2">
       <p className="text-xs text-muted-foreground">
-        {CONSENT_COPY.chat.note} 저장 상태: {STORAGE_STATUS_LABELS["not-consented"]}
+        AI 대화 저장: {STORAGE_STATUS_LABELS["not-consented"]}
       </p>
-      <details>
-        <summary className="cursor-pointer underline underline-offset-4">저장 정책 보기</summary>
-        <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
-          {CHAT_POLICY_ITEMS.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </details>
-      <div className="flex items-center gap-2">
-        <input
-          id={checkboxId}
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => setChecked(event.target.checked)}
-        />
-        <label htmlFor={checkboxId}>AI 대화 저장 정책을 확인했습니다</label>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          disabled={!checked || saving}
-          onClick={async () => {
-            setSaving(true)
-            await onGrant()
-            setSaving(false)
-          }}
-        >
-          저장
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={onDecline}>
-          저장 안 함
-        </Button>
-      </div>
+      <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
+        저장 설정
+      </Button>
+      {open && (
+        <Modal onClose={() => setOpen(false)}>
+          <Modal.Header title={CONSENT_COPY.chat.question} subtitle={CONSENT_COPY.chat.note} />
+          <Modal.Body>
+            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+              {CHAT_POLICY_ITEMS.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+            <div className="flex items-center gap-2">
+              <input
+                id={checkboxId}
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => setChecked(event.target.checked)}
+              />
+              <label htmlFor={checkboxId}>AI 대화 저장 정책을 확인했습니다</label>
+            </div>
+          </Modal.Body>
+          <Modal.Actions>
+            <Button
+              type="button"
+              disabled={!checked || saving}
+              onClick={async () => {
+                setSaving(true)
+                await onGrant()
+                setSaving(false)
+              }}
+            >
+              저장
+            </Button>
+            <Button type="button" variant="outline" onClick={onDecline}>
+              저장 안 함
+            </Button>
+          </Modal.Actions>
+        </Modal>
+      )}
     </section>
   )
 }
