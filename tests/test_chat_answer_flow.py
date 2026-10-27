@@ -176,6 +176,31 @@ def test_repeated_citation_keeps_its_first_number():
     assert [r.evidence_id for r in result.outcome.references] == ["law-1", "rag-1"]
 
 
+@pytest.mark.parametrize("group", ["[[rag-1, law-1]]", "[[rag-1,law-1]]", "[[ rag-1 law-1 ]]"])
+def test_grouped_citation_is_verified_and_numbered(group):
+    text = f"안내와 조문을 함께 보세요{group}. 조문은 다시 봅니다[[law-1]]."
+    service, _ = build(model=FakeModel(text))
+    result = ask(service)
+    assert result.outcome.answer_text == "안내와 조문을 함께 보세요[1][2]. 조문은 다시 봅니다[2]."
+    assert [r.evidence_id for r in result.outcome.references] == ["rag-1", "law-1"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "묶음 안에 없는 ID가 있습니다[[rag-1, made-up-9]].",
+        "빈 괄호가 남았습니다[[rag-1]][[]].",
+        "괄호 짝이 맞지 않습니다[[rag-1]] [[law-1",
+    ],
+)
+def test_unverifiable_citation_marker_is_s7_not_leaked(text):
+    service, _ = build(model=FakeModel(text))
+    result = ask(service)
+    assert result.outcome.status == "abstained"
+    assert result.outcome.answer_text is None
+    assert result.reason_code == ErrorCode.CITATION_MISMATCH
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -338,7 +363,8 @@ def test_safety_http_status():
 
 
 def test_extract_cited_ids_keeps_first_order_once():
-    assert extract_cited_ids("a[[x]] b[[y]] c[[x]] d[[ bad ]]") == ("x", "y")
+    # 공백·쉼표가 섞인 괄호도 건너뛰지 않고 안의 ID를 꺼낸다(검증에서 걸러지게).
+    assert extract_cited_ids("a[[x]] b[[y]] c[[x]] d[[ bad ]] e[[y, z]]") == ("x", "y", "bad", "z")
 
 
 def test_question_text_is_not_logged(caplog):

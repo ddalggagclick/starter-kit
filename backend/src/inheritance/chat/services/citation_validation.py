@@ -17,7 +17,9 @@ from inheritance.contracts.chat import AnswerReference
 from inheritance.contracts.law import LawEvidence
 
 # V1 임시 인용 형식 [[근거ID]] (prompt_builder.ANSWER_SYSTEM_PROMPT와 같은 형식).
-_CITATION = re.compile(r"\[\[([^\[\]\s]+)\]\]")
+# 모델이 [[ID1, ID2]]처럼 한 괄호에 묶어 쓰는 경우도 있어, 괄호 안을 쉼표·공백으로 나눠 읽는다.
+_CITATION = re.compile(r"\[\[([^\[\]]*)\]\]")
+_ID_SEPARATOR = re.compile(r"[,\s]+")
 
 
 class CitationMismatch(Exception):
@@ -31,16 +33,30 @@ class CitationValidatorPort(Protocol):
     ) -> tuple[AnswerReference, ...]: ...
 
 
-# 답변 본문에서 인용 ID를 처음 나온 순서대로 한 번씩만 꺼낸다.
+def _group_ids(group: str) -> list[str]:
+    return [part for part in _ID_SEPARATOR.split(group) if part]
+
+
+# 답변 본문에서 인용 ID를 처음 나온 순서대로 한 번씩만 꺼낸다. 묶음 인용은 안의 ID를 하나씩 센다.
 def extract_cited_ids(text: str) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(_CITATION.findall(text)))
+    ids = (cited for group in _CITATION.findall(text) for cited in _group_ids(group))
+    return tuple(dict.fromkeys(ids))
 
 
-# 화면용 본문: [[근거ID]]를 처음 나온 순서의 번호 [n]으로 바꾼다. [n]은 출처 목록의 n번째와 같다.
-# 내부 근거 ID(sha256 등)는 브라우저로 보내지 않는다. 검증을 통과한 본문에만 쓴다.
+# 화면용 본문: [[근거ID]]를 처음 나온 순서의 번호 [n]으로, 묶음 [[ID1, ID2]]는 [1][2]로 바꾼다.
+# [n]은 출처 목록의 n번째와 같다. 검증을 통과한 본문에만 쓴다.
+# 바꾼 뒤에도 [[ 또는 ]]가 남으면(빈 괄호·짝이 안 맞는 괄호) 내부 표시가 새지 않게 CitationMismatch.
 def number_citations(text: str) -> str:
     numbers = {cited: index for index, cited in enumerate(extract_cited_ids(text), start=1)}
-    return _CITATION.sub(lambda match: f"[{numbers[match.group(1)]}]", text)
+
+    def replace(match: re.Match[str]) -> str:
+        ids = _group_ids(match.group(1))
+        return "".join(f"[{numbers[cited]}]" for cited in ids) if ids else match.group(0)
+
+    shown = _CITATION.sub(replace, text)
+    if "[[" in shown or "]]" in shown:
+        raise CitationMismatch
+    return shown
 
 
 def _from_rag(item: Evidence) -> AnswerReference:

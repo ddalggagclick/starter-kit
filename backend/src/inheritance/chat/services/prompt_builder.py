@@ -19,6 +19,7 @@ from inheritance.contracts.law import LawEvidence
 ANSWER_SYSTEM_PROMPT = (
     "아래에 주어진 근거만 사용해 답하세요. 근거에 없는 내용은 말하지 마세요.\n"
     "문장마다 사용한 근거의 ID를 [[근거ID]] 형식으로 붙이세요.\n"
+    "근거가 여러 개면 [[ID1]][[ID2]]처럼 하나씩 따로 붙이고, 한 괄호에 여러 ID를 넣지 마세요.\n"
     "개인별 법률 결론이나 판정을 내리지 마세요."
 )
 
