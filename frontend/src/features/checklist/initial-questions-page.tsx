@@ -15,7 +15,7 @@ import {
   INITIAL_QUESTION_COPY,
   ONE_STOP_OPTIONS,
   RELATIONSHIP_OPTIONS,
-} from "@/mocks/checklist"
+} from "@/shared/content/checklist"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { toInitialAnswers, useInitialForm } from "./use-initial-form"
 

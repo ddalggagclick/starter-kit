@@ -5,10 +5,10 @@
  *   대신하지 않는다. 카카오 링크는 실제 `/checklist?handoff=` 대신 `#/handoff?token=`으로 흉내 낸다.
  */
 import "./html-mock.css"
+import { type InitialEntryState, RISK_QUESTIONS } from "@/shared/content/checklist"
 import type { AnswerChoice, InitialAnswers, Relationship, RiskId } from "@/shared/contracts/domain"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
 import { type MockAiScenario, mockErrorMessage } from "../ai-stream"
-import { type InitialEntryState, RISK_QUESTIONS } from "../checklist"
 import { NEW_CHAT_ARCHIVED_COPY } from "../conversations"
 import { askAi, exchangeHandoff, login, logout, MockHttpError, signup } from "../mock-api"
 import type { ErrorBody, SseEvent } from "../wire-types"

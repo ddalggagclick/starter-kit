@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest"
+import { findRiskGuidance } from "@/shared/content/checklist"
 import { createMockAskResponse, type MockAiScenario } from "./ai-stream"
-import { findRiskGuidance } from "./checklist"
 import {
   deleteAccount,
   deleteMyChecklist,

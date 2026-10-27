@@ -8,9 +8,9 @@
  *   '안내 확인'은 읽음 표시일 뿐 신고·신청 완료가 아니다(Q71). 체크해도 순서·노출은 바뀌지 않는다(2-5-2).
  */
 import { create } from "zustand"
-import { RISK_QUESTIONS } from "@/mocks/checklist"
-import { PROCEDURE_IDS } from "@/mocks/procedures"
 import type { HandoffPayload } from "@/shared/api/types"
+import { RISK_QUESTIONS } from "@/shared/content/checklist"
+import { PROCEDURE_IDS } from "@/shared/content/procedures"
 import type {
   AnswerChoice,
   InitialAnswers,

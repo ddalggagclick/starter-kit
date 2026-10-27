@@ -7,7 +7,7 @@
  */
 import { useId, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { CONSENT_COPY, STORAGE_STATUS_LABELS } from "@/mocks/checklist"
+import { CONSENT_COPY, STORAGE_STATUS_LABELS } from "@/shared/content/checklist"
 import type { ConversationRecord } from "@/shared/storage/db"
 import { type ChatStorageStatus, conversationDate } from "./chat-storage"
 

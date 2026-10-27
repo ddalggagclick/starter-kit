@@ -6,7 +6,7 @@
  */
 import { StorageControls } from "@/components/ui/storage-controls"
 import { selectNamespace, useAuthStore } from "@/features/auth/auth-store"
-import { DELETE_BUTTON_LABELS } from "@/mocks/checklist"
+import { DELETE_BUTTON_LABELS } from "@/shared/content/checklist"
 import {
   deleteChecklistRecords,
   revokeChecklistStorage,

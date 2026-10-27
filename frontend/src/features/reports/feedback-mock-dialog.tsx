@@ -8,7 +8,7 @@
 import { MessageSquareWarning } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { FEEDBACK_MOCK_COPY } from "@/mocks/general-info"
+import { FEEDBACK_MOCK_COPY } from "@/shared/content/general-info"
 
 export function FeedbackMockButton({ context }: { context?: string }) {
   const [open, setOpen] = useState(false)

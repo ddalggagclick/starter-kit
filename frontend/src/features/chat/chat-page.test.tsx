@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { useAuthStore } from "@/features/auth/auth-store"
-import { WITHHELD_COPY } from "@/mocks/ai-stream"
+import { WITHHELD_COPY } from "@/shared/content/chat"
 import {
   ChatPage,
   inputErrorMessage,

@@ -28,8 +28,8 @@ import {
   ONE_STOP_OPTIONS,
   RELATIONSHIP_OPTIONS,
   RISK_QUESTIONS,
-} from "@/mocks/checklist"
-import { MOCK_DEADLINE_TAGS } from "@/mocks/procedures"
+} from "@/shared/content/checklist"
+import { MOCK_DEADLINE_TAGS } from "@/shared/content/procedures"
 import type { InitialAnswers, ProcedureId } from "@/shared/contracts/domain"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { ChecklistConsentBand } from "./checklist-consent-band"

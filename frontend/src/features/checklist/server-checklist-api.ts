@@ -13,7 +13,6 @@ import {
   getMyChecklist as getMyChecklistMock,
   putMyChecklist as putMyChecklistMock,
 } from "@/mocks/mock-api"
-import type { ChecklistSaved } from "@/mocks/wire-types"
 import { toApiFailure } from "@/shared/api/api-error"
 import { loadApiClient, USE_MOCK_API } from "@/shared/api/data-source"
 import type { InitialAnswers, ProcedureId, RiskAnswer, RiskId } from "@/shared/contracts/domain"
@@ -68,6 +67,10 @@ export type ServerChecklistApi = {
   save: (snapshot: ChecklistSnapshot | null) => Promise<void>
   remove: () => Promise<void>
 }
+
+// A17 GET 응답 모양. 생성 타입(schema.d.ts)의 itemStates가 Record<string, never>[]로 생성돼 쓸 수 없어,
+// 읽는 데 필요한 필드만 여기 둔다(안쪽 모양은 fromItemStates가 확인한다).
+type ChecklistSaved = { itemStates?: unknown; serverSaveConsent?: boolean }
 
 const NO_CONSENT: ServerChecklistRead = { consent: false, snapshot: null }
 

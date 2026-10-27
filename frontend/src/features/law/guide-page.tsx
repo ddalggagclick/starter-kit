@@ -7,7 +7,7 @@
 import { ExternalLink } from "lucide-react"
 import { Notice } from "@/components/ui/notice"
 import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
-import { INHERITANCE_TAX_GUIDE, RELATIONSHIP_GUIDE } from "@/mocks/general-info"
+import { INHERITANCE_TAX_GUIDE, RELATIONSHIP_GUIDE } from "@/shared/content/general-info"
 
 type Guide = typeof RELATIONSHIP_GUIDE
 

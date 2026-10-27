@@ -3,17 +3,18 @@
  * 제한사항: 브라우저 저장소(IndexedDB·localStorage)에 쓰지 않는다. '저장 중'은 Mock 패널의
  *   성공/실패 설정을 흉내 낸 표시일 뿐 실제 저장이 아니다. 정식 Zustand/Dexie 상태를 대신하지 않는다.
  */
-import type { AnswerChoice, InitialAnswers, RiskId } from "@/shared/contracts/domain"
-import type { StorageStatus } from "@/shared/contracts/ui"
-import type { MockAiScenario } from "../ai-stream"
-import { GUEST_DAILY_LIMIT } from "../ai-stream"
+
+import { GUEST_DAILY_LIMIT } from "@/shared/content/chat"
 import {
   type InitialEntryState,
   MOCK_CHECKLIST_SCENARIOS,
   type MockChecklistItemState,
   type MockChecklistScenario,
   type MockRiskAnswerState,
-} from "../checklist"
+} from "@/shared/content/checklist"
+import type { AnswerChoice, InitialAnswers, RiskId } from "@/shared/contracts/domain"
+import type { StorageStatus } from "@/shared/contracts/ui"
+import type { MockAiScenario } from "../ai-stream"
 import { MOCK_CONVERSATIONS, type MockConversation } from "../conversations"
 import type { SseResultEvent, SseStage } from "../wire-types"
 
