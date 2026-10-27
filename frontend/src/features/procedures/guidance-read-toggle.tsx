@@ -48,7 +48,7 @@ export function GuidanceReadToggle({
           variant === "detail" ? "px-4 py-1.5 text-base" : "px-3 py-1 text-sm",
           read
             ? "border-success-foreground bg-success text-success-foreground"
-            : "border-border bg-card text-foreground hover:bg-muted",
+            : "border-input bg-card text-foreground hover:bg-muted",
         )}
       >
         <span
@@ -95,10 +95,10 @@ export function GuidanceProgress() {
         aria-valuemin={0}
         aria-valuemax={counts.total}
         aria-valuenow={counts.read}
-        className="h-2 flex-1 overflow-hidden rounded-full bg-muted"
+        className="h-2 flex-1 overflow-hidden rounded-full bg-border"
       >
         <div
-          className="h-full rounded-full bg-success-foreground transition-[width]"
+          className="h-full rounded-full bg-progress transition-[width]"
           style={{ width: `${(counts.read / counts.total) * 100}%` }}
         />
       </div>
