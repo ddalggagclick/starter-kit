@@ -234,6 +234,14 @@ def test_prompt_separates_rag_article_and_addendum():
     assert "[[law-2]]" in addendum_part
 
 
+def test_prompt_asks_plain_text_sections_and_keeps_safety_rules():
+    system = AnswerPromptBuilder().build(QUESTION, (RAG,), ())[0].content
+    # 형식: 요약 먼저, 필요할 때만 ■ 문단, 마크다운 금지(화면은 줄바꿈만 그대로 보여 준다).
+    assert "요약" in system and "■ 제목" in system and "마크다운" in system
+    # 안전 규칙은 그대로다.
+    assert "주어진 근거만" in system and "[[근거ID]]" in system and "판정을 내리지" in system
+
+
 def test_prompt_omits_empty_sections():
     user = AnswerPromptBuilder().build(QUESTION, (RAG,), ())[1].content
     assert "[안내자료]" in user
