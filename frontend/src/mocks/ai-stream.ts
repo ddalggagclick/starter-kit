@@ -54,9 +54,18 @@ const MOCK_NO_URL_SOURCE: SseSource = {
   url: null,
 }
 
-const MOCK_ANSWER =
-  "상속포기는 일반적으로 상속 개시가 있음을 안 날부터 3개월 안에 가정법원에 신고하는 절차로 안내됩니다. " +
-  "기한을 언제부터 셀지는 개인 상황에 따라 달라질 수 있으니 공식 자료로 확인하세요. (Mock 예시 답변)"
+// 실제 A08(#184)처럼 본문에 출처 번호 [n]을 넣는다. [n] = sources[n-1], 본문에서 처음 인용된 순서.
+// 첫 문장은 [1], 둘째 문장은 나머지 출처를 모두 인용한다(출처가 1개면 [1]을 다시 쓴다).
+const mockAnswer = (sourceCount: number): string => {
+  const rest =
+    sourceCount > 1
+      ? Array.from({ length: sourceCount - 1 }, (_, index) => `[${index + 2}]`).join("")
+      : "[1]"
+  return (
+    "상속포기는 일반적으로 상속 개시가 있음을 안 날부터 3개월 안에 가정법원에 신고하는 절차로 안내됩니다[1]. " +
+    `기한을 언제부터 셀지는 개인 상황에 따라 달라질 수 있으니 공식 자료로 확인하세요${rest}. (Mock 예시 답변)`
+  )
+}
 
 const ERROR_MESSAGES: Record<SseErrorEvent["code"], string> = {
   RATE_LIMITED: "오늘 사용할 수 있는 AI 질문 횟수를 모두 사용했습니다.",
@@ -100,15 +109,16 @@ const resultFor = (scenario: MockAiScenario, remainingToday: number | null): Sse
       reasonCode: "SOURCE_NOT_VERIFIED",
     }
   }
+  const sources =
+    scenario === "answeredSingleSource"
+      ? MOCK_SOURCES.slice(0, 1)
+      : scenario === "answeredNoUrlSource"
+        ? [MOCK_NO_URL_SOURCE, MOCK_SOURCES[0]]
+        : MOCK_SOURCES
   return {
     state: "answered",
-    answer: MOCK_ANSWER,
-    sources:
-      scenario === "answeredSingleSource"
-        ? MOCK_SOURCES.slice(0, 1)
-        : scenario === "answeredNoUrlSource"
-          ? [MOCK_NO_URL_SOURCE, MOCK_SOURCES[0]]
-          : MOCK_SOURCES,
+    answer: mockAnswer(sources.length),
+    sources,
     remainingToday,
     reasonCode: null,
   }

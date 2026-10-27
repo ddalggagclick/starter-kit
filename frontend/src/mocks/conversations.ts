@@ -33,7 +33,7 @@ export const MOCK_CONVERSATIONS: MockConversation[] = [
         result: {
           state: "answered",
           answer:
-            "상속포기는 일반적으로 상속 개시가 있음을 안 날부터 3개월 안에 신고하는 절차로 안내됩니다. 개인 상황은 공식 자료로 확인하세요. (Mock 예시 답변)",
+            "상속포기는 일반적으로 상속 개시가 있음을 안 날부터 3개월 안에 신고하는 절차로 안내됩니다[1]. 개인 상황은 공식 자료로 확인하세요[2]. (Mock 예시 답변)",
           sources: [
             { title: "국가법령정보센터 · 민법 상속편 (Mock)", url: "https://www.law.go.kr" },
             { title: "대법원 전자민원센터 · 상속 안내 (Mock)", url: "https://help.scourt.go.kr" },
@@ -53,7 +53,7 @@ export const MOCK_CONVERSATIONS: MockConversation[] = [
         result: {
           state: "answered",
           answer:
-            "안심상속 원스톱 서비스는 주민센터 방문 또는 정부24에서 신청 방법을 확인할 수 있습니다. (Mock 예시 답변)",
+            "안심상속 원스톱 서비스는 주민센터 방문 또는 정부24에서 신청 방법을 확인할 수 있습니다[1]. (Mock 예시 답변)",
           sources: [{ title: "정부24 · 안심상속 원스톱 서비스 (Mock)", url: "https://www.gov.kr" }],
           remainingToday: null,
           reasonCode: null,
