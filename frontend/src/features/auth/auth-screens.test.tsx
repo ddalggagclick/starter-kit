@@ -9,6 +9,7 @@ import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { appRoutes, createQueryClient } from "@/app"
 import {
+  deleteAccount,
   MOCK_ACCOUNT,
   MOCK_VALID_RESET_TOKEN,
   MOCK_VALID_VERIFY_TOKEN,
@@ -143,6 +144,74 @@ describe("/signup (5-1-1)", () => {
 
     expect(await screen.findByText("인증 메일을 확인해 주세요")).toBeTruthy()
     expect(screen.getByRole("button", { name: "인증 메일 다시 받기" })).toBeTruthy()
+  })
+})
+
+describe("/signup 유효성·인증 전 차단 (5-1-1)", () => {
+  const submit = () => fireEvent.click(screen.getByRole("button", { name: "가입하기" }))
+
+  it("이메일 형식 오류는 그 칸에 바로 보이고 가입 요청을 보내지 않는다", async () => {
+    renderAt("/signup")
+    type("이메일", "not-an-email")
+    type("비밀번호", "newpass123")
+    type("비밀번호 확인", "newpass123")
+    submit()
+
+    expect(await screen.findByText("이메일 형식을 확인해 주세요.")).toBeTruthy()
+    expect(screen.queryByText("인증 메일을 확인해 주세요")).toBeNull()
+    expect(screen.getByLabelText("이메일").getAttribute("aria-invalid")).toBe("true")
+  })
+
+  it("비밀번호 규칙 위반과 확인 불일치는 막고 가입 완료로 넘어가지 않는다", async () => {
+    renderAt("/signup")
+    type("이메일", "new@example.com")
+    type("비밀번호", "short")
+    type("비밀번호 확인", "short")
+    submit()
+    expect(screen.queryByText("인증 메일을 확인해 주세요")).toBeNull()
+    expect(screen.getByLabelText("비밀번호").getAttribute("aria-invalid")).toBe("true")
+
+    type("비밀번호", "newpass123")
+    type("비밀번호 확인", "newpass124")
+    submit()
+    expect(screen.queryByText("인증 메일을 확인해 주세요")).toBeNull()
+    expect(screen.getByLabelText("비밀번호").getAttribute("aria-invalid")).toBe("true")
+  })
+
+  it("메일 인증 링크를 확인하는 동안 '인증하는 중'을 보이고, 끝나면 완료로 바뀐다", async () => {
+    renderAt(`/auth/verify#token=${MOCK_VALID_VERIFY_TOKEN}`)
+
+    expect(screen.getByRole("status").textContent).toBe("인증하는 중…")
+    expect(await screen.findByText(/이메일 인증이 끝났습니다/)).toBeTruthy()
+  })
+
+  it("가입 직후에는 로그인 상태가 아니고, 메일 인증 전에는 로그인이 막히며, 인증 뒤에야 로그인된다", async () => {
+    // Mock 계정을 탈퇴시켜 같은 이메일로 다시 가입할 수 있게 한다(가입 = 미인증 계정).
+    await deleteAccount(MOCK_ACCOUNT.password, { latencyMs: 0 })
+    const router = renderAt("/signup")
+    type("이메일", MOCK_ACCOUNT.email)
+    type("비밀번호", "newpass123")
+    type("비밀번호 확인", "newpass123")
+    submit()
+    expect(await screen.findByText("인증 메일을 확인해 주세요")).toBeTruthy()
+    expect(useAuthStore.getState().accountId).toBeNull()
+
+    // 인증 전 로그인 → 막힘
+    await act(() => router.navigate("/login"))
+    type("이메일", MOCK_ACCOUNT.email)
+    type("비밀번호", "newpass123")
+    fireEvent.click(screen.getByRole("button", { name: "로그인" }))
+    expect(await screen.findByText("이메일 인증 후 로그인할 수 있습니다.")).toBeTruthy()
+    expect(useAuthStore.getState().accountId).toBeNull()
+
+    // 메일 인증 뒤 로그인 → 성공
+    await act(() => router.navigate(`/auth/verify#token=${MOCK_VALID_VERIFY_TOKEN}`))
+    expect(await screen.findByText(/이메일 인증이 끝났습니다/)).toBeTruthy()
+    await act(() => router.navigate("/login"))
+    type("이메일", MOCK_ACCOUNT.email)
+    type("비밀번호", "newpass123")
+    fireEvent.click(screen.getByRole("button", { name: "로그인" }))
+    await waitFor(() => expect(useAuthStore.getState().accountId).not.toBeNull())
   })
 })
 
