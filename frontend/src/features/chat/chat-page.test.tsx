@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 // W-07 화면 테스트(jsdom + Mock): url null 출처 표시, 수동 재시도 3회 상한, 남은 횟수 미상 시 숨김.
 // 실제 A08 Backend 연동 결과가 아니다.
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { useAuthStore } from "@/features/auth/auth-store"
+import type { MockAiScenario } from "@/mocks/ai-stream"
+import { useMockAiScenarioStore } from "@/mocks/mock-ai-scenario"
 import { WITHHELD_COPY } from "@/shared/content/chat"
 import {
   ChatPage,
@@ -24,9 +26,13 @@ const renderChat = () =>
     />,
   )
 
+// #205: 화면 드롭다운이 없어져 시험 코드에서 Mock 응답 시나리오를 정한다.
+const setScenario = (scenario: MockAiScenario) => useMockAiScenarioStore.setState({ scenario })
+
 beforeEach(() => {
   useAuthStore.getState().signOut()
   useChatSessionStore.setState({ externalNoticeAcknowledged: true, guestRemaining: 10 })
+  setScenario("answered")
 })
 afterEach(cleanup)
 
@@ -71,8 +77,8 @@ describe("Sources", () => {
 
 describe("W-07 수동 재시도 (Q47)", () => {
   it(`S6에서 같은 질문은 ${MAX_MANUAL_RETRIES}회까지만 다시 시도할 수 있다`, async () => {
+    setScenario("providerUnavailable")
     renderChat()
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "providerUnavailable" } })
     fireEvent.change(screen.getByLabelText("질문"), { target: { value: "상속포기 기한" } })
     fireEvent.click(screen.getByRole("button", { name: "보내기" }))
 
@@ -171,8 +177,8 @@ describe("S6·S7·S9 안내 구분 (7-2-2)", () => {
   const LIMIT_TITLE = "오늘 사용할 수 있는 AI 질문을 모두 사용했습니다."
   const STATIC_INFO = /체크리스트와 절차 안내는 그대로 이용할 수 있습니다/
 
-  const askWith = (scenario: string) => {
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: scenario } })
+  const askWith = (scenario: MockAiScenario) => {
+    act(() => setScenario(scenario))
     fireEvent.change(screen.getByLabelText("질문"), { target: { value: "상속포기 기한" } })
     fireEvent.click(screen.getByRole("button", { name: "보내기" }))
   }
@@ -248,8 +254,8 @@ describe("로그인 사용자 1분 제한 (3-7-3, MEMBER_MINUTE_LIMIT)", () => {
     useAuthStore
       .getState()
       .signIn({ accountId: "mock:demo@example.com", email: "demo@example.com" })
+    setScenario("memberMinuteLimit")
     renderChat()
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "memberMinuteLimit" } })
     fireEvent.change(screen.getByLabelText("질문"), { target: { value: "상속포기 기한" } })
     fireEvent.click(screen.getByRole("button", { name: "보내기" }))
 

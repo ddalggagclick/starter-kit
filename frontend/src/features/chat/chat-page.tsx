@@ -9,7 +9,8 @@
  *   같은 질문의 [다시 시도]는 최대 3회다(결정 문서 Q47).
  *   AI 대화 저장 동의(S1, 체크리스트와 별도)·이전 대화 목록(S10)·새 대화(S8)·저장 안 된 대화 이탈 확인(S11)
  *   (PRD 4-1-1·3-6-1~3-6-3). 저장은 chat-storage.ts가 동의를 확인해 처리한다.
- * 제한사항: Mock 모드에서는 화면 상단에 Mock임을 표시하고 실동작 완료로 보이지 않게 한다.
+ * 제한사항: Mock 안내 문구와 발표용 시나리오 드롭다운은 사용자 요청으로 없앴다(#205). Mock 응답 시나리오는
+ *   mocks/mock-ai-scenario.ts에서 정하며 기본은 정상 답변이다.
  *   새로고침·탭 닫기는 확인 없이 초기화한다(D-11). 저장 중이면 [대화 기록 삭제]·동의 철회를 보인다(4-3).
  */
 import { ExternalLink, Send, Square } from "lucide-react"
@@ -20,11 +21,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Notice } from "@/components/ui/notice"
 import { StorageControls } from "@/components/ui/storage-controls"
 import { selectNamespace, useAuthStore } from "@/features/auth/auth-store"
-import {
-  createMockAskResponse,
-  MOCK_AI_SCENARIO_LABELS,
-  type MockAiScenario,
-} from "@/mocks/ai-stream"
+import { createMockAskResponse } from "@/mocks/ai-stream"
+import { useMockAiScenarioStore } from "@/mocks/mock-ai-scenario"
 import type { ApiFailure } from "@/shared/api/api-error"
 import { USE_MOCK_API } from "@/shared/api/data-source"
 import { RATE_LIMIT_REASONS, type SseResultEvent } from "@/shared/api/types"
@@ -284,7 +282,8 @@ function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
     guestRemaining,
     setGuestRemaining,
   } = useChatSessionStore()
-  const [scenario, setScenario] = useState<MockAiScenario>("answered")
+  // Mock 응답 시나리오. 화면 드롭다운은 없애고(#205) 시험 코드만 바꾼다. 기본은 정상 답변.
+  const scenario = useMockAiScenarioStore((s) => s.scenario)
   const [input, setInput] = useState("")
   const [turns, setTurns] = useState<ChatTurn[]>([])
   // 지금 대화. 첫 질문이 끝날 때 만든다(제목 = 첫 질문 앞부분, D-14).
@@ -509,30 +508,6 @@ function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
         </section>
       )}
       {historyError && <Notice tone="danger">{historyError}</Notice>}
-
-      {USE_MOCK_API && (
-        <>
-          <Notice tone="info">
-            V1 Mock 화면입니다. 실제 AI(Gemini)·공식자료 검색을 호출하지 않고 미리 준비한 예시
-            응답을 보여줍니다.
-          </Notice>
-
-          <label className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm">
-            <span className="font-medium">Mock 시나리오 (발표용)</span>
-            <select
-              value={scenario}
-              onChange={(event) => setScenario(event.target.value as MockAiScenario)}
-              className="h-8 rounded-md border bg-background px-2"
-            >
-              {Object.entries(MOCK_AI_SCENARIO_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      )}
 
       <section aria-label="대화" aria-live="polite" className="space-y-4">
         {turns.length === 0 && !pendingQuestion && (

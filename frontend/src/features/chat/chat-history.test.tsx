@@ -8,6 +8,7 @@ import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { appRoutes, createQueryClient } from "@/app"
 import { useAuthStore } from "@/features/auth/auth-store"
+import { useMockAiScenarioStore } from "@/mocks/mock-ai-scenario"
 import { resetMockApiState } from "@/mocks/mock-api"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { grantConsent } from "@/shared/storage/consent"
@@ -58,6 +59,7 @@ beforeEach(async () => {
   useInheritanceStore.getState().reset()
   useAuthStore.getState().signOut()
   useChatSessionStore.setState({ externalNoticeAcknowledged: true, guestRemaining: 10 })
+  useMockAiScenarioStore.setState({ scenario: "answered" })
 })
 afterEach(cleanup)
 
@@ -248,13 +250,14 @@ describe("리뷰 회귀", () => {
   }, 15_000)
 
   it("P2: 실패한(S6) 첫 질문은 제목이 되지 않고, 처음 저장되는 성공 질문이 제목이 된다", async () => {
+    // #205: 화면 드롭다운 대신 시험 코드에서 Mock 응답 시나리오를 정한다.
+    useMockAiScenarioStore.setState({ scenario: "providerUnavailable" })
     renderAi()
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "providerUnavailable" } })
     fireEvent.change(screen.getByLabelText("질문"), { target: { value: "실패한 첫 질문" } })
     fireEvent.click(screen.getByRole("button", { name: "보내기" }))
     await screen.findByText("일시적인 문제로 답변하지 못했습니다.")
 
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "answered" } })
+    act(() => useMockAiScenarioStore.setState({ scenario: "answered" }))
     await ask("성공한 질문")
     await consentInBand()
 

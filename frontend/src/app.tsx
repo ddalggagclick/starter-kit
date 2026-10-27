@@ -39,7 +39,6 @@ import { ProcedureDetailPage } from "@/features/procedures/procedure-detail"
 import { ProceduresPage } from "@/features/procedures/procedures-page"
 import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
 import { cn } from "@/lib/utils"
-import { USE_MOCK_API } from "@/shared/api/data-source"
 import { LEGAL_DISCLAIMER } from "@/shared/content/checklist"
 
 const NAV_ITEMS = [
@@ -131,8 +130,8 @@ function AppLayout() {
       <footer className="border-t">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4 text-xs text-muted-foreground sm:px-6">
           <p>
+            {/* Mock 표시(" · V1 Mock 데이터 사용 중…")는 사용자 요청으로 없앴다(#205). */}
             {LEGAL_DISCLAIMER}. 안내 문구·기한은 검수 전 예시입니다.
-            {USE_MOCK_API && " · V1 Mock 데이터 사용 중 (실제 Backend 연동 아님)"}
           </p>
           <FeedbackMockButton context="공통" />
         </div>
