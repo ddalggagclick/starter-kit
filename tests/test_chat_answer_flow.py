@@ -152,7 +152,10 @@ def test_evidence_found_streams_exactly_once_and_returns_verified_references():
     assert model.stream_calls == 1 and model.generate_calls == 0
     assert model.requests[0].model_profile == "answer"
     assert result.outcome.status == "answered"
-    assert result.outcome.answer_text == text
+    # 내부 근거 ID는 출처 목록 순서의 번호로 바뀌어 나간다.
+    assert (
+        result.outcome.answer_text == "신고 방법은 안내를 확인하세요[1]. 기간은 조문을 보세요[2]."
+    )
     refs = result.outcome.references
     assert [(r.evidence_id, r.kind) for r in refs] == [
         ("rag-1", "procedure"),
@@ -160,6 +163,17 @@ def test_evidence_found_streams_exactly_once_and_returns_verified_references():
     ]
     assert refs[0].official_url == "https://www.example.go.kr/guide"
     assert refs[1].location == "제1019조"
+
+
+def test_repeated_citation_keeps_its_first_number():
+    text = "조문을 먼저 보세요[[law-1]]. 안내도 있습니다[[rag-1]]. 다시 조문입니다[[law-1]]."
+    service, _ = build(model=FakeModel(text))
+    result = ask(service)
+    assert (
+        result.outcome.answer_text
+        == "조문을 먼저 보세요[1]. 안내도 있습니다[2]. 다시 조문입니다[1]."
+    )
+    assert [r.evidence_id for r in result.outcome.references] == ["law-1", "rag-1"]
 
 
 @pytest.mark.parametrize(

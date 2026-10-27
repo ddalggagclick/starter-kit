@@ -36,6 +36,13 @@ def extract_cited_ids(text: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(_CITATION.findall(text)))
 
 
+# 화면용 본문: [[근거ID]]를 처음 나온 순서의 번호 [n]으로 바꾼다. [n]은 출처 목록의 n번째와 같다.
+# 내부 근거 ID(sha256 등)는 브라우저로 보내지 않는다. 검증을 통과한 본문에만 쓴다.
+def number_citations(text: str) -> str:
+    numbers = {cited: index for index, cited in enumerate(extract_cited_ids(text), start=1)}
+    return _CITATION.sub(lambda match: f"[{numbers[match.group(1)]}]", text)
+
+
 def _from_rag(item: Evidence) -> AnswerReference:
     source = item.source
     return AnswerReference(
