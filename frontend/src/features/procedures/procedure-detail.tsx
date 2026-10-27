@@ -167,7 +167,7 @@ export function ProcedureDetailPage() {
           <Notice tone="warning">{COMMON_RISK_WARNING}</Notice>
           <ProcedureBody detail={data} />
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-            <GuidanceReadToggle procedureId={data.procedureId} />
+            <GuidanceReadToggle procedureId={data.procedureId} variant="detail" />
             <FeedbackMockButton context={`W-04 ${data.procedureId}`} />
           </div>
         </>
