@@ -15,7 +15,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Notice } from "@/components/ui/notice"
 import { useHandoff } from "@/features/kakao/use-handoff"
 import { procedureNumber, useProcedureList } from "@/features/procedures/api"
-import { GuidanceReadToggle, RecheckBadge } from "@/features/procedures/guidance-read-toggle"
+import {
+  GuidanceProgress,
+  GuidanceReadToggle,
+  RecheckBadge,
+} from "@/features/procedures/guidance-read-toggle"
+import { cn } from "@/lib/utils"
 import {
   COMMON_RISK_WARNING,
   HANDOFF_FAILURE_COPY,
@@ -26,7 +31,7 @@ import {
 } from "@/mocks/checklist"
 import { MOCK_DEADLINE_TAGS } from "@/mocks/procedures"
 import type { InitialAnswers, ProcedureId } from "@/shared/contracts/domain"
-import { countGuidance, useInheritanceStore } from "@/shared/state/inheritance-store"
+import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { ChecklistConsentBand } from "./checklist-consent-band"
 import { ChecklistStorageControls } from "./checklist-storage-controls"
 import { RiskQuestions } from "./risk-questions"
@@ -71,6 +76,8 @@ const useRiskFlags = (): Set<ProcedureId> => {
 function ProcedureCards() {
   const { data, isPending, isError, refetch } = useProcedureList()
   const riskFlags = useRiskFlags()
+  // 읽은 카드는 테두리를 초록으로 바꿔 한눈에 구분한다(문구 없이).
+  const procedureStates = useInheritanceStore((s) => s.procedureStates)
   if (isPending) return <p role="status">절차를 불러오는 중…</p>
   if (isError)
     return (
@@ -86,7 +93,12 @@ function ProcedureCards() {
       {data.procedures.map((procedure) => (
         <li
           key={procedure.procedureId}
-          className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+          className={cn(
+            "flex flex-col gap-3 rounded-xl border bg-card p-4",
+            procedureStates[procedure.procedureId].guidanceRead &&
+              !procedureStates[procedure.procedureId].needsRecheck &&
+              "border-success-foreground",
+          )}
         >
           <div className="flex items-start gap-3">
             <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold">
@@ -130,8 +142,6 @@ export function ChecklistPage() {
   const handoff = useHandoff()
   const answers = useInheritanceStore((s) => s.answers)
   const entrySource = useInheritanceStore((s) => s.entrySource)
-  const procedureStates = useInheritanceStore((s) => s.procedureStates)
-  const counts = countGuidance(procedureStates)
   const [failureDismissed, setFailureDismissed] = useState(false)
 
   if (handoff === "exchanging") {
@@ -232,14 +242,9 @@ export function ChecklistPage() {
             <h2 id="procedures-heading" className="text-lg font-semibold">
               공통 절차 8가지
             </h2>
-            <p className="text-sm text-muted-foreground">
-              '안내 확인'은 읽었다는 표시이며 신고·신청 완료가 아닙니다.
-            </p>
           </div>
-          <p className="text-sm" aria-live="polite">
-            안내 확인 <strong>{counts.read}</strong> · 재확인 필요 <strong>{counts.recheck}</strong>{" "}
-            · 전체 {counts.total}
-          </p>
+          {/* 문장 대신 "N/8 읽음" 진행 막대. "신청 완료 아님"은 읽음 버튼의 마우스 설명으로 알린다. */}
+          <GuidanceProgress />
         </div>
         <ProcedureCards />
       </section>

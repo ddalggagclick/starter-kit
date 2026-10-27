@@ -51,7 +51,7 @@ describe("W-01 → W-02", () => {
     expect(screen.getByText("배우자")).toBeTruthy()
   })
 
-  it("안내 확인을 체크해도 카드 순서·개수는 그대로이고 확인 수만 바뀐다", async () => {
+  it("읽음 버튼을 눌러도 카드 순서·개수는 그대로이고 읽음 진행만 바뀐다", async () => {
     useInheritanceStore.getState().setInitialAnswers(
       {
         relationship: "descendant",
@@ -64,8 +64,12 @@ describe("W-01 → W-02", () => {
     renderAt("/checklist")
     await screen.findByText("부동산 상속", {}, { timeout: 2000 })
     const before = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
-    fireEvent.click(screen.getAllByLabelText("안내 확인")[0])
-    expect(screen.getByText(/안내 확인/, { selector: "p[aria-live]" }).textContent).toContain("1")
+    expect(screen.getByText("0/8 읽음")).toBeTruthy()
+    fireEvent.click(screen.getAllByRole("button", { name: "읽기 전" })[0])
+    expect(screen.getByText("1/8 읽음")).toBeTruthy()
+    expect(
+      screen.getByRole("progressbar", { name: "절차 안내 읽음" }).getAttribute("aria-valuenow"),
+    ).toBe("1")
     expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(before)
   })
 })
