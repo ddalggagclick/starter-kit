@@ -127,14 +127,13 @@ class V1ChatAnswerService:
             return _finish(classify_model_error(exc.code, "answer"), request_id)
 
         # 검증 전 본문은 밖으로 내보내지 않는다. 인용이 실제 근거와 맞을 때만 answered.
+        # references는 처음 인용된 순서라 본문의 [n]이 references[n-1]을 가리킨다.
         try:
             references = self._validator.validate_and_resolve(extract_cited_ids(text), rag, laws)
+            shown = number_citations(text)
         except CitationMismatch:
             return _withheld(request_id, ErrorCode.CITATION_MISMATCH)
-        # references는 처음 인용된 순서라 본문의 [n]이 references[n-1]을 가리킨다.
-        return ChatAnswerResult(
-            AnswerOutcome("answered", number_citations(text), references, request_id)
-        )
+        return ChatAnswerResult(AnswerOutcome("answered", shown, references, request_id))
 
     async def _gather(
         self, question: str, decision: RouteDecision, notify: ProgressCallback
