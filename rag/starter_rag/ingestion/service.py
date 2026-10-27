@@ -360,10 +360,6 @@ _LEGACY_PROJECTION = RowProjectionSpec(
         ("Source Unit", "source_id"),
         ("절차·주제", "title"),
         ("확인한 내용·유의 (인용 발췌)", "excerpt"),
-        ("투입 조건", "condition"),
-        ("미확인·유의", "unverified"),
-        ("본문 범위", "scope"),
-        ("사용 주의", "caution"),
     ),
     location_fields=(
         ("source_unit_id", "source_id"),
@@ -379,7 +375,8 @@ _LEGACY_PROJECTION = RowProjectionSpec(
     ),
     location_row_index_key="chunk_row_index",
     location_provenance_key="docling_locations",
-    version_prefix="source-v2-",
+    # 원본 해시는 유지하되 검색 본문 형식 변경은 새 문서 버전으로 구분한다.
+    version_prefix="source-v2-text-v2-",
 )
 
 
@@ -406,7 +403,7 @@ def _content_hash(unit: SourceUnit) -> str:
 
 
 def _version(unit: SourceUnit) -> str:
-    return "source-v2-" + _content_hash(unit)[:16]
+    return _LEGACY_PROJECTION.version_prefix + _content_hash(unit)[:16]
 
 
 def _location(unit: SourceUnit, original_row: object) -> str:
@@ -434,10 +431,6 @@ def _searchable_row_text(unit: SourceUnit) -> str:
         ("Source Unit", unit.source_id),
         ("절차·주제", unit.title),
         ("확인한 내용·유의 (인용 발췌)", unit.excerpt),
-        ("투입 조건", unit.condition),
-        ("미확인·유의", unit.unverified),
-        ("본문 범위", unit.scope),
-        ("사용 주의", unit.caution),
     )
     text = "\n".join(f"{label}: {value}" for label, value in fields if value.strip())
     if unit.official_url and not unit.display_link_allowed and unit.official_url in text:
