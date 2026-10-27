@@ -1,34 +1,140 @@
-/* 책임: [A] Tailwind v4 및 shadcn/ui 색상 토큰.
- * 구현할 기능: 기본 배경/텍스트/카드/포커스 색상과 Tailwind 매핑.
- * 완료 기준: Vite에서 Tailwind 클래스와 shadcn Button/Card 스타일 적용.
+/* 책임: [A] Tailwind v4 및 shadcn/ui 색상·글자·모서리 토큰.
+ * 근거: 「상속 길잡이 디자인 시스템 v1.0」(information/문서/01 기획) 3·4·5·10·11장.
+ * 구현: ① 프리미티브(네이비·세이지·테라코타·황금·중립)를 두고 ② 화면이 쓰는 시맨틱 이름(--primary, --danger 등)에
+ *   디자인 시스템 값을 연결한다. 화면 코드는 시맨틱 이름(bg-primary, text-danger-foreground 등)만 쓴다.
+ *   기존 이름 ↔ 디자인 시스템 대응: background=canvas, card=surface, primary=brand, muted-foreground=text-muted,
+ *   danger(배경)=danger-subtle·danger-foreground(글자)=danger, warning=notice(황금), info·success·secondary=accent-subtle(세이지).
+ *   다크 모드는 같은 이름으로 값만 바꾼다(10장). 글꼴은 Pretendard 승인 전이라 설치된 글꼴 순서대로 쓴다(B안).
+ * 완료 기준: 본문 대비 4.5:1 이상(라이트·다크), 화면 코드에 색 값을 직접 쓰지 않는다(12장).
  */
 @import "tailwindcss";
+
 :root {
-  --background: #fafaf9;
-  --foreground: #1c1917;
-  --card: #ffffff;
-  --card-foreground: #1c1917;
-  --primary: #1c3933;
-  --primary-foreground: #ffffff;
-  --secondary: #eaeae6;
-  --secondary-foreground: #292524;
-  --muted-foreground: #78716c;
-  --accent: #e5e7eb;
-  --accent-foreground: #292524;
-  --input: #d6d3d1;
-  --ring: #64748b;
-  /* V1 화면 상태 색. 디자인 시스템(시안·v1.4 색 결정) 확정 전 잠정값이다. */
-  --border: #e7e5e4;
-  --muted: #f5f5f4;
-  --warning: #fff7ed;
-  --warning-foreground: #9a3412;
-  --info: #eff6ff;
-  --info-foreground: #1e3a8a;
-  --danger: #fef2f2;
-  --danger-foreground: #991b1b;
-  --success: #f0fdf4;
-  --success-foreground: #166534;
+  /* ① 프리미티브 — 화면에서 직접 쓰지 않는다 */
+  --navy-100: #e8eef5;
+  --navy-300: #a3bfd9;
+  --navy-400: #6f9bc2;
+  --navy-500: #3f78a8;
+  --navy-600: #1f4a74;
+  --navy-800: #123657;
+  --navy-900: #0b2238;
+  --sage-100: #eaf2ed;
+  --sage-300: #b2cfbf;
+  --sage-500: #6f8f80;
+  --sage-600: #587468;
+  --sage-700: #45594f;
+  --red-100: #fcefe9;
+  --red-300: #efb49b;
+  --red-600: #a4482b;
+  --gold-100: #fff8e1;
+  --gold-300: #e8c96a;
+  --gold-600: #8a6d12;
+  --neutral-100: #f6f3ee;
+  --neutral-200: #e2e6ea;
+  --neutral-300: #c9d0d7;
+  --neutral-500: #8a96a3;
+  --neutral-600: #5b6672;
+  --neutral-900: #1d2733;
+  --white: #ffffff;
+
+  /* ② 시맨틱 — 화면이 쓰는 이름 */
+  --background: var(--neutral-100);
+  --foreground: var(--neutral-900);
+  --card: var(--white);
+  --card-foreground: var(--neutral-900);
+  --primary: var(--navy-800);
+  --primary-foreground: var(--white);
+  --secondary: var(--sage-100);
+  --secondary-foreground: var(--navy-800);
+  --muted: var(--neutral-100);
+  --muted-foreground: var(--neutral-600);
+  --accent: var(--sage-100);
+  --accent-foreground: var(--navy-800);
+  /* 입력칸·누르기 전 버튼 테두리. 디자인 시스템 값(neutral-300)은 흰 카드 위 1.56:1이라
+     WCAG 1.4.11(그래픽 대비 3:1)을 넘는 neutral-500(3.01:1)을 쓴다(리뷰 반영). */
+  --input: var(--neutral-500);
+  --ring: var(--navy-500);
+  --border: var(--neutral-200);
+  /* 확인 안내(황금): 카카오 답변 띠·확인 메모·사용 제한 등 */
+  --warning: var(--gold-100);
+  --warning-foreground: var(--gold-600);
+  --info: var(--sage-100);
+  --info-foreground: var(--navy-800);
+  /* 위험(테라코타): 기한·되돌릴 수 없는 행동에만 */
+  --danger: var(--red-100);
+  --danger-foreground: var(--red-600);
+  /* 안심·완료(세이지): 읽음 표시 등 */
+  --success: var(--sage-100);
+  --success-foreground: var(--sage-700);
+  /* 진행률 막대 채움(7.7). 디자인 시스템 값(sage-500)은 막대 배경 위 2.83:1이라
+     WCAG 1.4.11(그래픽 대비 3:1)을 넘는 sage-600(4.07:1)을 쓴다(리뷰 반영). */
+  --progress: var(--sage-600);
+  /* 확인창 뒤 배경 */
+  --overlay: rgb(11 34 56 / 0.45);
+  --shadow-card: 0 4px 18px rgb(18 54 87 / 0.07);
+  --font-family: "Pretendard", "Noto Sans KR", system-ui, -apple-system, sans-serif;
 }
+
+/* 다크 모드(10장): 시스템 설정이 어두우면 같은 이름의 값만 바꾼다. data-theme로 강제할 수도 있다. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: #161b21;
+    --foreground: #e8edf2;
+    --card: #1e252d;
+    --card-foreground: #e8edf2;
+    --primary: var(--navy-300);
+    --primary-foreground: var(--navy-900);
+    --secondary: #1f2c29;
+    --secondary-foreground: var(--navy-300);
+    --muted: #161b21;
+    --muted-foreground: #a7b2bd;
+    --accent: #1f2c29;
+    --accent-foreground: var(--navy-300);
+    --input: var(--neutral-500);
+    --ring: var(--navy-400);
+    --border: #2e3742;
+    --warning: #3a3320;
+    --warning-foreground: var(--gold-300);
+    --info: #1f2c29;
+    --info-foreground: var(--navy-300);
+    --danger: #3a2a25;
+    --danger-foreground: var(--red-300);
+    --success: #1f2c29;
+    --success-foreground: var(--sage-300);
+    --progress: var(--sage-300);
+    --overlay: rgb(0 0 0 / 0.6);
+    --shadow-card: 0 4px 18px rgb(0 0 0 / 0.35);
+  }
+}
+:root[data-theme="dark"] {
+  --background: #161b21;
+  --foreground: #e8edf2;
+  --card: #1e252d;
+  --card-foreground: #e8edf2;
+  --primary: var(--navy-300);
+  --primary-foreground: var(--navy-900);
+  --secondary: #1f2c29;
+  --secondary-foreground: var(--navy-300);
+  --muted: #161b21;
+  --muted-foreground: #a7b2bd;
+  --accent: #1f2c29;
+  --accent-foreground: var(--navy-300);
+  --input: var(--neutral-500);
+  --ring: var(--navy-400);
+  --border: #2e3742;
+  --warning: #3a3320;
+  --warning-foreground: var(--gold-300);
+  --info: #1f2c29;
+  --info-foreground: var(--navy-300);
+  --danger: #3a2a25;
+  --danger-foreground: var(--red-300);
+  --success: #1f2c29;
+  --success-foreground: var(--sage-300);
+  --progress: var(--sage-300);
+  --overlay: rgb(0 0 0 / 0.6);
+  --shadow-card: 0 4px 18px rgb(0 0 0 / 0.35);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -53,7 +159,31 @@
   --color-danger-foreground: var(--danger-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-progress: var(--progress);
+  --color-overlay: var(--overlay);
+  --shadow-sm: var(--shadow-card);
+  --font-sans: var(--font-family);
 }
+
+/* 글자(4장): 크기 6단계(12·14·16·20·24·32), 굵기 400·600만. 기존 클래스 이름은 두고 값만 맞춘다. */
+@theme {
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+  --text-3xl: 2rem;
+  --text-3xl--line-height: 2.5rem;
+  --text-4xl: 2rem;
+  --text-4xl--line-height: 2.5rem;
+  /* 굵기는 400·600 두 가지만: medium(500)은 400으로, bold(700)는 600으로 맞춘다(리뷰 반영). */
+  --font-weight-medium: 400;
+  --font-weight-bold: 600;
+  /* 모서리(5.2): 입력·작은 박스 8px, 카드·모달 14px, 버튼·칩 999px(rounded-full) */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 0.875rem;
+}
+
 /* Tailwind v4 기본 테두리 색(currentColor) 대신 공통 테두리 토큰을 쓴다. */
 @layer base {
   *,
@@ -67,5 +197,6 @@ body {
   color: var(--foreground);
   margin: 0;
   min-width: 320px;
-  font-family: Inter, Pretendard, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-family);
+  font-size: 1rem;
 }
