@@ -48,7 +48,7 @@ export function GuidanceReadToggle({
           variant === "detail" ? "px-4 py-1.5 text-base" : "px-3 py-1 text-sm",
           read
             ? "border-success-foreground bg-success text-success-foreground"
-            : "border-border bg-card text-foreground hover:bg-muted",
+            : "border-input bg-card text-foreground hover:bg-muted",
         )}
       >
         <span
