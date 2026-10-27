@@ -95,10 +95,10 @@ export function GuidanceProgress() {
         aria-valuemin={0}
         aria-valuemax={counts.total}
         aria-valuenow={counts.read}
-        className="h-2 flex-1 overflow-hidden rounded-full bg-muted"
+        className="h-2 flex-1 overflow-hidden rounded-full bg-border"
       >
         <div
-          className="h-full rounded-full bg-success-foreground transition-[width]"
+          className="h-full rounded-full bg-progress transition-[width]"
           style={{ width: `${(counts.read / counts.total) * 100}%` }}
         />
       </div>
