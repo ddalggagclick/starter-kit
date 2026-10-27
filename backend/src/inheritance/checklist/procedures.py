@@ -1,6 +1,6 @@
 # 담당: [B] | 책임: A07 절차 8개 목록·상세의 정적 데이터를 한 곳에 둔다.
 # 근거: D5(절차 데이터는 백엔드 코드 안 정적 데이터), D6(p01~p08), W-04 공식 안내 원고(#74).
-# 완료 기준: frontend/src/mocks/procedures.ts와 글자 단위로 같고, 절차 이름은 rules.PROCEDURE_TITLES와 같다.
+# 완료 기준: frontend/src/shared/content/procedures.ts와 글자 단위로 같고, 절차 이름은 rules.PROCEDURE_TITLES와 같다.
 # 제한사항: 브라우저로 확인하지 않은 공식 링크를 추가하지 않는다. relatedProcedureIds는 D4 보류로 비운다.
 from __future__ import annotations
 

@@ -18,7 +18,9 @@ from inheritance.contracts.checklist import GuidanceInput
 from inheritance.contracts.domain import InitialAnswers
 from inheritance.main import create_app
 
-FRONTEND_MOCK = Path(__file__).resolve().parents[1] / "frontend" / "src" / "mocks" / "procedures.ts"
+FRONTEND_PROCEDURES = (
+    Path(__file__).resolve().parents[1] / "frontend/src/shared/content/procedures.ts"
+)
 DETAIL_KEYS = {
     "procedureId",
     "action",
@@ -73,9 +75,9 @@ def test_unknown_procedure_id_is_validation_error(client, procedure_id):
     assert response.json()["code"] == "VALIDATION_ERROR"
 
 
-def test_static_data_matches_frontend_mock_text():
-    # 정민 님 Mock(#74)과 문장이 한 글자라도 달라지면 실패한다.
-    source = FRONTEND_MOCK.read_text(encoding="utf-8")
+def test_static_data_matches_frontend_procedure_text():
+    # 정민 님 화면 원고(#74, #187에서 shared/content로 이동)와 문장이 한 글자라도 달라지면 실패한다.
+    source = FRONTEND_PROCEDURES.read_text(encoding="utf-8")
     texts = [s.summary for s in PROCEDURE_SUMMARIES] + [s.name for s in PROCEDURE_SUMMARIES]
     for detail in PROCEDURE_DETAILS.values():
         texts += [detail.action, detail.deadline, detail.risk, detail.agency]
