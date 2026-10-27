@@ -98,6 +98,26 @@ describe("messagesToTurns 복원", () => {
   })
 })
 
+describe("출처 번호 [n] 저장·복원 (#184)", () => {
+  it("본문의 [1]·[2]를 그대로 저장하고, 다시 열면 그대로 보인다", () => {
+    const cited: ChatTurn = {
+      ...answered,
+      outcome: {
+        kind: "answered",
+        result: {
+          state: "answered",
+          answer: "가정법원에 신고합니다[1]. 기간을 확인하세요[2].",
+          sources: answered.outcome.kind === "answered" ? answered.outcome.result.sources : [],
+        },
+      },
+    }
+    const turns = messagesToTurns(asRecords(turnToMessages("c1", cited, 10)))
+    expect(turns[0].outcome.kind === "answered" && turns[0].outcome.result.answer).toBe(
+      "가정법원에 신고합니다[1]. 기간을 확인하세요[2].",
+    )
+  })
+})
+
 describe("useChatStorage 동의 중 완료된 답변 (리뷰 회귀 P2)", () => {
   it("동의 처리가 끝나기 전에 끝난 답변도 동의가 확정되면 저장한다", async () => {
     const db = new InheritanceDb("chat-grant-race", { indexedDB: new IDBFactory(), IDBKeyRange })
