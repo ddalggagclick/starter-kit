@@ -7,7 +7,7 @@
  *   - 대화 영역: 높이가 정해진 상자 안에서만 스크롤해 첫 화면이 길어지지 않게 한다. 새 메시지가 오면 맨 아래로 내린다.
  *   - 질문창: 맨 아래 고정. 개인정보 경고·첫 외부 전송 안내·하루 한도 안내·n/200·남은 횟수를 /ai와 같은 규칙으로 보인다.
  *   - [이전 대화]를 열었을 때만 목록과 [대화 기록 삭제]·[동의 철회]를 보인다(위쪽 줄을 단순하게 유지).
- *   - 말풍선·출처·S6/S7/S9 안내는 chat-page.tsx 부품을 그대로 써 /ai와 모양·문구가 같다.
+ *   - 말풍선·출처·S6/S7/S9 안내는 공용 부품(chat-parts.tsx, #223)을 써 /ai와 모양·문구가 같다.
  *   - #214: 대화창 위에 자주 묻는 예시 질문 칩. 누르면 질문창에 담고 초점을 옮긴다(보내지 않음).
  * 제한사항: [+더보기] 모달(⑥)은 별도 이슈다. 확인창 문구는 /ai와 같다.
  */
@@ -34,7 +34,7 @@ import {
   GuestLimitNotice,
   MAX_MANUAL_RETRIES,
   WithheldBubble,
-} from "./chat-page"
+} from "./chat-parts"
 import { useChatSessionStore } from "./chat-store"
 import { ExampleQuestions } from "./example-questions"
 import { useChatSession } from "./use-chat-session"

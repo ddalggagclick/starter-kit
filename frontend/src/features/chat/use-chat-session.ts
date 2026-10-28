@@ -15,8 +15,8 @@ import { useBlocker } from "react-router"
 import { useAuthStore } from "@/features/auth/auth-store"
 import { CHAT_INPUT_POLICY, countUnicodeCodePoints } from "@/shared/contracts/ui"
 import { type InheritanceDb, inheritanceDb, type StorageNamespace } from "@/shared/storage/db"
-// 규칙 함수·상한은 chat-page.tsx 것을 그대로 쓴다(값이 두 곳에서 어긋나지 않게, 그 파일은 수정하지 않음).
-import { inputErrorMessage, MAX_MANUAL_RETRIES, rateLimitKind } from "./chat-page"
+// 규칙 함수·상한은 공용 부품 파일(chat-parts.tsx, #223)의 것을 쓴다(/ai 화면과 값이 어긋나지 않게).
+import { inputErrorMessage, MAX_MANUAL_RETRIES, rateLimitKind } from "./chat-parts"
 import {
   type ChatTurn,
   type ConversationMeta,
