@@ -4,16 +4,41 @@
 FROM --platform=linux/amd64 node:24.22.1-bookworm-slim@sha256:2dd9a4f758e173b65fee15388f7706af6fb01ef50cf7a2c0538711d67a6981ae AS node-runtime
 ENV npm_config_cache=/opt/npm-cache
 
-# Prewarm npx's cache with the exact package version and verify offline execution.
-RUN test "$(node --version)" = "v24.22.1" \
-    && npm --version \
-    && npx --version \
-    && npx --yes --package=korean-law-mcp@4.15.7 -- sh -c 'command -v korean-law-mcp' \
-    && npm_config_offline=true npx --yes --package=korean-law-mcp@4.15.7 -- sh -c 'command -v korean-law-mcp'
+# 기존 npx 호출에 필요한 패키지를 빌드 단계에서 설치하고, 런타임에는
+# 해당 패키지만 복사한다. npm 캐시와 사용하지 않는 플랫폼 파일은 제외한다.
+RUN set -eux; \
+    test "$(node --version)" = "v24.22.1"; \
+    npm --version; \
+    npx --version; \
+    npx --yes --package=korean-law-mcp@4.15.7 -- sh -c 'command -v korean-law-mcp'; \
+    npm_config_offline=true npx --yes --package=korean-law-mcp@4.15.7 -- sh -c 'command -v korean-law-mcp'; \
+    mkdir -p /opt/korean-law-mcp; \
+    set -- /opt/npm-cache/_npx/*/node_modules; \
+    test "$#" -eq 1; \
+    test -f "$1/korean-law-mcp/build/index.js"; \
+    cp -a "$1" /opt/korean-law-mcp/node_modules; \
+    find /opt/korean-law-mcp/node_modules -type f -name 'libonnxruntime_providers_cuda.so' -delete; \
+    find /opt/korean-law-mcp/node_modules -type d -path '*/onnxruntime-web' -prune -exec rm -rf '{}' \;; \
+    for root in $(find /opt/korean-law-mcp/node_modules -type d -path '*/onnxruntime-node/bin/napi-v6'); do \
+        for platform in "$root"/*; do \
+            case "$platform" in \
+                "$root/linux") \
+                    for arch in "$platform"/*; do \
+                        case "$arch" in "$platform/x64") ;; *) rm -rf "$arch" ;; esac; \
+                    done ;; \
+                *) rm -rf "$platform" ;; \
+            esac; \
+        done; \
+    done; \
+    test -z "$(find /opt/korean-law-mcp/node_modules -type f -name 'libonnxruntime_providers_cuda.so' -print -quit)"; \
+    test -z "$(find /opt/korean-law-mcp/node_modules -type d -path '*/onnxruntime-web' -print -quit)"; \
+    test -f /opt/korean-law-mcp/node_modules/korean-law-mcp/build/index.js
+
+FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:0.10.0@sha256:be9de3400e4a2046a9de5b065d2128284bf848ff857326bfc4dd372fc2c22639 AS uv-bin
 
 FROM --platform=linux/amd64 python:3.13-slim-bookworm@sha256:89c04d97d1f3f0a04ea357a27d000ba4efb18536d2d68a54611f76d5c1b5fe99 AS build
 
-COPY --from=ghcr.io/astral-sh/uv:0.10.0@sha256:be9de3400e4a2046a9de5b065d2128284bf848ff857326bfc4dd372fc2c22639 /uv /usr/local/bin/uv
+COPY --from=uv-bin /uv /usr/local/bin/uv
 WORKDIR /app
 ENV UV_PYTHON_DOWNLOADS=never \
     UV_LINK_MODE=copy \
@@ -21,13 +46,77 @@ ENV UV_PYTHON_DOWNLOADS=never \
     HF_HOME=/opt/hf-cache \
     PIP_NO_CACHE_DIR=1
 
-# Keep only the production dependency set; dev group includes RAG ingestion.
+# 의존성 메타데이터를 먼저 복사해 애플리케이션 코드 변경이 외부 패키지
+# 설치 캐시를 무효화하지 않도록 한다.
 COPY pyproject.toml uv.lock ./
-COPY backend ./backend
-COPY llm ./llm
-COPY rag ./rag
+COPY backend/pyproject.toml ./backend/pyproject.toml
+COPY llm/pyproject.toml ./llm/pyproject.toml
+COPY rag/pyproject.toml ./rag/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable
+    uv sync --locked --no-dev --no-install-workspace
+
+# 애플리케이션 소스보다 모델을 먼저 내려받는다. 이 레이어는 모델 설정
+# 파일만 참조하므로 다른 코드가 바뀌어도 모델 캐시를 재사용한다.
+RUN --mount=type=secret,id=hf_token,required=false \
+    --mount=type=bind,source=rag/starter_rag/embedding/model.py,target=/tmp/embedding_model.py,readonly \
+    .venv/bin/python - <<'PY'
+import ast
+from pathlib import Path
+from huggingface_hub import snapshot_download
+
+tree = ast.parse(Path('/tmp/embedding_model.py').read_text(encoding='utf-8'))
+model_settings = {}
+for statement in tree.body:
+    if isinstance(statement, ast.Assign):
+        for target in statement.targets:
+            if isinstance(target, ast.Name) and target.id in {
+                'EMBEDDING_MODEL_ID',
+                'EMBEDDING_MODEL_REVISION',
+            }:
+                model_settings[target.id] = ast.literal_eval(statement.value)
+if set(model_settings) != {'EMBEDDING_MODEL_ID', 'EMBEDDING_MODEL_REVISION'}:
+    raise SystemExit('Could not read the pinned embedding model settings')
+
+secret = Path('/run/secrets/hf_token')
+token = secret.read_text(encoding='utf-8').strip() if secret.is_file() else None
+snapshot_download(
+    repo_id=model_settings['EMBEDDING_MODEL_ID'],
+    revision=model_settings['EMBEDDING_MODEL_REVISION'],
+    token=token or None,
+)
+PY
+
+# 각 가중치 샤드를 Vercel 압축 레이어 한도보다 작게 나눈다. 분할 과정은
+# 텐서 데이터를 읽거나 변환하지 않고 복사한 뒤 Hugging Face 인덱스를 만든다.
+COPY scripts/shard_safetensors.py /tmp/shard_safetensors.py
+RUN --mount=type=bind,source=rag/starter_rag/embedding/model.py,target=/tmp/embedding_model.py,readonly \
+    .venv/bin/python - <<'PY'
+import ast
+from pathlib import Path
+from huggingface_hub import snapshot_download
+from runpy import run_path
+
+tree = ast.parse(Path('/tmp/embedding_model.py').read_text(encoding='utf-8'))
+model_settings = {}
+for statement in tree.body:
+    if isinstance(statement, ast.Assign):
+        for target in statement.targets:
+            if isinstance(target, ast.Name) and target.id in {
+                'EMBEDDING_MODEL_ID',
+                'EMBEDDING_MODEL_REVISION',
+            }:
+                model_settings[target.id] = ast.literal_eval(statement.value)
+if set(model_settings) != {'EMBEDDING_MODEL_ID', 'EMBEDDING_MODEL_REVISION'}:
+    raise SystemExit('Could not read the pinned embedding model settings')
+
+snapshot_dir = Path(snapshot_download(
+    repo_id=model_settings['EMBEDDING_MODEL_ID'],
+    revision=model_settings['EMBEDDING_MODEL_REVISION'],
+    local_files_only=True,
+))
+shard_checkpoint = run_path('/tmp/shard_safetensors.py')['shard_checkpoint']
+shard_checkpoint(snapshot_dir, Path('/opt/model-shards'))
+PY
 
 # Ollama and document ingestion are local development features, not runtime
 # requirements. Fail closed if a future change pulls them into production.
@@ -49,23 +138,6 @@ for package in (
     raise SystemExit(f"Unexpected production package: {package}=={found_version}")
 PY
 
-# Download the unchanged model and revision during build so runtime is offline.
-# A private model can use BuildKit secret id=hf_token; no token is stored in ARG.
-RUN --mount=type=secret,id=hf_token,required=false \
-    .venv/bin/python - <<'PY'
-from pathlib import Path
-from huggingface_hub import snapshot_download
-from starter_rag.embedding.model import EMBEDDING_MODEL_ID, EMBEDDING_MODEL_REVISION
-
-secret = Path('/run/secrets/hf_token')
-token = secret.read_text(encoding='utf-8').strip() if secret.is_file() else None
-snapshot_download(
-    repo_id=EMBEDDING_MODEL_ID,
-    revision=EMBEDDING_MODEL_REVISION,
-    token=token or None,
-)
-PY
-
 # Keep only the runtime virtualenv, model cache, and application entrypoint.
 FROM --platform=linux/amd64 python:3.13-slim-bookworm@sha256:89c04d97d1f3f0a04ea357a27d000ba4efb18536d2d68a54611f76d5c1b5fe99 AS runtime
 WORKDIR /app
@@ -73,6 +145,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libatomic1 libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH=/app/.venv/bin:$PATH \
+    PYTHONPATH=/app/backend/src:/app/llm:/app/rag \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/opt/hf-cache \
@@ -82,20 +155,46 @@ ENV PATH=/app/.venv/bin:$PATH \
     TOKENIZERS_PARALLELISM=false
 COPY --from=build /app/.venv /app/.venv
 COPY --from=build /opt/hf-cache /opt/hf-cache
-COPY backend/app_entry.py /app/backend/app_entry.py
+COPY --from=build /opt/model-shards/model-00001-of-00005.safetensors /opt/model-shards/model-00001-of-00005.safetensors
+COPY --from=build /opt/model-shards/model-00002-of-00005.safetensors /opt/model-shards/model-00002-of-00005.safetensors
+COPY --from=build /opt/model-shards/model-00003-of-00005.safetensors /opt/model-shards/model-00003-of-00005.safetensors
+COPY --from=build /opt/model-shards/model-00004-of-00005.safetensors /opt/model-shards/model-00004-of-00005.safetensors
+COPY --from=build /opt/model-shards/model-00005-of-00005.safetensors /opt/model-shards/model-00005-of-00005.safetensors
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
-COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=node-runtime /opt/npm-cache /opt/npm-cache
+COPY --from=node-runtime /opt/korean-law-mcp/node_modules /opt/korean-law-mcp/node_modules
 
-# Keep npx offline in production and validate its pinned build-time cache.
-RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
-    && npm config set cache /opt/npm-cache --location=global \
-    && npm config set offline true --location=global \
+# 분할 가중치를 고정 모델 revision의 Hugging Face 스냅샷에 연결해 기존
+# 모델 로더가 같은 경로로 읽도록 한다.
+RUN set -eux; \
+    index_file="$(find /opt/hf-cache/hub -type f -name model.safetensors.index.json -print -quit)"; \
+    test -n "$index_file"; \
+    snapshot_dir="${index_file%/*}"; \
+    for shard_file in /opt/model-shards/*.safetensors; do \
+        ln -s "$shard_file" "$snapshot_dir/$(basename "$shard_file")"; \
+    done; \
+    test "$(find "$snapshot_dir" -maxdepth 1 -type l -name 'model-*.safetensors' | wc -l | tr -d ' ')" -eq 5
+
+# Backend의 `npx -y korean-law-mcp@4.15.7` 호출을 유지하면서 런타임 npm을
+# 제거한다. 래퍼는 고정된 MCP 명령만 실행한다.
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'if [ "$#" -ne 2 ] || [ "$1" != "-y" ] || [ "$2" != "korean-law-mcp@4.15.7" ]; then' \
+    '  echo "unsupported npx command" >&2' \
+    '  exit 64' \
+    'fi' \
+    'exec /usr/local/bin/node /opt/korean-law-mcp/node_modules/korean-law-mcp/build/index.js' \
+    > /usr/local/bin/npx \
+    && chmod 0755 /usr/local/bin/npx \
     && test "$(node --version)" = "v24.22.1" \
-    && npm --version \
-    && npx --version \
-    && npx --yes --package=korean-law-mcp@4.15.7 -- sh -c 'command -v korean-law-mcp'
+    && test -x /usr/local/bin/npx \
+    && test -f /opt/korean-law-mcp/node_modules/korean-law-mcp/build/index.js
+
+# 애플리케이션 소스를 마지막에 복사해 코드 변경 시 의존성·모델·MCP
+# 레이어를 재사용한다. Workspace 패키지는 위 PYTHONPATH에서 불러온다.
+COPY backend/app_entry.py /app/backend/app_entry.py
+COPY backend/src /app/backend/src
+COPY llm/starter_llm /app/llm/starter_llm
+COPY rag/starter_rag /app/rag/starter_rag
 
 # Vercel container functions expect an HTTP listener at PORT (default: 80).
 EXPOSE 80

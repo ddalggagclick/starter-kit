@@ -29,6 +29,9 @@ frontend
 docs
 tests
 scripts
+!scripts/
+scripts/*
+!scripts/shard_safetensors.py
 *.zip
 *.patch
 *.log
