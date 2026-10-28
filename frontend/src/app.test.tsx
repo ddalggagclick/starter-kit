@@ -3,7 +3,7 @@
 import { QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createMemoryRouter, RouterProvider } from "react-router"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useAuthStore } from "@/features/auth/auth-store"
 import { useChatSessionStore } from "@/features/chat/chat-store"
 import { MOCK_ACCOUNT, MOCK_VALID_HANDOFF_TOKEN, resetMockApiState } from "@/mocks/mock-api"
@@ -154,12 +154,38 @@ describe("W-07 AI (Mock)", () => {
     expect(send.disabled).toBe(true)
   })
 
-  it("예시 질문은 입력칸만 채운다", () => {
-    renderAt("/ai")
-    fireEvent.click(screen.getByRole("button", { name: "상속세" }))
-    expect((screen.getByLabelText("질문") as HTMLTextAreaElement).value).toBe("상속세")
-    // 제출 전이므로 진행 상태나 답변이 생기지 않는다.
-    expect(screen.queryByText(/질문을 보내는 중|공식 자료 검색 중/)).toBeNull()
+  // #211: /ai는 첫 화면 대화창으로 합쳐졌다. 예시 질문 시험은 첫 화면 예시 질문 이슈(⑤)에서 다시 넣는다.
+  it("예전 주소 /ai는 첫 화면 대화창(/#ai)으로 바꿔 보내고, 헤더 [AI 질문]도 같은 곳으로 간다", async () => {
+    const router = renderAt("/ai")
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"))
+    expect(router.state.location.hash).toBe("#ai")
+    expect(screen.getByRole("region", { name: "AI에게 질문하기" }).closest("#ai")).toBeTruthy()
+    // 기록을 바꿔치기해 뒤로 가기로 /ai에 되돌아가 다시 이동하는 반복이 없다.
+    expect(router.state.historyAction).toBe("REPLACE")
+
+    const nav = screen.getByRole("navigation", { name: "주요 메뉴" })
+    const aiLink = within(nav).getByRole("link", { name: "AI 질문" })
+    expect(aiLink.getAttribute("href")).toBe("/#ai")
+    expect(aiLink.getAttribute("aria-current")).toBe("page")
+  })
+
+  it("주소에 #ai가 있으면 대화창 위치로 화면을 내린다", () => {
+    // jsdom에는 scrollIntoView가 없어 시험용으로 넣는다.
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    renderAt("/#ai")
+    expect(scrollIntoView).toHaveBeenCalled()
+    expect(scrollIntoView.mock.contexts[0]).toBe(document.getElementById("ai"))
+    // 다른 시험에 영향이 없도록 넣었던 함수를 지운다.
+    delete (Element.prototype as Partial<Element>).scrollIntoView
+  })
+
+  it("첫 화면을 #ai 없이 열면 헤더 [AI 질문]은 선택 표시하지 않는다", () => {
+    renderAt("/")
+    const nav = screen.getByRole("navigation", { name: "주요 메뉴" })
+    expect(
+      within(nav).getByRole("link", { name: "AI 질문" }).getAttribute("aria-current"),
+    ).toBeNull()
   })
 
   it("비로그인 10회를 다 쓰면 S9와 로그인 진입을 보여준다", async () => {
