@@ -8,13 +8,9 @@ import { useAuthStore } from "@/features/auth/auth-store"
 import type { MockAiScenario } from "@/mocks/ai-stream"
 import { useMockAiScenarioStore } from "@/mocks/mock-ai-scenario"
 import { WITHHELD_COPY } from "@/shared/content/chat"
-import {
-  ChatPage,
-  inputErrorMessage,
-  MAX_MANUAL_RETRIES,
-  rateLimitKind,
-  Sources,
-} from "./chat-page"
+import { ChatPage } from "./chat-page"
+// 공용 부품·규칙은 chat-parts.tsx로 옮겼다(#223).
+import { inputErrorMessage, MAX_MANUAL_RETRIES, rateLimitKind, Sources } from "./chat-parts"
 import { useChatSessionStore } from "./chat-store"
 
 const renderChat = () =>

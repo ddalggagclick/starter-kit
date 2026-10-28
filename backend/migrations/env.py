@@ -60,7 +60,7 @@ def _run_migrations(connection) -> None:
 async def _run_migrations_async() -> None:
     url = sqlalchemy_engine.make_url(_database_url())
     engine = async_engine_from_config(
-        {"sqlalchemy.url": url.render_as_string(hide_password=False)},
+        {"sqlalchemy.url": url},
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
         connect_args={"ssl": "require"},
