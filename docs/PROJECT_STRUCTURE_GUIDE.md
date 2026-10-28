@@ -13,7 +13,7 @@
 starter-kit/
 ├── frontend/                 [A] React·Vite 브라우저 앱
 ├── backend/src/inheritance/ [B·C·통합] FastAPI 앱
-├── llm/starter_llm/          [C] Gemini·Ollama 공통 모델 패키지
+├── llm/starter_llm/          [C] Gemini·Groq·Ollama 공통 모델 패키지
 ├── rag/starter_rag/          [D] Docling·임베딩·검색 패키지
 ├── tests/                    [통합] 계약·진입점 테스트
 ├── scripts/                  [통합] 계약 검사
@@ -44,7 +44,7 @@ src/
 ├── components/ui/        # shadcn 스타일 공통 UI
 ├── features/
 │   ├── auth/             # 가입·로그인 화면
-│   ├── checklist/        # 초기·위험 질문, 절차 추천
+│   ├── checklist/        # 초기·위험 질문, 공통 8개 절차 안내
 │   ├── chat/             # 채팅, POST SSE
 │   ├── kakao/            # 웹 Handoff 수신
 │   ├── law/              # 법령 안내
@@ -77,7 +77,7 @@ inheritance/
 ├── core/                 [통합] 설정, DB 세션, DI, 오류, 보안, health
 ├── auth/                 [통합] 회원가입·로그인·JWT·Refresh
 ├── contracts/            [통합] 팀 간 공통 DTO·Protocol
-├── checklist/            [B] 절차 추천·질문 규칙
+├── checklist/            [B] 공통 8개 절차 안내·질문 규칙
 ├── chat/                 [B] 채팅 답변 조립·문맥·출처 검증
 │   └── services/         answer, context, prompt_builder,
 │                        citation_validation
@@ -95,7 +95,7 @@ inheritance/
 | `<domain>/schemas.py` | 요청·응답 스키마 |
 | `<domain>/service.py` | 도메인 유스케이스 |
 | `<domain>/repository.py` | DB 접근. ERD 승인 전 테이블 확정 금지 |
-| `checklist/{rules,service}.py` | 8개 절차 중 최대 5개 추천 |
+| `checklist/{rules,service}.py` | 입력 기반 안내·위험 정보를 반영한 공통 8개 절차 안내 |
 | `chat/services/{answer,prompt_builder,citation_validation}.py` | 질문 처리, 프롬프트, 근거 검증 |
 | `law/{mcp_client,open_api,service}.py` | 조문·연혁·부칙 전문 조회 |
 | `kakao/adapter.py`, `kakao/handoff/` | 외부 JSON 변환, 10분·1회 토큰 |
@@ -105,7 +105,7 @@ inheritance/
 | 위치 | 책임 |
 |---|---|
 | `contracts/{ports,models,errors,profiles}.py` | `ModelPort.generate/stream`, DTO·오류 |
-| `providers/{gemini,ollama,factory}.py` | 공급자 구현과 수동 선택 |
+| `providers/{gemini,groq,ollama,failover,factory}.py` | 공급자 구현과 자동 전환 |
 | `runtime/{client,lifecycle,settings,prompts}.py` | 요청·취소·5분 유휴 자원 정리 |
 | `cli.py` | 독립 CLI 진입점, `starter-llm status` |
 
@@ -116,14 +116,22 @@ inheritance/
 | 위치 | 책임 |
 |---|---|
 | `contracts/{ports,models}.py` | `SearchPort.search`, Evidence·SourceRef |
-| `ingestion/{parser,chunking,service,cli}.py` | Docling 파싱·청킹·적재·검수 |
+| `ingestion/{parser,chunking,service}.py` | Docling 파싱·청킹·적재 |
+| `ingestion/cli.py` | 적재·검수 명령과 대화형 HITL 검토 |
+| `ingestion/review.py` | HITL 검토 데이터 무결성·원문 보존·승인 해시 |
 | `embedding/model.py` | EmbeddingGemma 2 임베딩 |
 | `storage/{vector_store,publication,models}.py` | pgvector, 문서 메타·게시 상태 |
-| `retrieval/{search,pipeline}.py` | `published` 문서만 검색 |
+| `retrieval/{search,pipeline,display}.py` | `published` 문서 검색과 Evidence 터미널 표시 |
 | `evaluation/golden_set.py` | 검색 평가용 Golden Set |
+| `rag/evaluation/*.json` | 공통 코드와 분리된 도메인별 재사용성 평가 자료 |
+| `batch.py` | 다중 문서 작업의 제한 병렬 준비·순차 게시·재개 |
+| `local_config.py`, `diagnostics.py`, `progress.py` | CLI 로컬 설정, 안전 진단, 진행 상태 |
 | `cli.py` | 독립 CLI 진입점, `starter-rag status` |
 
 **금지:** 서버 시작 시 자동 적재하지 않는다. 법령 원문을 벡터 색인하지 않는다. 미게시 자료를 검색에 넣지 않는다.
+
+RAG 공통 단위 테스트 fixture는 `tests/rag_test_fixtures.py`에 둔다. 공통 fixture는 도메인 중립으로 유지하고,
+도메인별 재사용성 평가 자료는 공통 fixture와 분리한다.
 
 ## 3. 소유권 — 직접 수정할 수 있는 경로
 
@@ -132,8 +140,8 @@ inheritance/
 | 담당 | 직접 수정할 경로 | 주된 책임 |
 |---|---|---|
 | **A · Frontend** | `frontend/**` | UI, Axios, SSE, Zustand, Dexie |
-| **B · Backend 도메인** | `backend/src/inheritance/checklist/**`, `chat/**`, `law/**` | 절차 추천·채팅·법령 조회 |
-| **C · 카카오/LLM** | `backend/src/inheritance/kakao/**`, `llm/**` | 카카오 Handoff, Gemini/Ollama |
+| **B · Backend 도메인** | `backend/src/inheritance/checklist/**`, `chat/**`, `law/**` | 절차 안내·채팅·법령 조회 |
+| **C · 카카오/LLM** | `backend/src/inheritance/kakao/**`, `llm/**` | 카카오 Handoff, Gemini/Groq/Ollama |
 | **D · RAG** | `rag/**` | Docling, 임베딩, 검색, 게시 |
 | **통합 관리자** | 루트 설정, `backend/src/inheritance/{auth,core,contracts}/**`, `main.py`, `backend/migrations/**`, `tests/**`, `scripts/**`, `.github/**`, `docs/**` | 인증·DB·DI·계약·CI·문서 |
 | **API 담당자** | HTTP 공개 규격의 **정의·승인** | URL·Method·JSON·SSE 이벤트. 실제 수정은 파일 소유자와 협의 |

@@ -21,10 +21,10 @@ uv run starter-rag status
 
 Frontend URL은 `http://localhost:5173/`, Backend 헬스는 `http://127.0.0.1:8000/health`입니다. CLI `status`는 실제 생성/검색을 수행하지 않고 계약 준비 상태를 반환합니다.
 
-**전제 조건:** Python 3.13, uv, Node.js 24, npm, 인터넷 연결. Model checkpoint, Ollama 프로그램 및 Qwen 파일, Supabase 서비스는 설치 명령에 포함되지 않습니다.
+**전제 조건:** Python 3.13, uv, Node.js 24, npm, 인터넷 연결. Model checkpoint, Ollama 프로그램(사용 시) 및 모델 파일, Supabase 서비스는 설치 명령에 포함되지 않습니다.
 
 - **실행 세부사항/예상 출력/빌드:** [`RUN_FIRST.md`](RUN_FIRST.md)
-- **설치 및 실행:** [`RUN_FIRST.md`](RUN_FIRST.md); **개인 Ollama 설정:** [`.env.example`](.env.example)
+- **설치 및 실행:** [`RUN_FIRST.md`](RUN_FIRST.md); **LLM 키 설정(Gemini·Groq):** [`.env.example`](.env.example)
 - **RAG 의존성 설명:** [`rag/pyproject.toml`](rag/pyproject.toml) 주석
 - **네이밍 및 책임:** [`docs/NAMING_CONVENTIONS.md`](docs/NAMING_CONVENTIONS.md), [`docs/PROJECT_STRUCTURE_GUIDE.md`](docs/PROJECT_STRUCTURE_GUIDE.md)
 - **코드·계약 소유:** [`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md), [`docs/CONTRACTS_START_HERE.md`](docs/CONTRACTS_START_HERE.md)

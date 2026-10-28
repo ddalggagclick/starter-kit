@@ -1,17 +1,18 @@
 # 담당: [D] | 책임: 공식 안내자료의 검색 DTO와 출처 정보.
 # PRD: E6 / 스토리 6-2 / 태스크 6-2-1 (검색 계약 지원)
 # 구현할 기능: 문서 버전, 청크, 출처, 검색 결과 자료형을 고정한다.
-# 완료 기준: 결과에 공식 URL, 문서 위치, 게시 버전이 포함된다.
+# 완료 기준: 출처·버전·위치를 보존하고 URL은 없을 수 있으며 존재하면 HTTPS로 검증한다.
 # 제한사항: 법령 원문 조회 자료형과 검색 자료형을 분리한다.
 """[D] 공식 안내자료 검색 계약. 구현할 기능: 문서 버전·청크·출처·검색 결과 타입 고정.
 입출력: SearchRequest→SearchResult(Evidence 목록); 법령 원문 조회 타입은 별개.
-완료: 출처 URL·문서 위치·게시 버전 없는 Evidence는 생성 불가.
+완료: 출처 정보·문서 위치·게시 버전을 유지하고, URL이 있으면 HTTPS인지 검증한다.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlsplit
 
 PublicationState = Literal["staging", "indexed", "published", "failed", "retired"]
 
@@ -20,15 +21,30 @@ PublicationState = Literal["staging", "indexed", "published", "failed", "retired
 class SourceRef:
     source_id: str
     title: str
-    url: str
+    url: str | None
     publisher: str
     version: str
 
     def __post_init__(self):
-        if not all((self.source_id, self.title, self.url, self.publisher, self.version)):
-            raise ValueError("source requires identity, URL, and version")
-        if not self.url.startswith("https://"):
-            raise ValueError("official source must use https")
+        if not all((self.source_id, self.title, self.publisher, self.version)):
+            raise ValueError("source requires identity, publisher, and version")
+        if self.url is not None:
+            if not isinstance(self.url, str) or self.url.strip() != self.url:
+                raise ValueError("official source must use a valid HTTPS URL")
+            if any(char.isspace() or ord(char) < 32 for char in self.url):
+                raise ValueError("official source must use a valid HTTPS URL")
+            try:
+                parts = urlsplit(self.url)
+                _ = parts.port
+            except ValueError as error:
+                raise ValueError("official source must use a valid HTTPS URL") from error
+            if (
+                parts.scheme != "https"
+                or not parts.hostname
+                or parts.username is not None
+                or parts.password is not None
+            ):
+                raise ValueError("official source must use a valid HTTPS URL")
 
 
 @dataclass(frozen=True)

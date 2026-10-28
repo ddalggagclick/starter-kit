@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 Role = Literal["system", "user", "assistant"]
-Provider = Literal["gemini", "ollama"]
+Provider = Literal["gemini", "groq", "ollama"]
 
 
 @dataclass(frozen=True)

@@ -46,6 +46,20 @@ npm-debug.log*
 *.dump
 *.backup
 
+# 사용자가 제공한 RAG 검수 원본
+/rag/data/
+/rag/results/
+
+# Ignore generated files, preserve required evaluation datasets
+/rag/evaluation/*
+!/rag/evaluation/source_v2_golden_v1_2.json
+!/rag/evaluation/golden_set_synthetic_ranking_v1.json
+!/rag/evaluation/si_rag_reuse_golden_20261025.json
+
+# Ignore generated files, preserve required mapping example
+/rag/examples/*
+!/rag/examples/source_v2_mapping.json
+
 # 로그와 편집기 임시 파일
 *.log
 *.tmp
@@ -92,3 +106,10 @@ $RECYCLE.BIN/
 
 # Linux 파일 관리자 메타데이터
 .directory
+
+# GitHub Taskflow 로컬 런타임 (사용자 전역 Skill의 설치 파일)
+scripts/taskflow.py
+scripts/taskflow.config.json
+scripts/start-task
+scripts/finish-task
+.github/ISSUE_TEMPLATE/taskflow.md

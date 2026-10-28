@@ -62,6 +62,7 @@ class SettingsTests(unittest.TestCase):
             JWT_SIGNING_KEY="x" * 32,
             CSRF_SECRET="y" * 32,
             HANDOFF_HASH_KEY="z" * 32,
+            HANDOFF_SERVER_SECRET="h" * 32,
         )
         self.assertTrue(c.production)
 
