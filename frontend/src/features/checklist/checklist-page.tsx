@@ -259,7 +259,7 @@ export function ChecklistPage() {
         <Link to="/guide/tax" className="underline underline-offset-4">
           상속세 기본 안내
         </Link>
-        <Link to="/ai" className="underline underline-offset-4">
+        <Link to="/#ai" className="underline underline-offset-4">
           AI에게 질문하기
         </Link>
       </div>

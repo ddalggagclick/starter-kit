@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 // W-07 AI 대화 저장 흐름 테스트(4-1-1, 3-6-1~3-6-3, S8·S10·S11): 실제 라우터 + Mock A08 + 메모리 IndexedDB.
 // 실제 브라우저·Backend 검증이 아니다. Mock 답변은 이벤트마다 지연이 있어 몇 초씩 걸린다.
+// #211: /ai가 첫 화면 대화창(/#ai)으로 합쳐져, 같은 흐름을 첫 화면 대화창에서 확인한다.
+//   첫 화면 대화창은 [새 대화] 버튼 이름을 쓰고, 삭제·철회 버튼은 [이전 대화]를 열었을 때만 보인다.
 import "fake-indexeddb/auto"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
@@ -19,6 +21,7 @@ import { useChatSessionStore } from "./chat-store"
 const ANSWER_TIMEOUT = { timeout: 6000 }
 
 const renderAi = () => {
+  // 예전 주소 /ai로 들어와 첫 화면 대화창으로 가는 경로까지 함께 지난다.
   const router = createMemoryRouter(appRoutes, { initialEntries: ["/ai"] })
   render(
     <QueryClientProvider client={createQueryClient()}>
@@ -122,7 +125,8 @@ describe("W-07 삭제·철회 (4-3-1~4-3-3)", () => {
     await ask("상속세")
     await waitFor(async () => expect(await conversationCount()).toBe(1))
 
-    fireEvent.click(screen.getByRole("button", { name: "대화 기록 삭제" }))
+    fireEvent.click(screen.getByRole("button", { name: /이전 대화/ }))
+    fireEvent.click(await screen.findByRole("button", { name: "대화 기록 삭제" }))
     fireEvent.click(await screen.findByRole("button", { name: "삭제: AI 대화 기록" }))
 
     expect(
@@ -139,7 +143,8 @@ describe("W-07 삭제·철회 (4-3-1~4-3-3)", () => {
     await ask("상속세")
     await waitFor(async () => expect(await conversationCount()).toBe(1))
 
-    fireEvent.click(screen.getByRole("button", { name: "AI 대화 저장 동의 철회" }))
+    fireEvent.click(screen.getByRole("button", { name: /이전 대화/ }))
+    fireEvent.click(await screen.findByRole("button", { name: "AI 대화 저장 동의 철회" }))
     fireEvent.click(await screen.findByRole("button", { name: "동의 철회: AI 대화 기록 삭제" }))
 
     expect(
@@ -157,7 +162,7 @@ describe("새 대화 시작 (S8)", () => {
     await ask("상속세")
     await waitFor(async () => expect(await conversationCount()).toBe(1))
 
-    fireEvent.click(screen.getByRole("button", { name: "새 대화 시작" }))
+    fireEvent.click(screen.getByRole("button", { name: "새 대화" }))
 
     expect(screen.queryByRole("dialog")).toBeNull()
     expect(screen.queryByText("공식 출처")).toBeNull()
@@ -169,7 +174,7 @@ describe("새 대화 시작 (S8)", () => {
     await consentInBand()
     fireEvent.change(screen.getByLabelText("질문"), { target: { value: "보내지 않은 질문" } })
 
-    fireEvent.click(screen.getByRole("button", { name: "새 대화 시작" }))
+    fireEvent.click(screen.getByRole("button", { name: "새 대화" }))
 
     expect(await screen.findByRole("dialog")).toBeTruthy()
   })
@@ -178,7 +183,7 @@ describe("새 대화 시작 (S8)", () => {
     renderAi()
     await ask("상속세")
 
-    fireEvent.click(screen.getByRole("button", { name: "새 대화 시작" }))
+    fireEvent.click(screen.getByRole("button", { name: "새 대화" }))
 
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByText(/저장되지 않아 새 대화를 시작하면 사라집니다/)).toBeTruthy()
@@ -205,7 +210,7 @@ describe("저장 안 된 대화 이탈 확인 (S11, D-11)", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "취소" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
-    expect(router.state.location.pathname).toBe("/ai")
+    expect(router.state.location.pathname).toBe("/")
   }, 15_000)
 
   it("[저장 없이 이동]은 저장하지 않고 이동한다", async () => {
