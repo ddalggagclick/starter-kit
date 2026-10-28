@@ -109,7 +109,8 @@ export function Sources({ sources }: { sources: ChatSource[] }) {
 }
 
 // instant: 저장 기록에서 다시 연 답변. 이미 읽은 답이라 타이핑 효과 없이 바로 보인다.
-function AnsweredBubble({
+// 첫 화면 대화창(home-chat-window.tsx)에서도 다시 쓰려고 내보낸다(#210, 모양·동작 그대로).
+export function AnsweredBubble({
   result,
   instant = false,
 }: {
@@ -166,7 +167,8 @@ export const rateLimitKind = (
 export const STATIC_INFO_NOTE = "체크리스트와 절차 안내는 그대로 이용할 수 있습니다."
 
 // S9 하루 질문 한도 안내. 429를 받았을 때와, 남은 횟수가 0이 된 순간(다음 질문 전) 모두 같은 안내를 쓴다(3-7-1, 5-6-2).
-function GuestLimitNotice({ isGuest }: { isGuest: boolean }) {
+// 첫 화면 대화창(home-chat-window.tsx)에서도 다시 쓰려고 내보낸다(#210, 모양·동작 그대로).
+export function GuestLimitNotice({ isGuest }: { isGuest: boolean }) {
   const location = useLocation()
   return (
     <Notice tone="warning" className="space-y-2">
@@ -192,7 +194,8 @@ function GuestLimitNotice({ isGuest }: { isGuest: boolean }) {
   )
 }
 
-function FailureBubble({
+// 첫 화면 대화창(home-chat-window.tsx)에서도 다시 쓰려고 내보낸다(#210, 모양·동작 그대로).
+export function FailureBubble({
   failure,
   isGuest,
   onRetry,
@@ -248,7 +251,8 @@ function FailureBubble({
   )
 }
 
-function WithheldBubble() {
+// 첫 화면 대화창(home-chat-window.tsx)에서도 다시 쓰려고 내보낸다(#210, 모양·동작 그대로).
+export function WithheldBubble() {
   return (
     <Notice tone="info" className="space-y-1">
       <p className="font-semibold">{WITHHELD_COPY.message}</p>
