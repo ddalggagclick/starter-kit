@@ -12,7 +12,7 @@ import { useMockAiScenarioStore } from "@/mocks/mock-ai-scenario"
 import { resetMockApiState } from "@/mocks/mock-api"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { inheritanceDb } from "@/shared/storage/db"
-import { MAX_MANUAL_RETRIES } from "./chat-page"
+import { MAX_MANUAL_RETRIES } from "./chat-parts"
 import { useChatSessionStore } from "./chat-store"
 
 const ANSWER_TIMEOUT = { timeout: 6000 }
