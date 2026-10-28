@@ -19,7 +19,7 @@
 
 - `frontend/`: **[A]** React 19 + TypeScript + Vite 8 + Tailwind v4 + shadcn/ui 호환 패턴; REST는 **공통 Axios** 단일 인스턴스, **POST SSE 응답만 fetch + ReadableStream**. Zustand는 임시 UI 상태, Dexie 4는 체크리스트/채팅 동의를 분리해 허용된 데이터만 IndexedDB 보관.
 - `backend/src/inheritance/`: **상속 전용 FastAPI**. `[B]` `checklist/`, `chat/`, `law/`; `[C]` `kakao/` 및 `kakao/handoff/`; `[통합]` `auth/`, `core/`, `contracts/`, `main.py`, Alembic/DB 세션. HTTP 메서드·경로·JSON·SSE의 상세 전송 계약은 **API 담당자**가 소유한다.
-- `llm/starter_llm/`: **[C]** 독립 Python 패키지. LangChain Core + `ChatGoogleGenerativeAI` / `ChatGroq` / `ChatOllama`는 `ModelPort.generate/stream` 뒤에 감춘다. Backend는 SDK/내부 LangChain 객체를 import하지 않는다.
+- `llm/starter_llm/`: **[C]** 독립 Python 패키지. LangChain Core + `ChatGoogleGenerativeAI` / `ChatOllama`는 `ModelPort.generate/stream` 뒤에 감춘다. Backend는 SDK/내부 LangChain 객체를 import하지 않는다.
 - `rag/starter_rag/`: **[D]** 독립 Python 패키지. Docling/EmbeddingGemma 2(768d)/PostgreSQL pgvector `PGVectorStore` 구현. Backend는 `SearchPort.search`와 공개 DTO만 안다. 검수 후 게시된 안내 자료만 검색 가능; **법령 원문을 RAG에 벡터 저장 금지**.
 - 외부 연결: Frontend → Backend HTTP; Backend → LLM/RAG 공개 Port. **LLM/RAG → Backend 역참조 금지**, `llm ↔ rag` 서로 import 금지, 순환 의존 금지.
 - 법령: `backend/law/`에서 `korean-law-mcp`로 조문·연혁을 가져오고, **관련 부칙 전문은 법제처 공식 OPEN API**로 조회. 해당 개정 법률의 자동 후보 선정은 필요할 때 검증 후 구현하는 조건부 업무.
@@ -41,10 +41,9 @@
 
 ## 4. 변경 불가 서비스 안전 규칙
 
-- 초기 질문 3개, 선택 위험 질문 3개; 공통 절차 안내는 p01~p08 전체를 표현한다. `안내 확인`은 **읽음**이지 법률 절차 완료가 아니다.
-- 내부 `GuidanceResult`의 `guidance`와 `risk_information`은 상세 구조 확정 전까지 임시 `object` 타입이다. 최종 HTTP API 타입, 출처 구조, 표시 순서는 이 계약에서 정하지 않는다.
+- 초기 질문 3개, 선택 위험 질문 3개; 고정 절차 카드 8개, 우선 추천 최대 5개. `안내 확인`은 **읽음**이지 법률 절차 완료가 아니다.
 - AI 입력 200 Unicode 코드 포인트, 지난 발화 3개, 추가 확인 질문 0회. LLM 기본 timeout 30초/허용 최대 300초, RAG TopK 기본 3/최대 10.
-- 분류 1회 + 최종 답변 생성 1회 가능. Gemini 기본 모델; **제한(429)·장애·시간 초과 시 `LLM_FAILOVER_PROVIDERS` 순서(기본 Groq, 선택 Ollama)로 공급자별 1회씩 자동 전환**(3-2-4). 같은 공급자 반복 재시도·임의 키 교체·목록 밖 전환 금지. Ollama는 로컬 전용이며 RAG와 변수 이름을 공유하지 않는다(LLM은 `LLM_OLLAMA_*`). 공급자 키(`GEMINI_API_KEY`, `GROQ_API_KEY`)는 서로 다르며 공유·커밋 금지.
+- 분류 1회 + 최종 답변 생성 1회 가능. Gemini 기본 모델; 개인 개발 PC에서 **유일한 `.env.example` 하단 주석을 참조해** 명시적 `LLM_PROVIDER=ollama`, `LLM_MODEL=qwen3:4b-instruct` 사용 가능. `.env.ollama.example` 파일은 사용하지 않는다. **429 발생 시 자동 공급자 전환/재시도 금지**; 다른 비AI 개발 진행. API 키 공유·커밋 금지.
 - 출처 0건/판단 불가 → S7, 기술 오류 → S6, 제한 → S9. 인증 서버에 채팅 본문 영구 저장 금지. 각 출처의 제목·공식 URL·인용 위치 및 여러 법령/부칙을 반환할 수 있어야 한다.
 - LLM은 동일 답변을 두 번 생성하지 않는다. 진행 상황은 SSE로 전송, **검증된 최종 답변만 브라우저에 전달하고 자동 타이핑 효과로 표시**. 강제 '다음 글자' 버튼, 전체 즉시 보기 버튼은 만들지 않는다.
 - 인증은 FastAPI 자체 JWT Access(15분) + Argon2id + HttpOnly 회전 Refresh(7일), CSRF·CORS. Supabase Auth·브라우저 토큰 영속 저장 금지. 타사 쿠키 차단은 실브라우저 검증 후 CHIPS 여부 결정; 임의 채택 금지.
@@ -80,7 +79,7 @@ npm run typecheck
 npm run lint
 npm run test
 
-# 루트 workspace CLI: 패키지별 상태 명령. 기능 범위와 실행 조건은 각 패키지 문서를 따른다.
+# 루트 CLI (외부 모델/RAG 기능은 아직 미구현)
 uv run starter-llm status
 uv run starter-rag status
 ```

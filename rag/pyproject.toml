@@ -8,27 +8,19 @@ name = "starter-rag"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "docling>=2.139,<3",  # PDF/문서 파싱·구조 추출 (ingestion/parser.py)
+    "typer>=0.12,<1",  # 명시적 문서 적재·검수 CLI (cli.py, ingestion/cli.py)
     "langchain-core>=1,<2",  # LangChain Document/Embeddings 기본 경계
+    "langchain-docling>=2,<3",  # Docling -> Document 연결 (ingestion/service.py)
     "langchain-postgres>=0.0.15,<1",  # PGVectorStore 저장·검색 (storage/vector_store.py)
+    "langchain-text-splitters>=1,<2",  # 문서 청킹 (ingestion/chunking.py)
     "sentence-transformers>=6.1,<7",  # EmbeddingGemma 모델 임베딩 (embedding/model.py)
-    "torch>=2,<3",  # Linux 배포는 tool.uv.sources에서 CPU wheel 사용
-    "Pillow>=10,<13",  # EmbeddingGemma2Processor의 PIL 이미지 처리 의존성
-    "torchvision>=0.29,<0.30",  # EmbeddingGemma2Processor 초기화에 필요
     "transformers>=5.17,<6",  # 로컬 토크나이저/모델 로딩 (embedding/model.py)
     "SQLAlchemy>=2,<3",  # RAG 문서 원장/게시 DB 모델 (storage/models.py)
     "psycopg[binary]>=3.2,<4",  # PGVectorStore PostgreSQL 드라이버
     "pydantic>=2,<3",  # 검색 요청/근거 DTO 검증 (contracts/models.py)
 ]
 
-[project.optional-dependencies]
-ingestion = [
-    "docling>=2.139,<3",  # PDF/문서 파싱·구조 추출 (ingestion/parser.py)
-    "typer>=0.12,<1",  # 명시적 문서 적재·검수 CLI (cli.py, ingestion/cli.py)
-    "langchain-google-genai>=4,<5",  # RAG Agentic Chunking Gemini 공급자 (ingestion/chunking_model.py)
-    "langchain-docling>=2,<3",  # Docling -> Document 연결 (ingestion/service.py)
-    "langchain-ollama>=1,<2",  # 로컬 전용 RAG 청킹; 운영 extra 비설치
-    "langchain-text-splitters>=1,<2",  # 문서 청킹 (ingestion/chunking.py)
-]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -38,12 +30,3 @@ packages = ["starter_rag"]
 
 [project.scripts]
 starter-rag = "starter_rag.cli:main"
-
-[tool.uv.sources]
-torch = { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }
-torchvision = { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true

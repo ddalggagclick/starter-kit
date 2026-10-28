@@ -13,7 +13,7 @@
 flowchart TD
     K[카카오 스킬] --> BE
     FE["Frontend · React/Vite<br/>Axios REST + fetch POST SSE"] --> BE["Backend · FastAPI<br/>인증·체크리스트·채팅·법령"]
-    BE --> LM["LLM · ModelPort<br/>Gemini 기본 / 제한·장애 시 Groq(선택 Ollama) 자동 전환"]
+    BE --> LM["LLM · ModelPort<br/>Gemini 기본 / Ollama 수동 선택"]
     BE --> RA["RAG · SearchPort<br/>게시된 공식 안내자료만"]
     BE --> MO[MCP · 조문·연혁]
     BE --> OP["법제처 OPEN API<br/>관련 부칙 전문"]
@@ -26,7 +26,7 @@ flowchart TD
 |---|---|---|
 | `frontend/` | 화면·HTTP·메모리 상태·선택적 로컬 저장 | 법률 판단 로직 중복 구현 금지 |
 | `backend/` | 업무 규칙·인증·AI 호출 조립·법령 근거 | 서버 채팅 원문 영구 저장 금지 |
-| `llm/` | `ModelPort.generate/stream`, Gemini/Groq/Ollama 실행·자동 전환 | Backend 내부 코드 import 금지 |
+| `llm/` | `ModelPort.generate/stream`, Gemini/Ollama 실행 | Backend 내부 코드 import 금지 |
 | `rag/` | Docling·임베딩·pgvector·`SearchPort.search` | 법령 원문 색인·미게시 자료 검색 금지 |
 
 ## 2. 코드 의존 방향
@@ -49,6 +49,6 @@ flowchart LR
 
 | 현재 확인 가능 | 아직 미완료 |
 |---|---|
-| `/health` 응답, Frontend 초기 화면, LLM/RAG CLI `status` | 실제 가입·로그인, Gemini/Groq/Ollama 생성, Docling 적재, pgvector 검색, 브라우저 인증 통합 |
+| `/health` 응답, Frontend 초기 화면, LLM/RAG CLI `status` | 실제 가입·로그인, Gemini/Ollama 생성, Docling 적재, pgvector 검색, 브라우저 인증 통합 |
 
 **관련 정본:** 파일 경로는 [`PROJECT_STRUCTURE_GUIDE.md`](PROJECT_STRUCTURE_GUIDE.md), 함수 계약은 [`contracts/INTERFACE_FINAL_v1.md`](contracts/INTERFACE_FINAL_v1.md)를 본다.

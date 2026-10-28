@@ -3,10 +3,6 @@
 // 완료 기준: npm run lint가 이 설정을 읽고 진단한다. 기존 소스 전체 포맷/CI 강제는 담당자 승인 후.
 {
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
-  // openapi-typescript 생성 파일(npm run api:types)은 손으로 고치지 않으므로 검사에서 뺀다.
-  "files": {
-    "includes": ["**", "!src/shared/api/schema.d.ts"]
-  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
