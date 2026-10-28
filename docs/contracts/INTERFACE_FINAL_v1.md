@@ -5,7 +5,7 @@
 
 **문서 버전:** v1  
 **목적:** Frontend·Backend·LLM·RAG 담당자가 **같은 호출 경계**로 구현한다.  
-**기준일:** 2026-10-20. 공통 8개 절차 안내 계약 반영.
+**기준일:** 2026-10-18. 최소 실행 진입점과 후속 승인 사항 반영.  
 **상태:** 내부 설계 기준선 완료. **HTTP 상세 전송 계약·ERD·전체 아키텍처 최종 승인·실연동 검증은 별개**다.
 
 ## 1. 인터페이스 지도
@@ -26,8 +26,8 @@ flowchart TD
 | ID | 연결점 | 유지할 계약 | 담당 |
 |---|---|---|---|
 | **I01** | Python ↔ TS | HTTP JSON 필드 `camelCase`; OpenAPI→TS 타입 생성. Python 내부 `snake_case` 허용 | API 담당 |
-| **I02** | 체크리스트 | `ChecklistService.build_guidance(GuidanceInput) -> GuidanceResult`; 공통 p01~p08 전체와 안내·위험 정보·콘텐츠 버전 | B |
-| **I03** | 카카오 입력 | `KakaoInputAdapter.parse(skill_request) -> GuidanceInput`; 카카오 원문을 B 서비스에 넘기지 않음 | C |
+| **I02** | 체크리스트 | `ChecklistService.recommend(RecommendationInput) -> RecommendationResult`; 카드 8개 중 최대 5개 | B |
+| **I03** | 카카오 입력 | `KakaoInputAdapter.parse(skill_request)` → 공통 DTO; 카카오 원문을 B 서비스에 넘기지 않음 | C |
 | **I04** | 카카오→웹 | Handoff 발급·교환, **10분/원자적 1회**, 최소 데이터만 인계 | C/통합 |
 | **I05** | 브라우저 인증 | Access 메모리; HttpOnly Refresh 쿠키; CSRF·정확한 CORS Origin | A/통합 |
 | **I06** | 오류 | 공통 오류 코드↔HTTP 매핑; S6 기술 실패, S7 근거 부족, S9 제한 | 통합/API |
@@ -49,15 +49,15 @@ flowchart TD
 
 ```python
 # 서비스 간 계약의 모양. 실제 시그니처는 각 contracts/ports.py를 정본으로 사용.
-ChecklistService.build_guidance(GuidanceInput)   # -> GuidanceResult
-KakaoInputAdapter.parse(skill_request)            # -> GuidanceInput
+ChecklistService.recommend(RecommendationInput)  # -> RecommendationResult
+KakaoInputAdapter.parse(skill_request)            # -> RecommendationInput
 ModelPort.generate(GenerationRequest)              # -> GenerationResult (async)
 ModelPort.stream(GenerationRequest)                # -> AsyncIterator[GenerationChunk]
 SearchPort.search(SearchRequest)                   # -> SearchResult (async)
 LawPort.lookup(LawQuery)                           # -> LawLookupResult (async)
 ```
 
-- **LLM:** 기본 Gemini. 제한(429)·장애·시간 초과 시 `LLM_FAILOVER_PROVIDERS` 순서(기본 Groq, 선택 Ollama)로 **공급자별 1회씩 자동 전환**한다(3-2-4, 2026-10-21 변경). 같은 공급자 반복 재시도·임의 키 교체·목록 밖 전환 금지. 응답 `GenerationResult.provider`로 실제 응답 공급자를 알 수 있다.
+- **LLM:** 기본 Gemini. 개인 개발자의 Ollama/Qwen은 설정에서 **수동 선택**한다. 429 발생 시 자동 폴백·우회 재시도 금지. AI 호출 테스트 대신 다른 개발을 진행한다.
 - **근거가 0건:** 분류 LLM 호출 1회는 이미 발생할 수 있다. **최종 답변 생성은 0회**, S7로 유보한다. 최종 출처 검증은 규칙 기반이다. 별도 리뷰 LLM을 호출하지 않는다.
 - **RAG:** TopK 기본 3, 최대 10. 공식 안내자료 중 검수·게시된 것만 검색. 법령 원문 벡터 저장 금지.
 - **법령:** `korean-law-mcp@4.15.7`로 일반 조문·연혁, **법제처 OPEN API**로 관련 부칙 **전문**. MCP의 3문장/250자 발췌는 전문이 아니다. 개정법률 후보 자동 연결은 필요할 때만 B 담당이 구현·검증한다.
@@ -92,7 +92,7 @@ flowchart TD
 | 미인증/갱신 실패 | 401 | 로그인·Refresh 실패 |
 | 권한·CSRF·Origin 위반 | 403 | 접근 거부 |
 | Handoff 무효·만료·사용됨 | 400 | 동일한 거부 응답 |
-| 사용자/공급자 제한 | 429 | **S9**. 전환 순서의 모든 공급자가 실패하고 429가 있을 때 S9 |
+| 사용자/공급자 제한 | 429 | **S9**. 제공자 자동 전환 없음 |
 | 공급자 장애/시간 초과 | 503/504 | **S6** 기술 실패 |
 | 근거 없음·출처 불일치 | HTTP 200의 유보 결과 | **S7** 판단 유보 |
 

@@ -45,20 +45,18 @@ class AnswerReference:
     evidence_id: str
     kind: ReferenceKind
     title: str
-    # RAG 안내 출처(procedure)는 URL이 없을 수 있다(전화번호·공식 사이트 안내 등, 2026-10-23 #96).
-    # URL이 있으면 HTTPS여야 하고, 법령 출처는 항상 공식 HTTPS URL이 있어야 한다.
-    official_url: str | None
+    official_url: str
     location: str
     version: str
 
     def __post_init__(self) -> None:
-        if not all((self.evidence_id, self.title, self.location, self.version)):
-            raise ValueError("answer reference requires source identity/title/location/version")
-        if self.kind not in ("procedure", "law_article", "law_addendum"):
-            raise ValueError("answer reference kind is invalid")
-        if self.official_url is None and self.kind != "procedure":
-            raise ValueError("law references require an official HTTPS URL")
-        if self.official_url is not None and not self.official_url.startswith("https://"):
+        if not all((self.evidence_id, self.title, self.official_url, self.location, self.version)):
+            raise ValueError("answer reference requires source identity/title/url/location/version")
+        if self.kind not in (
+            "procedure",
+            "law_article",
+            "law_addendum",
+        ) or not self.official_url.startswith("https://"):
             raise ValueError("answer references must be official HTTPS sources")
 
 

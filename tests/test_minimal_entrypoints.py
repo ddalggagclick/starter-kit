@@ -4,7 +4,6 @@
 import contextlib
 import unittest
 from io import StringIO
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from inheritance.main import app
@@ -39,13 +38,9 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('"valid": true', out.getvalue())
 
-    def test_검색어_위치_인자를_검증한다(self):
+    def test_rag_cli(self):
         out = StringIO()
-        with (
-            patch("starter_rag.cli._search", return_value=0) as search,
-            contextlib.redirect_stdout(out),
-        ):
-            code = rag_main(["search", "상속 포기"])
+        with contextlib.redirect_stdout(out):
+            code = rag_main(["validate-search", "--query", "상속 포기"])
         self.assertEqual(code, 0)
-        self.assertEqual(out.getvalue(), "")
-        search.assert_called_once_with("상속 포기", 3, "published-guides", False)
+        self.assertIn('"topK": 3', out.getvalue())
