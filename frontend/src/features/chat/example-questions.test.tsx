@@ -47,7 +47,12 @@ describe("ExampleQuestions 부품", () => {
     render(<ExampleQuestions onPick={onPick} />)
 
     const group = screen.getByRole("group", { name: "자주 묻는 질문" })
-    expect(within(group).getAllByRole("button")).toHaveLength(5)
+    // 예시 5개 + [+ 더보기](#220)
+    const buttons = within(group).getAllByRole("button")
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      ...FEATURED_EXAMPLE_QUESTIONS,
+      "+ 더보기",
+    ])
     fireEvent.click(within(group).getByRole("button", { name: FEATURED_EXAMPLE_QUESTIONS[1] }))
     expect(onPick).toHaveBeenCalledWith(FEATURED_EXAMPLE_QUESTIONS[1])
   })
