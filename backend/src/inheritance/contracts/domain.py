@@ -1,11 +1,11 @@
-# 담당: [B] | 책임: [B] 체크리스트 기능 사이의 내부 DTO 계약. 구현할 기능: 입력 정규화/추천≤5/수정 후 rule_version.
-# 구현할 기능: Port/DTO의 입력 불변식과 정상·오류 동작을 계약 테스트로 확인.
-# 코드 경계: 외부 서비스 호출/HTTP wire 상세를 이 파일에 구현하지 않는다.
-# 완료 기준: Python 3.13 표준 라이브러리 계약 테스트 통과.
-"""[B] 체크리스트 기능 사이의 내부 DTO 계약. 구현할 기능: 입력 정규화/추천≤5/수정 후 rule_version.
-입력: 3개 초기 답변 + 선택 위험 답변 / 출력: 카드 ID·추천 사유·버전.
-경계: HTTP/Pydantic 스키마가 아니며 카카오·웹은 동일한 추천 함수를 호출한다.
-완료: 카드 ID 중복과 추천 6개를 거부한다.
+# 담당: [B] | 책임: 공통 체크리스트 안내의 내부 DTO 계약.
+# 구현할 기능: 공통 안내 입력·결과 DTO의 검증 경계를 정의한다.
+# 코드 경계: 외부 서비스와 HTTP wire 세부는 여기서 구현하지 않는다.
+# 완료 기준: p01~p08 전체와 콘텐츠 버전을 표현한다.
+"""공통 체크리스트 안내의 입력·결과 DTO 계약.
+
+안내·위험 payload는 상세 구조 확정 전까지 내부 계약에서만 object로 둔다.
+이 DTO는 최종 HTTP API 스키마가 아니며 절차 표시 순서를 정하지 않는다.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ Relationship = Literal["spouse", "descendant", "ascendant", "sibling", "other", 
 AnswerChoice = Literal["yes", "no", "unknown"]
 RiskId = Literal["debt", "property_disposal", "self_application"]
 ProcedureId = Literal["p01", "p02", "p03", "p04", "p05", "p06", "p07", "p08"]
+PROCEDURE_IDS = frozenset(("p01", "p02", "p03", "p04", "p05", "p06", "p07", "p08"))
 
 
 @dataclass(frozen=True)
@@ -66,27 +67,28 @@ class RiskAnswer:
 
 
 @dataclass(frozen=True)
-class RecommendedProcedure:
+class ProcedureGuidance:
     procedure_id: ProcedureId
-    reason_code: str
-    priority: int
 
     def __post_init__(self):
-        if self.procedure_id not in tuple(f"p{i:02d}" for i in range(1, 9)):
+        if self.procedure_id not in PROCEDURE_IDS:
             raise ValueError("invalid procedure id")
-        if not self.reason_code or self.priority < 0:
-            raise ValueError("invalid recommendation metadata")
 
 
 @dataclass(frozen=True)
-class RecommendationResult:
-    procedures: tuple[RecommendedProcedure, ...]
-    rule_version: str
+class GuidanceResult:
+    procedures: tuple[ProcedureGuidance, ...]
+    guidance: object
+    risk_information: object
+    content_version: str
 
     def __post_init__(self):
-        if (
-            not self.rule_version
-            or len(self.procedures) > 5
-            or len({p.procedure_id for p in self.procedures}) != len(self.procedures)
+        if not isinstance(self.content_version, str) or not self.content_version.strip():
+            raise ValueError("content version must be a nonempty string")
+        if not isinstance(self.procedures, tuple) or any(
+            not isinstance(item, ProcedureGuidance) for item in self.procedures
         ):
-            raise ValueError("invalid recommendation result")
+            raise ValueError("procedures must contain procedure guidance")
+        procedure_ids = tuple(procedure.procedure_id for procedure in self.procedures)
+        if len(procedure_ids) != len(PROCEDURE_IDS) or set(procedure_ids) != PROCEDURE_IDS:
+            raise ValueError("guidance result must contain each procedure exactly once")

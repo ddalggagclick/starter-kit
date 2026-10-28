@@ -1,19 +1,19 @@
-# 담당: [B] | 책임: 체크리스트 추천 제공자/카카오 소비자 공유 입력 경계
-# 구현할 기능: 추천 입력 DTO 및 ChecklistService.recommend 공통 함수 시그니처 고정
-# 코드 경계: 추천 규칙/HTTP JSON/카카오 JSON 변환은 이 파일에서 구현하지 않는다.
-# 완료 기준: B와 C가 같은 RecommendationInput/RecommendationResult로 Fake 계약 테스트 통과.
-"""B 담당 추천 제공자와 C 카카오 소비자의 공개 내부 계약."""
+# 담당: [B] | 책임: 공통 체크리스트 안내 입력과 서비스 경계
+# 구현할 기능: 공통 안내 입력 DTO와 build_guidance 시그니처 정의
+# 코드 경계: 안내 규칙과 HTTP·카카오 JSON은 이 파일에서 구현하지 않는다.
+# 완료 기준: 초기·위험 입력과 안내 결과 DTO의 경계를 정의한다.
+"""B 담당 안내 제공자와 C 카카오 소비자의 공개 내부 계약."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol
 
-from inheritance.contracts.domain import InitialAnswers, RecommendationResult, RiskAnswer
+from inheritance.contracts.domain import GuidanceResult, InitialAnswers, RiskAnswer
 
 
 @dataclass(frozen=True)
-class RecommendationInput:
+class GuidanceInput:
     initial: InitialAnswers
     risks: tuple[RiskAnswer, ...] = ()
 
@@ -23,5 +23,5 @@ class RecommendationInput:
 
 
 class ChecklistService(Protocol):
-    # 초기 답변과 최대 세 개의 위험 답변을 바탕으로 추천 절차와 우선순위를 반환한다.
-    def recommend(self, request: RecommendationInput) -> RecommendationResult: ...
+    # 입력 답변으로 절차를 선정하거나 순위를 계산하지 않는다.
+    def build_guidance(self, request: GuidanceInput) -> GuidanceResult: ...

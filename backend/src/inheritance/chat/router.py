@@ -4,3 +4,185 @@
 # 완료 기준: 취소·연결 종료 시 해당 요청만 정리하고 늦은 결과를 전송하지 않는다.
 # 제한사항: LLM·RAG 구현을 직접 import하지 않는다. SSE 이벤트와 HTTP 상세는 API 담당자 승인 후 적용한다.
 # 상태: PRD 태스크 미시작.
+"""A08 `POST /api/ai/ask` (openapi.yaml A08_askAi). 응답은 text/event-stream: status 여러 번 → result 또는 error 1번.
+
+검증된 완성 답변만 result로 보낸다. 연결이 끊기면 진행 중인 서비스 작업을 취소하고 늦은 결과를 보내지 않는다.
+질문 원문·답변 본문은 로그에 남기지 않는다.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import time
+from collections.abc import AsyncIterator
+from contextlib import suppress
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from inheritance.auth.jwt import AccessTokenInvalid
+from inheritance.chat.schemas import AskRequest
+from inheritance.chat.services.answer import AnswerStage, ChatAnswerResult, ChatAnswerService
+from inheritance.chat.services.context import validate_chat_input
+from inheritance.chat.usage_limit import GUEST_DAILY_REASON, MEMBER_MINUTE_REASON
+from inheritance.core.errors import HTTP_STATUS, ErrorCode, error_body
+
+router = APIRouter(prefix="/api/ai", tags=["ai"])
+logger = logging.getLogger(__name__)
+
+
+# 서버 시작 시 core/dependencies.py가 조립한 서비스를 쓴다(main.py → app.state.chat_service).
+# 모델·검색·법령 중 하나라도 없으면 None이라 스트림을 열기 전에 503 PROVIDER_UNAVAILABLE을 돌려준다.
+def get_chat_service(request: Request) -> ChatAnswerService | None:
+    return getattr(request.app.state, "chat_service", None)
+
+
+@router.post("/ask", operation_id="A08_askAi", response_model=None)
+async def ask_ai(
+    body: AskRequest,
+    request: Request,
+    service: Annotated[ChatAnswerService | None, Depends(get_chat_service)],
+) -> StreamingResponse | JSONResponse:
+    previous = tuple(body.previous_questions)
+    try:
+        validate_chat_input(body.question, previous)
+    except ValueError:
+        code = ErrorCode.VALIDATION_ERROR
+        raise HTTPException(HTTP_STATUS[code], detail={"code": code.value}) from None
+    if service is None:
+        code = ErrorCode.PROVIDER_UNAVAILABLE
+        return JSONResponse(error_body(code), status_code=HTTP_STATUS[code])
+    # 3-7-3: 비회원 하루 10회 / 회원 1분 10회 / Gemini 429를 서로 다른 사유로 알린다.
+    # 앞의 둘은 RATE_LIMITED(message로 구분), Gemini 한도는 스트림 안의 PROVIDER_RATE_LIMIT이다.
+    remaining = None
+    member = _member_id(request)
+    if member is not None:
+        member_limiter = getattr(request.app.state, "member_limiter", None)
+        if member_limiter is not None and not member_limiter.take(member):
+            return _rate_limited(MEMBER_MINUTE_REASON)
+    elif (guest_limiter := getattr(request.app.state, "guest_limiter", None)) is not None:
+        remaining = guest_limiter.take(_client_ip(request))
+        if remaining is None:
+            return _rate_limited(GUEST_DAILY_REASON)
+    return StreamingResponse(
+        _events(service, body.question, body.request_id, previous, remaining),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# 서비스는 별도 작업으로 돌리고, 진행 단계와 최종 결과를 큐로 받아 순서대로 내보낸다.
+async def _events(
+    service: ChatAnswerService,
+    question: str,
+    request_id: str,
+    previous: tuple[str, ...],
+    remaining: int | None = None,
+) -> AsyncIterator[str]:
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    started = time.perf_counter()
+
+    async def progress(stage: AnswerStage) -> None:
+        await queue.put(_sse("status", {"stage": stage}))
+
+    async def run() -> None:
+        try:
+            result = await service.answer(question, request_id, previous, progress)
+        except Exception as exc:  # noqa: BLE001 - 스트림 경계에서 내부 오류를 S6 이벤트로 바꾼다.
+            # 예상하지 못한 내부 오류도 본문 없이 S6로 끝낸다. 로그에는 예외 종류 이름만 남긴다.
+            _log(request_id, "technical_error", type(exc).__name__, started)
+            await queue.put(_error_event(ErrorCode.PROVIDER_UNAVAILABLE, request_id))
+        else:
+            # None은 취소된 요청이다. 보낼 결과가 없다.
+            if result is not None:
+                _log(request_id, result.outcome.status, _code(result), started)
+                await queue.put(_result_event(result, remaining))
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while (event := await queue.get()) is not None:
+            yield event
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+def _result_event(result: ChatAnswerResult, remaining: int | None = None) -> str:
+    outcome = result.outcome
+    if result.error_code is not None:
+        return _error_event(result.error_code, outcome.request_id)
+    if outcome.status in ("answered", "partial"):
+        data = {
+            "state": "answered",
+            "answer": outcome.answer_text,
+            "sources": [{"title": r.title, "url": r.official_url} for r in outcome.references],
+        }
+    else:
+        # 출처 0건·인용 불일치·답변 형식 오류는 판단 유보(S7). 오류가 아니다.
+        # 사유: 근거 0건 SOURCE_NOT_VERIFIED, 인용 불일치 CITATION_MISMATCH, 그 밖(답변 형식 오류)은 null.
+        reason = result.reason_code.value if result.reason_code is not None else None
+        data = {"state": "withheld", "answer": None, "sources": [], "reasonCode": reason}
+    # remainingToday: 비회원이면 오늘 남은 횟수(이번 질문 포함해 센 뒤), 로그인 사용자는 null.
+    return _sse("result", {"reasonCode": None, **data, "remainingToday": remaining})
+
+
+def _error_event(code: ErrorCode, request_id: str) -> str:
+    return _sse("error", {**error_body(code), "requestId": request_id})
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _code(result: ChatAnswerResult) -> str | None:
+    return result.error_code.value if result.error_code is not None else None
+
+
+# 허용 필드만 넘긴다(PRD 7-4-3). trace_id는 화면이 만든 요청 번호다.
+def _log(request_id: str, status: str, error_code: str | None, started: float) -> None:
+    logger.info(
+        "chat.ask",
+        extra={
+            "event": "chat.ask",
+            "status": status,
+            "error_code": error_code,
+            "duration_ms": (time.perf_counter() - started) * 1000,
+            "trace_id": request_id,
+        },
+    )
+
+
+# 스트림을 열기 전이라 HTTP 429로 답한다. message는 화면 문구가 아니라 사유 구분 키다.
+def _rate_limited(reason: str) -> JSONResponse:
+    code = ErrorCode.RATE_LIMITED
+    return JSONResponse(error_body(code, reason), status_code=HTTP_STATUS[code])
+
+
+# 유효한 Access 토큰이 있으면 로그인 사용자 ID, 없거나 틀리면 None(비회원으로 센다, A08은 로그인 불필요).
+def _member_id(request: Request) -> str | None:
+    auth = getattr(request.app.state, "auth_service", None)
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if auth is None or scheme.lower() != "bearer" or not token:
+        return None
+    try:
+        return auth.user_id_from_access(token)
+    except AccessTokenInvalid:
+        # 틀리거나 만료된 토큰은 비회원으로 센다. 그 밖의 예외는 버그라 숨기지 않는다.
+        return None
+
+
+# Render 같은 프록시 뒤에서는 request.client가 프록시 IP다. GUEST_LIMIT_TRUST_PROXY=true일 때만
+# X-Forwarded-For의 맨 오른쪽 값(프록시가 직접 붙인 실제 접속 IP)을 쓴다. 왼쪽 값은 사용자가 꾸밀 수 있다.
+def _client_ip(request: Request) -> str:
+    if os.environ.get("GUEST_LIMIT_TRUST_PROXY", "").strip().lower() == "true":
+        forwarded = [part.strip() for part in request.headers.get("x-forwarded-for", "").split(",")]
+        if forwarded and forwarded[-1]:
+            return forwarded[-1]
+    return request.client.host if request.client else "unknown"

@@ -1,5 +1,5 @@
 # 담당: [통합] | 책임: 최종 코드 인터페이스 DTO·Port 계약 단위 검사
-# 구현할 기능: 추천/분류/법령 다건/부칙 버전/출처 URL/429 불변식 테스트
+# 구현할 기능: 체크리스트 안내/분류/법령 다건/부칙 버전/출처 URL/429 불변식 테스트
 # 코드 경계: 외부 API·실 브라우저·GPU/DB 호출은 여기서 수행하지 않는다.
 # 완료 기준: 공개 DTO와 정책 불변식 검사가 통과한다.
 """내부 인터페이스 동작을 외부 서비스 호출 없이 검사한다."""
@@ -9,16 +9,19 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from typing import get_type_hints
 
 ROOT = Path(__file__).resolve().parents[1]
 for root in ("llm", "rag", "backend/src"):
     sys.path.insert(0, str(ROOT / root))
 from inheritance.contracts.chat import AnswerOutcome, AnswerReference
-from inheritance.contracts.checklist import RecommendationInput
+from inheritance.contracts.checklist import ChecklistService, GuidanceInput
 from inheritance.contracts.domain import InitialAnswers, RiskAnswer
 from inheritance.contracts.law import LawEvidence, LawLookupResult, LawQuery
 from inheritance.contracts.routing import RouteDecision
+from inheritance.core.app_ports import AppServicePorts
 from inheritance.core.errors import HTTP_STATUS, ErrorCode
+from inheritance.kakao.adapter import KakaoInputAdapter
 from inheritance.law.addenda_contract import AmendmentCandidate, FullAddendum
 from starter_llm.contracts.profiles import ModelSelection
 from starter_llm.runtime.lifecycle import IDLE_CLOSE_SECONDS
@@ -61,12 +64,19 @@ class FinalInterfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RouteDecision("LAW", law_names=(" ",))
 
-    def test_checklist_input_risk_uniqueness(self):
+    def test_guidance_input_reuses_initial_and_risk_answers(self):
         i = InitialAnswers("spouse", None, True, "unknown")
         a = RiskAnswer("debt", "yes")
-        self.assertIs(RecommendationInput(i, (a,)).initial, i)
+        self.assertIs(GuidanceInput(i, (a,)).initial, i)
         with self.assertRaises(ValueError):
-            RecommendationInput(i, (a, a))
+            GuidanceInput(i, (a, a))
+
+    def test_checklist_and_kakao_share_guidance_input(self):
+        self.assertEqual(get_type_hints(ChecklistService.build_guidance)["request"], GuidanceInput)
+        self.assertEqual(get_type_hints(KakaoInputAdapter.parse)["return"], GuidanceInput)
+
+    def test_app_ports_keep_checklist_service(self):
+        self.assertIs(get_type_hints(AppServicePorts)["checklist"], ChecklistService)
 
     def test_answer_reference_has_url_and_location(self):
         r = self.reference()

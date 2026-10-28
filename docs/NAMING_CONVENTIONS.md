@@ -55,7 +55,7 @@ citation_validation.py            CitationValidation.py
 | Backend 업무 흐름 | `<domain>/service.py` |
 | Backend 영속 접근 | `<domain>/repository.py` |
 | Backend DTO | `<domain>/schemas.py` 또는 승인된 `contracts/` |
-| Python 테스트 | `tests/test_<feature>.py`, `test_<behavior>()` |
+| Python 테스트 | `tests/test_<feature>.py`, `test_<한글_행동>()` |
 | TypeScript 테스트 | `*.test.ts` 또는 `*.test.tsx` (일관되게 유지) |
 
 ## 5. 주석 규칙

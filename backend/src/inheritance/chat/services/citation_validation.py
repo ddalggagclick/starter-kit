@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Protocol
 
 from starter_rag.contracts.models import Evidence
@@ -15,9 +16,88 @@ from starter_rag.contracts.models import Evidence
 from inheritance.contracts.chat import AnswerReference
 from inheritance.contracts.law import LawEvidence
 
+# V1 임시 인용 형식 [[근거ID]] (prompt_builder.ANSWER_SYSTEM_PROMPT와 같은 형식).
+# 모델이 [[ID1, ID2]]처럼 한 괄호에 묶어 쓰는 경우도 있어, 괄호 안을 쉼표·공백으로 나눠 읽는다.
+_CITATION = re.compile(r"\[\[([^\[\]]*)\]\]")
+_ID_SEPARATOR = re.compile(r"[,\s]+")
+
+
+class CitationMismatch(Exception):
+    pass
+
 
 class CitationValidatorPort(Protocol):
     # cited_ids를 검색 결과와 대조해 실제 근거의 공식 URL·위치·버전만 반환한다.
     def validate_and_resolve(
         self, cited_ids: tuple[str, ...], rag: tuple[Evidence, ...], laws: tuple[LawEvidence, ...]
     ) -> tuple[AnswerReference, ...]: ...
+
+
+def _group_ids(group: str) -> list[str]:
+    return [part for part in _ID_SEPARATOR.split(group) if part]
+
+
+# 답변 본문에서 인용 ID를 처음 나온 순서대로 한 번씩만 꺼낸다. 묶음 인용은 안의 ID를 하나씩 센다.
+def extract_cited_ids(text: str) -> tuple[str, ...]:
+    ids = (cited for group in _CITATION.findall(text) for cited in _group_ids(group))
+    return tuple(dict.fromkeys(ids))
+
+
+# 화면용 본문: [[근거ID]]를 처음 나온 순서의 번호 [n]으로, 묶음 [[ID1, ID2]]는 [1][2]로 바꾼다.
+# [n]은 출처 목록의 n번째와 같다. 검증을 통과한 본문에만 쓴다.
+# 바꾼 뒤에도 [[ 또는 ]]가 남으면(빈 괄호·짝이 안 맞는 괄호) 내부 표시가 새지 않게 CitationMismatch.
+def number_citations(text: str) -> str:
+    numbers = {cited: index for index, cited in enumerate(extract_cited_ids(text), start=1)}
+
+    def replace(match: re.Match[str]) -> str:
+        ids = _group_ids(match.group(1))
+        return "".join(f"[{numbers[cited]}]" for cited in ids) if ids else match.group(0)
+
+    shown = _CITATION.sub(replace, text)
+    if "[[" in shown or "]]" in shown:
+        raise CitationMismatch
+    return shown
+
+
+def _from_rag(item: Evidence) -> AnswerReference:
+    source = item.source
+    return AnswerReference(
+        evidence_id=item.evidence_id,
+        kind="procedure",
+        title=source.title,
+        official_url=source.url,
+        location=item.location,
+        version=source.version,
+    )
+
+
+def _from_law(item: LawEvidence) -> AnswerReference:
+    return AnswerReference(
+        evidence_id=item.evidence_id,
+        kind="law_article" if item.kind == "article" else "law_addendum",
+        title=item.law_title,
+        official_url=item.official_url,
+        location=item.article_number,
+        version=item.effective_from,
+    )
+
+
+class CitationValidator:
+    # 규칙으로만 대조한다. 인용이 없거나 검색되지 않은 ID가 하나라도 있으면 CitationMismatch(S7).
+    def validate_and_resolve(
+        self, cited_ids: tuple[str, ...], rag: tuple[Evidence, ...], laws: tuple[LawEvidence, ...]
+    ) -> tuple[AnswerReference, ...]:
+        # 인용된 근거만 출처로 바꾼다. 인용하지 않은 근거의 형식 문제로 답변 전체가 깨지지 않게 한다.
+        known: dict[str, Evidence | LawEvidence] = {item.evidence_id: item for item in rag}
+        known.update({item.evidence_id: item for item in laws})
+        if not cited_ids or any(cited not in known for cited in cited_ids):
+            raise CitationMismatch
+        try:
+            return tuple(_reference(known[cited]) for cited in cited_ids)
+        except ValueError:
+            # 인용된 출처가 계약(제목·위치·버전·HTTPS)을 못 채우면 검증 실패로 본다(S7).
+            raise CitationMismatch from None
+
+
+def _reference(item: Evidence | LawEvidence) -> AnswerReference:
+    return _from_law(item) if isinstance(item, LawEvidence) else _from_rag(item)
