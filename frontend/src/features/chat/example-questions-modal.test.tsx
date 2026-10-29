@@ -17,7 +17,7 @@ import { ExampleQuestionsModal } from "./example-questions-modal"
 
 afterEach(cleanup)
 
-// 모달에서만 볼 수 있는 예시(대화창 위 5개에 없는 것)
+// 모달에서만 볼 수 있는 예시(대화창 위 칩 줄에 없는 것)
 const MODAL_ONLY = EXAMPLE_QUESTION_GROUPS.flatMap((group) => group.questions).find(
   (question) => !FEATURED_EXAMPLE_QUESTIONS.includes(question),
 ) as string
@@ -55,7 +55,7 @@ describe("첫 화면 [+ 더보기] (#220)", () => {
   })
 
   const openMore = () => {
-    const more = screen.getByRole("button", { name: "+ 더보기" })
+    const more = screen.getByRole("button", { name: "더보기" })
     more.focus()
     fireEvent.click(more)
     return more
@@ -74,7 +74,7 @@ describe("첫 화면 [+ 더보기] (#220)", () => {
     expect(screen.queryByText(/질문을 보내는 중|공식 자료 검색 중/)).toBeNull()
   })
 
-  it("Esc로 닫으면 아무것도 담지 않고 초점은 [+ 더보기]로 돌아온다", () => {
+  it("Esc로 닫으면 아무것도 담지 않고 초점은 [더보기]로 돌아온다", () => {
     const more = openMore()
     expect(screen.getByRole("dialog")).toBeTruthy()
 

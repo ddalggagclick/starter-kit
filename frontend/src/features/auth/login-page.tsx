@@ -5,18 +5,20 @@
  * 구현: 빈 칸은 인라인 오류, 401은 사유를 구분하지 않는 같은 문구, 429는 잠시 후 재시도 안내.
  * 완료 기준: 실패 시 로그인된 것처럼 보이지 않는다. 성공하면 헤더가 로그인 상태로 바뀐다.
  *   회원가입(/signup)·비밀번호 재설정(/auth/forgot)으로 가는 링크를 둔다. 이메일 인증 전 로그인(401)은 서버 안내 문구를 보인다.
+ *   #227 새 시안: 사이드바 [로그인]은 지금 화면 위 모달로 연다. 모달에서 로그인하면 이동하지 않고 모달만 닫혀
+ *   보던 화면(대화·체크리스트)이 그대로 남는다. 회원가입·비밀번호 재설정 링크는 그 모달로 바꾼다. /login 주소는 전과 같다.
  * 제한사항: 비밀번호를 저장하지 않는다.
  */
-import { LogIn } from "lucide-react"
 import { type FormEvent, useId, useState } from "react"
-import { Link, useLocation, useNavigate } from "react-router"
+import { useLocation, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Notice } from "@/components/ui/notice"
 import { MOCK_ACCOUNT } from "@/mocks/mock-api"
 import { type ApiFailure, toApiFailure } from "@/shared/api/api-error"
 import { USE_MOCK_API } from "@/shared/api/data-source"
+import { useInOverlay, useOverlayStore } from "@/shared/state/overlay-store"
 import { loginRequest } from "./auth-api"
+import { AUTH_INPUT_CLASS, AuthCard, AuthLink, PasswordInput } from "./auth-form-field"
 import { useAuthStore } from "./auth-store"
 
 type FieldErrors = { email?: string; password?: string }
@@ -34,6 +36,8 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const signIn = useAuthStore((state) => state.signIn)
+  const inOverlay = useInOverlay()
+  const closeOverlay = useOverlayStore((s) => s.close)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -55,7 +59,9 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       signIn(await loginRequest(email.trim(), password))
-      navigate(returnTo, { replace: true })
+      // 모달이면 보던 화면에 그대로 머문다. 페이지(/login)면 전처럼 온 곳으로 돌아간다.
+      if (inOverlay) closeOverlay()
+      else navigate(returnTo, { replace: true })
     } catch (error) {
       setFormError(loginFailureMessage(toApiFailure(error)))
       setPassword("")
@@ -64,83 +70,96 @@ export function LoginPage() {
     }
   }
 
+  const inputClass = AUTH_INPUT_CLASS
   return (
-    <div className="mx-auto max-w-md">
-      <Card>
-        <CardHeader>
-          <CardTitle>로그인</CardTitle>
-          <CardDescription>
-            로그인하지 않아도 체크리스트·절차 안내·AI 질문을 이용할 수 있습니다.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={onSubmit} noValidate>
-            {formError && <Notice tone="danger">{formError}</Notice>}
-            <div className="space-y-1.5">
-              <label htmlFor="login-email" className="text-sm font-medium">
-                이메일
-              </label>
-              <input
-                id="login-email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                aria-invalid={Boolean(fieldErrors.email)}
-                aria-describedby={fieldErrors.email ? emailErrorId : undefined}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              />
-              {fieldErrors.email && (
-                <p id={emailErrorId} className="text-sm text-danger-foreground">
-                  {fieldErrors.email}
-                </p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="login-password" className="text-sm font-medium">
-                비밀번호
-              </label>
-              <input
-                id="login-password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                aria-invalid={Boolean(fieldErrors.password)}
-                aria-describedby={fieldErrors.password ? passwordErrorId : undefined}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              />
-              {fieldErrors.password && (
-                <p id={passwordErrorId} className="text-sm text-danger-foreground">
-                  {fieldErrors.password}
-                </p>
-              )}
-            </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
-              <LogIn className="size-4" />
-              {submitting ? "로그인 중…" : "로그인"}
-            </Button>
-          </form>
-          <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <Link to="/signup" className="underline underline-offset-4">
-                회원가입
-              </Link>
-              <Link to="/auth/forgot" className="underline underline-offset-4">
-                비밀번호를 잊으셨나요?
-              </Link>
-            </div>
-            {USE_MOCK_API && (
-              <p className="rounded-md bg-muted px-3 py-2 text-xs">
-                Mock 로그인 · 실제 계정 연동 아님 — {MOCK_ACCOUNT.email} / {MOCK_ACCOUNT.password}
-              </p>
-            )}
-            <Link to="/" className="underline underline-offset-4">
+    // 최신 시안: 모달 로그인에는 부제가 없다. 주소(/login)로 열면 전처럼 "로그인하지 않아도…" 안내를 둔다.
+    <AuthCard
+      title="로그인"
+      description={
+        inOverlay
+          ? undefined
+          : "로그인하지 않아도 체크리스트·절차 안내·AI 질문을 이용할 수 있습니다."
+      }
+    >
+      <form className="space-y-4" onSubmit={onSubmit} noValidate>
+        {formError && <Notice tone="danger">{formError}</Notice>}
+        <div className="space-y-1.5">
+          <label htmlFor="login-email" className="text-sm font-medium">
+            이메일
+          </label>
+          <input
+            id="login-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? emailErrorId : undefined}
+            className={inputClass}
+          />
+          {fieldErrors.email && (
+            <p id={emailErrorId} className="text-sm text-danger-foreground">
+              {fieldErrors.email}
+            </p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="login-password" className="text-sm font-medium">
+            비밀번호
+          </label>
+          <PasswordInput
+            id="login-password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            aria-invalid={Boolean(fieldErrors.password)}
+            aria-describedby={fieldErrors.password ? passwordErrorId : undefined}
+            className={inputClass}
+          />
+          {fieldErrors.password && (
+            <p id={passwordErrorId} className="text-sm text-danger-foreground">
+              {fieldErrors.password}
+            </p>
+          )}
+        </div>
+        <Button type="submit" className="mt-2 h-11 w-full text-base" disabled={submitting}>
+          {submitting ? "로그인 중…" : "로그인"}
+        </Button>
+      </form>
+      <div className="space-y-2 text-center text-sm text-muted-foreground">
+        <p>
+          계정이 없나요?{" "}
+          <AuthLink
+            to="/signup"
+            overlay="signup"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            회원가입
+          </AuthLink>
+        </p>
+        <p>
+          <AuthLink
+            to="/auth/forgot"
+            overlay="forgot"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            비밀번호를 잊으셨나요?
+          </AuthLink>
+        </p>
+        {USE_MOCK_API && (
+          <p className="rounded-md bg-muted px-3 py-2 text-left text-xs">
+            Mock 로그인 · 실제 계정 연동 아님 — {MOCK_ACCOUNT.email} / {MOCK_ACCOUNT.password}
+          </p>
+        )}
+        {/* 모달에는 [닫기](X)가 있어 "로그인 없이 계속하기"는 페이지(/login)에서만 보인다. */}
+        {!inOverlay && (
+          <p>
+            <AuthLink to="/" overlay="close">
               로그인 없이 계속하기
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+            </AuthLink>
+          </p>
+        )}
+      </div>
+    </AuthCard>
   )
 }

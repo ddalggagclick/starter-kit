@@ -9,14 +9,17 @@
  *   - [이전 대화]를 열었을 때만 목록과 [대화 기록 삭제]·[동의 철회]를 보인다(위쪽 줄을 단순하게 유지).
  *   - 말풍선·출처·S6/S7/S9 안내는 공용 부품(chat-parts.tsx, #223)을 써 /ai와 모양·문구가 같다.
  *   - #214: 대화창 위에 자주 묻는 예시 질문 칩. 누르면 질문창에 담고 초점을 옮긴다(보내지 않음).
- * 제한사항: [+더보기] 모달(⑥)은 별도 이슈다. 확인창 문구는 /ai와 같다.
+ *   - #227(새 시안 https://claude.ai/artifact/TuiF5t6g7WzBoez9bxFWov, 모양만 변경): 위쪽 줄 버튼·저장 상태를
+ *     같은 크기로 맞추고, 개인정보 경고와 첫 외부 전송 안내를 한 줄로 합쳤다. 질문창은 한 줄 높이, 대화 상자는
+ *     최대 420px(화면 높이 62%)로 줄였다. 보내기 조건·저장 동의·확인창 등 동작은 그대로다.
+ * 제한사항: 확인창 문구는 /ai와 같다.
  */
-import { Send, Square } from "lucide-react"
+import { History, MessageCircle, Send, Square, SquarePen, TriangleAlert } from "lucide-react"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Notice } from "@/components/ui/notice"
-import { StorageControls } from "@/components/ui/storage-controls"
+import { useStorageActions } from "@/components/ui/storage-controls"
 import { selectNamespace, useAuthStore } from "@/features/auth/auth-store"
 import { createMockAskResponse } from "@/mocks/ai-stream"
 import { useMockAiScenarioStore } from "@/mocks/mock-ai-scenario"
@@ -26,7 +29,12 @@ import { DELETE_BUTTON_LABELS } from "@/shared/content/checklist"
 import { CHAT_INPUT_POLICY } from "@/shared/contracts/ui"
 import type { StorageNamespace } from "@/shared/storage/db"
 import { createApiAskTransport } from "./ask-transport"
-import { CHAT_POLICY_ITEMS, ChatConsentBand, PreviousConversations } from "./chat-history"
+import {
+  CHAT_POLICY_ITEMS,
+  CHAT_TOOL_BUTTON_CLASS,
+  ChatConsentBand,
+  PreviousConversations,
+} from "./chat-history"
 import {
   AnsweredBubble,
   EXTERNAL_TRANSFER_NOTICE,
@@ -85,11 +93,20 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
     if (box) box.scrollTop = box.scrollHeight
   }, [turnCount, chat.pendingQuestion, chat.stage])
 
-  // 저장을 그만두면(삭제·철회) 이전 대화 목록을 닫는다. 결과 안내는 StorageControls가 계속 보인다.
+  // 저장을 그만두면(삭제·철회) 이전 대화 목록을 닫는다. 결과 안내는 목록을 닫아도 계속 보인다.
   const closeHistoryAfter = (action: () => Promise<boolean>) => () => {
     setHistoryOpen(false)
     return action()
   }
+  // #227: [대화 기록 삭제]는 [이전 대화] 안에, [저장 동의 철회]는 "✓ 저장 중"을 눌러 여는 저장 설정 모달 안에 둔다.
+  //   확인창·결과 안내·재시도는 전과 같은 공용 동작(useStorageActions)이다.
+  const historyActions = useStorageActions({
+    itemName: "AI 대화 기록",
+    deleteTitle: "AI 대화 기록을 삭제할까요?",
+    revokeTitle: "AI 대화 저장 동의를 철회할까요?",
+    onDelete: closeHistoryAfter(chat.deleteAllConversations),
+    onRevoke: closeHistoryAfter(chat.revokeStorage),
+  })
 
   // 예시 질문을 누르면 질문창에 담고, 바로 고쳐 쓰거나 보낼 수 있게 질문창으로 초점을 옮긴다(#214).
   const pickExample = (question: string) => {
@@ -100,39 +117,45 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
   return (
     <div className="space-y-3">
       <ExampleQuestions onPick={pickExample} />
+      {/* 높이는 최신 시안대로 최대 576px(36rem), 낮은 화면에서는 화면 높이의 80%. 대화는 이 상자 안에서만 스크롤한다. */}
       <section
         aria-labelledby={titleId}
         className="flex h-[min(36rem,80dvh)] flex-col overflow-hidden rounded-xl border bg-card shadow-sm"
       >
-        {/* 위쪽 한 줄: 제목과 도구 */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
-          <h2 id={titleId} className="text-base font-semibold">
+        {/* 위쪽 한 줄: 제목과 도구. 버튼·저장 상태는 모두 같은 크기(CHAT_TOOL_BUTTON_CLASS)다. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 sm:px-4">
+          <h2 id={titleId} className="flex items-center gap-2 font-semibold leading-none">
+            <MessageCircle className="size-4 text-muted-foreground" aria-hidden />
             AI에게 질문하기
           </h2>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             {chat.saving && (
               <Button
                 variant="outline"
                 size="sm"
+                className={CHAT_TOOL_BUTTON_CLASS}
                 aria-expanded={historyOpen}
                 onClick={() => setHistoryOpen((open) => !open)}
               >
+                <History className="size-3.5" aria-hidden />
                 이전 대화 {historyOpen ? "▴" : "▾"}
               </Button>
             )}
             <Button
               variant="outline"
               size="sm"
+              className={CHAT_TOOL_BUTTON_CLASS}
               onClick={chat.requestNewChat}
               disabled={chat.turns.length === 0 && !chat.running && !chat.hasUnsent}
             >
-              새 대화
+              <SquarePen className="size-3.5" aria-hidden />새 대화
             </Button>
             <ChatConsentBand
               status={storage.status}
               declined={storage.declined}
               onGrant={chat.grantStorage}
               onDecline={storage.decline}
+              onRevoke={() => historyActions.request("revoke")}
             />
           </div>
         </div>
@@ -152,14 +175,20 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
               />
             </section>
           )}
-          <StorageControls
-            available={chat.saving && historyOpen}
-            itemName="AI 대화 기록"
-            deleteLabel={DELETE_BUTTON_LABELS.chat}
-            revokeLabel="AI 대화 저장 동의 철회"
-            onDelete={closeHistoryAfter(chat.deleteAllConversations)}
-            onRevoke={closeHistoryAfter(chat.revokeStorage)}
-          />
+          {chat.saving && historyOpen && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={historyActions.busy}
+                onClick={() => historyActions.request("delete")}
+              >
+                {DELETE_BUTTON_LABELS.chat}
+              </Button>
+            </div>
+          )}
+          {historyActions.view}
           {chat.historyError && <Notice tone="danger">{chat.historyError}</Notice>}
         </div>
 
@@ -168,10 +197,10 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
           ref={messagesRef}
           aria-label="대화"
           aria-live="polite"
-          className="flex-1 space-y-4 overflow-y-auto px-4 py-4"
+          className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4"
         >
           {chat.turns.length === 0 && !chat.pendingQuestion && (
-            <p className="pt-10 text-center text-muted-foreground">궁금한 것을 물어보세요.</p>
+            <p className="m-auto text-base text-muted-foreground">궁금한 것을 물어보세요.</p>
           )}
           {chat.turns.map((turn) => (
             <div key={turn.id} className="space-y-2">
@@ -224,17 +253,28 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
             event.preventDefault()
             chat.submit()
           }}
-          className="space-y-2 border-t px-4 py-3"
+          className="space-y-2 border-t px-3 py-3 sm:px-4"
         >
-          <p className="text-sm text-warning-foreground">⚠ {PRIVACY_WARNING}</p>
-          {!chat.externalNoticeAcknowledged && (
-            <Notice tone="warning" className="flex flex-wrap items-center justify-between gap-2">
-              <p>{EXTERNAL_TRANSFER_NOTICE}</p>
-              <Button type="button" size="sm" onClick={chat.acknowledgeExternalNotice}>
-                확인했습니다
+          {/* 개인정보 경고(항상 보임)와 처음 외부 전송 안내를 한 줄로 보인다(시안). [확인]을 누르기 전에는 보낼 수
+              없고, 누르면 외부 전송 안내와 [확인]만 사라지고 경고는 남는다(PRD 3-1-2, 동작은 전과 같다). */}
+          <div className="flex items-center gap-2 text-sm text-warning-foreground">
+            <TriangleAlert className="size-4 shrink-0" aria-hidden />
+            <p className="min-w-0 flex-1">
+              <span>{PRIVACY_WARNING}</span>
+              {!chat.externalNoticeAcknowledged && <span> {EXTERNAL_TRANSFER_NOTICE}</span>}
+            </p>
+            {!chat.externalNoticeAcknowledged && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 px-3 text-sm"
+                onClick={chat.acknowledgeExternalNotice}
+              >
+                확인
               </Button>
-            </Notice>
-          )}
+            )}
+          </div>
           {chat.guestLimitReached && <GuestLimitNotice isGuest />}
           <div className="flex items-end gap-2">
             <label htmlFor={inputId} className="sr-only">
@@ -244,15 +284,17 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
               id={inputId}
               value={chat.input}
               onChange={(event) => chat.setInput(event.target.value)}
-              rows={2}
+              // 시안: 한 줄 높이로 줄여 대화 영역을 넓힌다. 긴 질문은 칸 안에서 스크롤된다.
+              rows={1}
               placeholder="예: 상속포기 기한이 언제부터인가요?"
               aria-describedby={counterId}
               aria-invalid={chat.overLimit || Boolean(chat.inputError)}
-              className="min-h-11 flex-1 resize-none rounded-md border border-input bg-background p-3 text-sm"
+              className="min-h-11 min-w-0 flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2.5 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
             />
-            <Button type="submit" className="h-11" disabled={!chat.canSend}>
+            <Button type="submit" className="h-11 shrink-0" disabled={!chat.canSend}>
               <Send className="size-4" />
-              보내기
+              {/* 아주 좁은 화면(360px 미만)에서는 아이콘만 보이고, 이름은 화면낭독기에 그대로 읽힌다. */}
+              <span className="max-[359px]:sr-only">보내기</span>
             </Button>
           </div>
           <p

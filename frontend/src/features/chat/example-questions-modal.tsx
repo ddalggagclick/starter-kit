@@ -7,7 +7,9 @@
  */
 import { Button } from "@/components/ui/button"
 import { Modal } from "@/components/ui/modal"
+import { cn } from "@/lib/utils"
 import type { ExampleQuestionGroup } from "@/shared/content/example-questions"
+import { CHIP_CLASS } from "./example-questions"
 
 export function ExampleQuestionsModal({
   groups,
@@ -20,11 +22,12 @@ export function ExampleQuestionsModal({
 }) {
   return (
     <Modal onClose={onClose}>
-      <Modal.Header title="자주 묻는 질문" />
+      {/* #227 시안: 부제와 칩 모양을 첫 화면 칩과 같게. 긴 질문은 모달 안에서 줄을 바꾼다. */}
+      <Modal.Header title="자주 묻는 질문" subtitle="누르면 질문창에 담깁니다." />
       <Modal.Body className="space-y-4">
         {groups.map((group) => (
           <fieldset key={group.title} className="m-0 min-w-0 space-y-2 border-0 p-0">
-            <legend className="mb-2 text-xs font-semibold text-muted-foreground">
+            <legend className="mb-2 text-sm font-medium text-muted-foreground">
               {group.title}
             </legend>
             <div className="flex flex-wrap gap-2">
@@ -33,7 +36,7 @@ export function ExampleQuestionsModal({
                   key={question}
                   type="button"
                   onClick={() => onPick(question)}
-                  className="min-h-9 rounded-full border border-input bg-card px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className={cn(CHIP_CLASS, "h-auto min-h-9 whitespace-normal py-1.5 text-left")}
                 >
                   {question}
                 </button>

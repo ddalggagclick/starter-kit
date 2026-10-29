@@ -7,25 +7,24 @@
  * 완료 기준: npm run dev/build, 각 경로가 화면을 렌더링한다.
  * 제한사항: 데이터는 V1 Mock이 기본이다(shared/api/data-source.ts). 실구현 시연으로 표기하지 않는다.
  * #211: 페이지 수를 줄이려고 AI 질문 페이지(/ai)를 첫 화면 대화창(id="ai")으로 합쳤다. /ai로 오면 /#ai로 보내고,
- *   헤더 [AI 질문]도 /#ai로 간다. 주소에 #이 있으면 그 위치로 화면을 내린다.
+ *   주소에 #이 있으면 그 위치로 화면을 내린다.
+ * #227: 대화창이 첫 화면에 바로 보이므로 헤더 [AI 질문] 메뉴는 뺐다(새 시안 메뉴 4개).
+ *   새 시안(https://claude.ai/artifact/NgrnTfYvGvuGj5PYWnJcfu)대로 위쪽 헤더를 왼쪽 사이드바로 바꿨다(app-shell.tsx).
+ *   모바일은 위쪽 줄 + 메뉴 서랍. 전체 절차·상속 관계·상속세·시작 질문은 화면 위 모달로 연다. 기존 주소는 그대로 둔다.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { Compass, LogIn, LogOut } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useState } from "react"
 import {
   createBrowserRouter,
   Link,
   Navigate,
-  NavLink,
   Outlet,
   type RouteObject,
   RouterProvider,
   useLocation,
 } from "react-router"
-import { Button } from "@/components/ui/button"
+import { AppOverlays, MobileTopBar, SiteSidebar } from "@/app-shell"
 import { AccountDeletePage } from "@/features/auth/account-delete-page"
-import { logoutRequest } from "@/features/auth/auth-api"
-import { useAuthStore } from "@/features/auth/auth-store"
 import { ForgotPasswordPage } from "@/features/auth/forgot-password-page"
 import { LoginPage } from "@/features/auth/login-page"
 import { ResetPasswordPage } from "@/features/auth/reset-password-page"
@@ -42,96 +41,7 @@ import { ProcedureDetailPage } from "@/features/procedures/procedure-detail"
 import { ProceduresPage } from "@/features/procedures/procedures-page"
 import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
 import { cn } from "@/lib/utils"
-import { LEGAL_DISCLAIMER } from "@/shared/content/checklist"
-
-const NAV_ITEMS = [
-  { to: "/checklist", label: "체크리스트" },
-  { to: "/procedures", label: "전체 절차" },
-  // AI 질문은 첫 화면 대화창 위치다(#211).
-  { to: "/#ai", label: "AI 질문" },
-  { to: "/guide/relationship", label: "상속 관계" },
-  { to: "/guide/tax", label: "상속세" },
-] as const
-
-const NAV_LINK_CLASS = "whitespace-nowrap rounded-md px-3 py-1.5 text-sm hover:bg-muted"
-const NAV_ACTIVE_CLASS = "bg-secondary font-semibold"
-
-function SiteHeader() {
-  const location = useLocation()
-  const accountId = useAuthStore((s) => s.accountId)
-  const email = useAuthStore((s) => s.email)
-  const signOut = useAuthStore((s) => s.signOut)
-  // 서버 로그아웃 결과와 관계없이 화면은 로그아웃 상태로 바꾼다.
-  const onSignOut = () => {
-    void logoutRequest()
-    signOut()
-  }
-  return (
-    <header className="border-b bg-card/80">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
-        <Link to="/" className="flex items-center gap-2 font-bold">
-          <span className="rounded-lg bg-primary p-1.5 text-primary-foreground">
-            <Compass className="size-4" aria-hidden />
-          </span>
-          상속길잡이
-        </Link>
-        <div className="flex items-center gap-2">
-          {accountId ? (
-            <>
-              <span className="hidden text-sm text-muted-foreground sm:inline">
-                {email ?? "로그인됨"}
-              </span>
-              <Button variant="outline" size="sm" onClick={onSignOut}>
-                <LogOut className="size-4" />
-                로그아웃
-              </Button>
-              <Link to="/account/delete" className="text-xs text-muted-foreground underline">
-                회원 탈퇴
-              </Link>
-            </>
-          ) : (
-            <Button asChild variant="outline" size="sm">
-              <Link to="/login">
-                <LogIn className="size-4" />
-                로그인
-              </Link>
-            </Button>
-          )}
-        </div>
-        <nav
-          aria-label="주요 메뉴"
-          className="-mx-1 flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto"
-        >
-          {NAV_ITEMS.map((item) => {
-            // # 위치 메뉴(/#ai)는 NavLink가 첫 화면 전체를 선택으로 보므로, 주소의 #까지 같을 때만 선택 표시한다.
-            if (item.to.includes("#")) {
-              const active = `${location.pathname}${location.hash}` === item.to
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(NAV_LINK_CLASS, active && NAV_ACTIVE_CLASS)}
-                >
-                  {item.label}
-                </Link>
-              )
-            }
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) => cn(NAV_LINK_CLASS, isActive && NAV_ACTIVE_CLASS)}
-              >
-                {item.label}
-              </NavLink>
-            )
-          })}
-        </nav>
-      </div>
-    </header>
-  )
-}
+import { useOverlayStore } from "@/shared/state/overlay-store"
 
 function AppLayout() {
   // 새로고침 후 Refresh 쿠키로 로그인 상태를 복구한다(실제 Backend 모드만).
@@ -148,21 +58,42 @@ function AppLayout() {
     if (!hash) return
     document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: "start" })
   }, [hash, key])
+  // 이동이 일어나면(같은 주소로 다시 가는 경우 포함) 열려 있던 모달·메뉴 서랍을 닫는다(#227).
+  // 예: 질문 3개 모달에서 [체크리스트 확인] → /checklist로 이동 → 모달이 닫힌다.
+  const closeOverlay = useOverlayStore((s) => s.close)
+  // useLayoutEffect: 새 화면이 그려진 뒤 그 화면이 여는 모달(예: 체크리스트 진입 시 질문 3개)보다 먼저 닫히도록.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 이동마다 바뀌는 key가 바뀔 때만 닫는다.
+  useLayoutEffect(() => {
+    closeOverlay()
+  }, [key])
+  // 데스크톱 사이드바 접기·펼치기(#227 시안). 저장하지 않는 화면 상태다.
+  const [collapsed, setCollapsed] = useState(false)
   return (
-    <div className="flex min-h-svh flex-col">
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
-        <Outlet />
-      </main>
-      <footer className="border-t">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4 text-xs text-muted-foreground sm:px-6">
-          <p>
-            {/* Mock 표시(" · V1 Mock 데이터 사용 중…")는 사용자 요청으로 없앴다(#205). */}
-            {LEGAL_DISCLAIMER}. 안내 문구·기한은 검수 전 예시입니다.
-          </p>
-          <FeedbackMockButton context="공통" />
-        </div>
-      </footer>
+    <div
+      className={cn(
+        "grid min-h-svh",
+        collapsed ? "md:grid-cols-[4rem_minmax(0,1fr)]" : "md:grid-cols-[16rem_minmax(0,1fr)]",
+      )}
+    >
+      <SiteSidebar collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} />
+      <div className="flex min-w-0 flex-col">
+        <MobileTopBar />
+        <main
+          className={cn(
+            "mx-auto w-full flex-1 px-4 py-6 sm:px-7 sm:py-8",
+            collapsed ? "max-w-6xl" : "max-w-5xl",
+          )}
+        >
+          <Outlet />
+        </main>
+        {/* 최신 시안 바닥글: [정보 오류 제보]만 오른쪽에 둔다(사용자 지시로 안내 문장은 뺐다. 첫 화면·체크리스트 경고에 같은 뜻이 있다). */}
+        <footer className="border-t">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-end gap-3 px-4 py-4 text-sm text-muted-foreground sm:px-7">
+            <FeedbackMockButton context="공통" />
+          </div>
+        </footer>
+      </div>
+      <AppOverlays />
     </div>
   )
 }

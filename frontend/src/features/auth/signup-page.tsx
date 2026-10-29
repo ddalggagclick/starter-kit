@@ -6,13 +6,12 @@
  * 제한사항: 비밀번호를 저장·기록하지 않는다. 가입 전에도 모든 기본 기능을 쓸 수 있다는 안내를 유지한다.
  */
 import { type FormEvent, useState } from "react"
-import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
 import { toApiFailure } from "@/shared/api/api-error"
 import { newPasswordError, PASSWORD_RULE_TEXT } from "@/shared/contracts/password-policy"
 import { signupRequest } from "./auth-api"
-import { AuthCard, AuthField } from "./auth-form-field"
+import { AuthCard, AuthField, AuthLink } from "./auth-form-field"
 import { ResendVerificationForm } from "./resend-verification-form"
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -62,9 +61,9 @@ export function SignupPage() {
           수 있습니다.
         </Notice>
         <ResendVerificationForm initialEmail={signedUpEmail} />
-        <Link to="/login" className="text-sm underline underline-offset-4">
+        <AuthLink to="/login" overlay="login">
           로그인 화면으로
-        </Link>
+        </AuthLink>
       </AuthCard>
     )
   }
@@ -104,9 +103,9 @@ export function SignupPage() {
           {submitting ? "가입 중…" : "가입하기"}
         </Button>
       </form>
-      <Link to="/login" className="text-sm underline underline-offset-4">
+      <AuthLink to="/login" overlay="login">
         이미 계정이 있으면 로그인
-      </Link>
+      </AuthLink>
     </AuthCard>
   )
 }

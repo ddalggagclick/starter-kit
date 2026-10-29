@@ -21,34 +21,53 @@ export const COMMON_RISK_WARNING = "기한 · 채무는 공식 자료로 확인�
 export const LEGAL_DISCLAIMER = "법률 판단을 대신하지 않습니다"
 
 // W-00 첫 화면 문구 (05장 그림)
+// #227 새 시안: 첫 화면 제목은 두 줄(titleLines)로 크게 보인다. 버튼 이름은 최신 시안대로 [상속 절차 시작하기].
+//   한 줄 제목(title)은 html-mock 화면이 계속 쓴다.
 export const LANDING_COPY = {
   eyebrow: "가족의 사망 이후, 다음 행동부터",
   title: "무엇부터 해야 할지 함께 확인하세요.",
+  titleLines: ["무엇부터 해야 할지", "함께 확인하세요."],
   description: "한 번에 다 하지 않아도 됩니다.",
   startButton: "상속 절차 시작하기",
 } as const
 
+// #227 최신 시안(사용자 지시 2026-10-29: 시안대로): 질문 3개의 관계 선택지는 5개이고 문구가 짧다.
+//   '모름'(unknown)은 선택지에서 뺐지만, 카카오톡 등에서 이미 받은 '모름' 답은 그대로 보이도록 이름표는 남긴다.
 export const RELATIONSHIP_OPTIONS: { value: Relationship; label: string }[] = [
   { value: "spouse", label: "배우자" },
-  { value: "descendant", label: "자녀 · 손자녀" },
-  { value: "ascendant", label: "부모 · 조부모" },
+  { value: "descendant", label: "자녀·손자녀" },
+  { value: "ascendant", label: "부모" },
   { value: "sibling", label: "형제자매" },
-  { value: "other", label: "그 밖의 친족" },
-  { value: "unknown", label: "모름" },
+  { value: "other", label: "기타" },
 ]
+export const RELATIONSHIP_LABELS: Record<Relationship, string> = {
+  spouse: "배우자",
+  descendant: "자녀·손자녀",
+  ascendant: "부모",
+  sibling: "형제자매",
+  other: "기타",
+  unknown: "모름",
+}
 
 export const ONE_STOP_OPTIONS: { value: AnswerChoice; label: string }[] = [
-  { value: "yes", label: "신청함" },
-  { value: "no", label: "신청 안 함" },
-  { value: "unknown", label: "모름" },
+  { value: "yes", label: "신청했어요" },
+  { value: "no", label: "신청하지 않았어요" },
+  { value: "unknown", label: "모르겠어요" },
 ]
 
+// 시안 질문 3개 모달 문구
 export const INITIAL_QUESTION_COPY = {
+  title: "먼저 세 가지만 여쭤볼게요",
+  description:
+    "답하기 어려운 항목은 '모르겠어요'를 골라도 괜찮아요. '모르겠어요'와 '아니요'는 다르게 다뤄요.",
   relationship: "고인과 어떤 관계인가요?",
   deathDate: "고인의 사망일을 알고 있나요?",
-  deathDateUnknownLabel: "모름",
+  deathDateUnknownLabel: "모르겠어요",
+  deathDateNote: "사망일은 기한을 확인할 때 참고만 해요. 기산점은 따로 확인이 필요해요.",
   oneStopApplication: "안심상속 원스톱 서비스를 신청했나요?",
-  submitButton: "체크리스트 확인",
+  submitButton: "체크리스트 보기",
+  readyHint: "좋아요. 체크리스트를 만들었어요.",
+  notReadyHint: "관계와 안심상속 여부를 고르면 다음 단계로 갈 수 있어요.",
 } as const
 
 export type RiskQuestion = {

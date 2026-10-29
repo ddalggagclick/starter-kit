@@ -49,7 +49,8 @@ const consentInBand = async () => {
   fireEvent.click(within(band).getByRole("button", { name: "저장 설정" }))
   fireEvent.click(within(band).getByLabelText("AI 대화 저장 정책을 확인했습니다"))
   fireEvent.click(within(band).getByRole("button", { name: "저장" }))
-  await screen.findByText(/AI 대화 저장: ● 이 기기에 저장 중/)
+  // #227: 저장 상태는 대화창 위쪽 줄의 작은 표시(role="status")로 보인다.
+  await screen.findByText("저장 중", { selector: "[role=status]" })
 }
 
 const conversationCount = (namespace = GUEST_NAMESPACE) =>
@@ -127,14 +128,19 @@ describe("W-07 삭제·철회 (4-3-1~4-3-3)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /이전 대화/ }))
     fireEvent.click(await screen.findByRole("button", { name: "대화 기록 삭제" }))
-    fireEvent.click(await screen.findByRole("button", { name: "삭제: AI 대화 기록" }))
+    fireEvent.click(
+      within(await screen.findByRole("dialog", { name: "AI 대화 기록을 삭제할까요?" })).getByRole(
+        "button",
+        { name: "삭제" },
+      ),
+    )
 
     expect(
       await screen.findByText(/AI 대화 기록을 삭제했습니다. 저장 동의는 유지됩니다/),
     ).toBeTruthy()
     expect(await conversationCount()).toBe(0)
     expect(screen.queryByText("공식 출처")).toBeNull()
-    expect(screen.getByText(/AI 대화 저장: ● 이 기기에 저장 중/)).toBeTruthy()
+    expect(screen.getByText("저장 중", { selector: "[role=status]" })).toBeTruthy()
   }, 15_000)
 
   it("동의 철회 뒤 대화가 지워지고 동의 띠가 다시 나타난다", async () => {
@@ -143,9 +149,18 @@ describe("W-07 삭제·철회 (4-3-1~4-3-3)", () => {
     await ask("상속세")
     await waitFor(async () => expect(await conversationCount()).toBe(1))
 
-    fireEvent.click(screen.getByRole("button", { name: /이전 대화/ }))
-    fireEvent.click(await screen.findByRole("button", { name: "AI 대화 저장 동의 철회" }))
-    fireEvent.click(await screen.findByRole("button", { name: "동의 철회: AI 대화 기록 삭제" }))
+    // #227: 철회는 "✓ 저장 중"을 눌러 여는 저장 설정 모달 안에 있다.
+    fireEvent.click(screen.getByRole("button", { name: /AI 대화 저장 중/ }))
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "AI 대화 저장" })).getByRole("button", {
+        name: "저장 동의 철회",
+      }),
+    )
+    fireEvent.click(
+      within(
+        await screen.findByRole("dialog", { name: "AI 대화 저장 동의를 철회할까요?" }),
+      ).getByRole("button", { name: "동의 철회" }),
+    )
 
     expect(
       await screen.findByText(/저장 동의를 철회하고 이 기기의 AI 대화 기록을 삭제했습니다/),
@@ -193,12 +208,25 @@ describe("새 대화 시작 (S8)", () => {
 })
 
 describe("저장 안 된 대화 이탈 확인 (S11, D-11)", () => {
-  const leaveTo = (label: string) =>
+  // #227 최신 시안: 답하기 전에는 [체크리스트]가 질문 모달을 연다. 페이지 이동(이탈)을 보려고 먼저 답해 둔다.
+  const leaveTo = (label: string) => {
+    act(() => {
+      useInheritanceStore.getState().setInitialAnswers(
+        {
+          relationship: "descendant",
+          deathDate: null,
+          deathDateUnknown: true,
+          oneStopApplication: "no",
+        },
+        "direct",
+      )
+    })
     fireEvent.click(
       within(screen.getByRole("navigation", { name: "주요 메뉴" })).getByRole("link", {
         name: label,
       }),
     )
+  }
 
   it("미동의 상태에서 대화가 있으면 사이트 안 이동 때 묻고, 취소하면 머문다", async () => {
     const router = renderAi()

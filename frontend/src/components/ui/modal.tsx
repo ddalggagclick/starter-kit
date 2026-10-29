@@ -17,7 +17,18 @@ const FOCUSABLE =
 // Modal.Header의 제목을 대화상자 이름(aria-labelledby)으로 잇기 위한 id
 const TitleIdContext = createContext<string | undefined>(undefined)
 
-function ModalRoot({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+// #227: className으로 넓은 모달·왼쪽 서랍 모양을 덧붙이고, 제목(Modal.Header)이 없는 창은 label로 이름을 붙인다.
+function ModalRoot({
+  onClose,
+  children,
+  className,
+  label,
+}: {
+  onClose: () => void
+  children: ReactNode
+  className?: string
+  label?: string
+}) {
   const titleId = useId()
   const dialog = useRef<HTMLDivElement>(null)
   // 부모가 매번 새 함수를 넘겨도 초점 이동·키 처리를 다시 걸지 않도록 최신 onClose만 기억한다.
@@ -70,7 +81,7 @@ function ModalRoot({ onClose, children }: { onClose: () => void; children: React
     // biome-ignore lint/a11y/noStaticElementInteractions: 바깥 누르기 닫기는 마우스용 보조 동작이고, 키보드는 Esc로 닫는다(9장).
     // biome-ignore lint/a11y/useKeyWithClickEvents: 키보드 닫기는 위 keydown(Esc)에서 처리한다.
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) closeRef.current()
       }}
@@ -79,9 +90,13 @@ function ModalRoot({ onClose, children }: { onClose: () => void; children: React
         ref={dialog}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-labelledby={label ? undefined : titleId}
+        aria-label={label}
         tabIndex={-1}
-        className="max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto rounded-xl bg-card p-5 text-card-foreground shadow-lg outline-none"
+        className={cn(
+          "max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto rounded-lg border bg-card p-5 text-card-foreground shadow-lg outline-none sm:p-6",
+          className,
+        )}
       >
         <TitleIdContext.Provider value={titleId}>{children}</TitleIdContext.Provider>
       </div>
@@ -93,7 +108,7 @@ function ModalHeader({ title, subtitle }: { title: ReactNode; subtitle?: ReactNo
   const titleId = useContext(TitleIdContext)
   return (
     <div className="space-y-1">
-      <h2 id={titleId} className="text-lg font-semibold">
+      <h2 id={titleId} className="text-lg font-semibold leading-snug">
         {title}
       </h2>
       {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
@@ -105,9 +120,10 @@ function ModalBody({ children, className }: { children: ReactNode; className?: s
   return <div className={cn("space-y-3 text-sm", className)}>{children}</div>
 }
 
-// 버튼은 세로로 쌓아 폭을 채우고, 누르는 영역은 44px 이상으로 한다(9장).
+// #227: 버튼은 오른쪽 끝에 가로로 놓고, 주된 버튼([저장] 등)은 맨 오른쪽에 둔다(사용자 요청: 휴대폰에서도 같게).
+//   좁아서 넘치면 다음 줄로 넘어가도 오른쪽 정렬을 지킨다. 높이는 Button 기본 40px.
 function ModalActions({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col gap-2 [&>button]:min-h-11">{children}</div>
+  return <div className="flex flex-wrap justify-end gap-2">{children}</div>
 }
 
 export const Modal = Object.assign(ModalRoot, {

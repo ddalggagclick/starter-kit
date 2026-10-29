@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // W-02 서버 저장 띠 화면 테스트(4-5-1, 4-6-1, 4-6-3, 4-3-4 서버, 검증 ②). 요청을 세는 가짜 A17로 실행한다.
 // A17은 계약 미확정·Backend 미구현이라 실제 서버 연동 검증이 아니다.
-// #197: 서버 저장 동의는 [서버 저장 설정] 모달에서, 서버 기록 선택은 저절로 한 번 열리는 모달에서 받는다.
+// #197: 서버 저장 동의는 [서버 저장] 모달에서, 서버 기록 선택은 저절로 한 번 열리는 모달에서 받는다.
 import { QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { createMemoryRouter, RouterProvider } from "react-router"
@@ -69,13 +69,13 @@ describe("ServerSaveBand", () => {
     expect(container.textContent).toBe("")
   })
 
-  it("동의 전에는 [서버 저장 설정] 모달에서 정책 확인을 체크해야 [서버에 저장]할 수 있고, 저장하면 상태를 표시한다", async () => {
+  it("동의 전에는 [서버 저장] 모달에서 정책 확인을 체크해야 [서버에 저장]할 수 있고, 저장하면 상태를 표시한다", async () => {
     const { api } = fakeApi({ consent: false, snapshot: null })
     await startAs("user-a", api)
     render(<ServerSaveBand />)
 
     expect(screen.queryByRole("dialog")).toBeNull()
-    fireEvent.click(screen.getByRole("button", { name: "서버 저장 설정" }))
+    fireEvent.click(screen.getByRole("button", { name: "서버 저장" }))
     const save = screen.getByRole("button", { name: "서버에 저장" }) as HTMLButtonElement
     expect(save.disabled).toBe(true)
     fireEvent.click(screen.getByLabelText("서버 저장 정책을 확인했습니다"))
@@ -173,7 +173,7 @@ describe("답이 없는 화면 (리뷰 회귀)", () => {
     await startAs("user-a", fakeApi({ consent: false, snapshot: null }).api)
     render(<ServerSaveBand />)
 
-    expect(screen.queryByRole("button", { name: "서버 저장 설정" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "서버 저장" })).toBeNull()
   })
 
   it("새 기기에서 로그인하면 답이 없어도 체크리스트 화면에서 서버 기록을 불러올 수 있다 (4-6-3)", async () => {
@@ -192,7 +192,7 @@ describe("답이 없는 화면 (리뷰 회귀)", () => {
     await startAs("user-a", fakeApi({ consent: true, snapshot: null }).api)
     renderChecklistPage()
 
-    expect(screen.getByRole("link", { name: "질문에 답하기" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "처음 시작하기" })).toBeTruthy()
     expect(screen.getByRole("button", { name: "서버 저장 철회" })).toBeTruthy()
   })
 })

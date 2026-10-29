@@ -200,3 +200,53 @@ body {
   font-family: var(--font-family);
   font-size: 1rem;
 }
+
+/* #227 새 시안: 긴 낱말이 가로 스크롤을 만들지 않게 줄을 바꾼다. 접기 표시(▶)는 직접 그린 화살표로 대신한다. */
+body {
+  overflow-wrap: anywhere;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* #227 첫 화면 Hero: 사진 위에 글을 얹고, 배경색 그라데이션으로 사진이 화면 바탕에 스며들게 한다(카드처럼 떨어지지 않게).
+   모바일은 위(글)→아래(사진), 640px 이상은 왼쪽(글)→오른쪽(사진). 아래쪽은 바탕색으로 녹여 대화창과 이어진다. */
+.hero-overlay {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background) 94%, transparent) 0%,
+      color-mix(in srgb, var(--background) 82%, transparent) 40%,
+      color-mix(in srgb, var(--background) 20%, transparent) 66%,
+      transparent 78%
+    ),
+    linear-gradient(0deg, var(--background) 0%, transparent 20%),
+    linear-gradient(270deg, var(--background) 0%, transparent 16%);
+}
+@media (min-width: 640px) {
+  .hero-overlay {
+    background:
+      linear-gradient(
+        90deg,
+        var(--background) 0%,
+        color-mix(in srgb, var(--background) 90%, transparent) 30%,
+        color-mix(in srgb, var(--background) 45%, transparent) 52%,
+        transparent 72%
+      ),
+      linear-gradient(0deg, var(--background) 0%, transparent 26%),
+      linear-gradient(180deg, var(--background) 0%, transparent 22%),
+      linear-gradient(270deg, var(--background) 0%, transparent 20%);
+  }
+}
+
+/* #227 예시 질문 한 줄: 스크롤 막대는 숨기고, 넘칠 때만 오른쪽 끝을 흐리게 해 더 있음을 알린다. */
+.chip-row {
+  scrollbar-width: none;
+}
+.chip-row::-webkit-scrollbar {
+  display: none;
+}
+.chip-row.is-overflow {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}

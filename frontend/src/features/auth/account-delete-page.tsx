@@ -11,7 +11,6 @@
  *   비밀번호를 저장하지 않는다.
  */
 import { type FormEvent, useId, useState } from "react"
-import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
 import { toApiFailure } from "@/shared/api/api-error"
@@ -19,7 +18,7 @@ import { accessSession } from "@/shared/api/auth"
 import { deleteAllNamespaceData } from "@/shared/storage/consent"
 import { inheritanceDb, type StorageNamespace } from "@/shared/storage/db"
 import { AuthOperationConflictError, deleteAccountRequest } from "./auth-api"
-import { AuthCard, AuthField } from "./auth-form-field"
+import { AuthCard, AuthField, AuthLink } from "./auth-form-field"
 import { selectNamespace, useAuthStore } from "./auth-store"
 
 // 다른 기기 기록은 자동으로 지워지지 않는다. 사실대로 안내한다.
@@ -103,9 +102,9 @@ export function AccountDeletePage() {
       <AuthCard title="회원 탈퇴">
         <Notice tone="success">탈퇴했습니다. 계정과 이 기기에 저장된 기록을 삭제했습니다.</Notice>
         <p className="text-sm text-muted-foreground">{LIMITS_NOTICE}</p>
-        <Link to="/" className="text-sm underline underline-offset-4">
+        <AuthLink to="/" overlay="close">
           첫 화면으로
-        </Link>
+        </AuthLink>
       </AuthCard>
     )
   }
@@ -139,9 +138,9 @@ export function AccountDeletePage() {
       <AuthCard title="회원 탈퇴">
         <p className="text-sm">탈퇴하려면 먼저 로그인해 주세요.</p>
         <Button asChild className="w-full">
-          <Link to="/login" state={{ from: "/account/delete" }}>
+          <AuthLink to="/login" state={{ from: "/account/delete" }} overlay="login" className="">
             로그인
-          </Link>
+          </AuthLink>
         </Button>
       </AuthCard>
     )
@@ -176,7 +175,9 @@ export function AccountDeletePage() {
             {busy ? "탈퇴 처리 중…" : "탈퇴하기"}
           </Button>
           <Button asChild type="button" variant="outline">
-            <Link to="/">취소</Link>
+            <AuthLink to="/" overlay="close" className="">
+              취소
+            </AuthLink>
           </Button>
         </div>
       </form>
