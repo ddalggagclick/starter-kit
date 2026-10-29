@@ -74,14 +74,18 @@ afterEach(() => {
 const localBand = () => screen.getByRole("region", { name: "체크리스트 저장" })
 const serverBand = () => screen.getByRole("region", { name: "서버 저장" })
 // #197: 두 동의 모두 버튼을 눌러 여는 모달에서 받는다. 모달은 각 띠(region) 안에 그려진다.
+// #227: 이 기기 쪽은 상태 칸 + [저장], 서버 쪽은 [서버 저장]으로 모달을 연다. 모달 안 버튼은 대화상자 안에서 찾는다.
 const openLocal = () =>
-  fireEvent.click(within(localBand()).getByRole("button", { name: "저장 설정" }))
+  fireEvent.click(within(localBand()).getAllByRole("button", { name: "저장" })[0])
 const openServer = () =>
-  fireEvent.click(within(serverBand()).getByRole("button", { name: "서버 저장 설정" }))
+  fireEvent.click(within(serverBand()).getByRole("button", { name: "서버 저장" }))
+const dialog = () => screen.getByRole("dialog")
+// 이 기기 쪽이 아직 동의를 묻는 상태(점선 '저장 안 됨')인지
+const localNotConsented = () => within(localBand()).getByText(/저장 안 됨/)
 
 describe("이 기기 저장 동의와 서버 저장 동의의 독립 (4-6-1)", () => {
   it("두 동의가 따로 보이고, [서버에 저장]을 눌러도 이 기기 저장 동의는 그대로다", async () => {
-    expect(within(localBand()).getByRole("button", { name: "저장 설정" })).toBeTruthy()
+    expect(localNotConsented()).toBeTruthy()
     openServer()
     fireEvent.click(within(serverBand()).getByLabelText("서버 저장 정책을 확인했습니다"))
     fireEvent.click(within(serverBand()).getByRole("button", { name: "서버에 저장" }))
@@ -89,18 +93,18 @@ describe("이 기기 저장 동의와 서버 저장 동의의 독립 (4-6-1)", (
     expect(await screen.findByText(/계정\(서버\)에 저장 중/)).toBeTruthy()
     expect(api.save).toHaveBeenCalledTimes(1)
     // 이 기기 쪽은 여전히 동의를 묻고, 저장소에도 동의가 없다.
-    expect(within(localBand()).getByRole("button", { name: "저장 설정" })).toBeTruthy()
+    expect(localNotConsented()).toBeTruthy()
     expect((await loadConsentStatuses(inheritanceDb, NAMESPACE)).checklist).toBe("not-consented")
     expect(await loadChecklist(inheritanceDb, NAMESPACE)).toEqual({ ok: true, value: null })
   })
 
   it("이 기기 저장에 동의해도 서버 저장 동의는 '없음' 그대로이고 서버 저장 요청은 0건이다", async () => {
     openLocal()
-    fireEvent.click(within(localBand()).getByLabelText("저장 정책을 확인했습니다"))
-    fireEvent.click(within(localBand()).getByRole("button", { name: "저장" }))
+    fireEvent.click(within(dialog()).getByLabelText("저장 정책을 확인했습니다"))
+    fireEvent.click(within(dialog()).getByRole("button", { name: "저장" }))
 
-    expect(await screen.findByText(/이 기기에 저장 중/)).toBeTruthy()
-    expect(within(serverBand()).getByRole("button", { name: "서버 저장 설정" })).toBeTruthy()
+    expect(await screen.findByText("기기 저장", { selector: "[role=status]" })).toBeTruthy()
+    expect(within(serverBand()).getByRole("button", { name: "서버 저장" })).toBeTruthy()
     act(() => useInheritanceStore.getState().setGuidanceRead("p01", true))
     await act(() => sync.flush())
     expect(api.save).not.toHaveBeenCalled()
@@ -108,9 +112,9 @@ describe("이 기기 저장 동의와 서버 저장 동의의 독립 (4-6-1)", (
 
   it("서버 저장을 철회해도 이 기기 저장 동의와 기록은 그대로다", async () => {
     openLocal()
-    fireEvent.click(within(localBand()).getByLabelText("저장 정책을 확인했습니다"))
-    fireEvent.click(within(localBand()).getByRole("button", { name: "저장" }))
-    expect(await screen.findByText(/이 기기에 저장 중/)).toBeTruthy()
+    fireEvent.click(within(dialog()).getByLabelText("저장 정책을 확인했습니다"))
+    fireEvent.click(within(dialog()).getByRole("button", { name: "저장" }))
+    expect(await screen.findByText("기기 저장", { selector: "[role=status]" })).toBeTruthy()
     openServer()
     fireEvent.click(within(serverBand()).getByLabelText("서버 저장 정책을 확인했습니다"))
     fireEvent.click(within(serverBand()).getByRole("button", { name: "서버에 저장" }))
@@ -122,9 +126,9 @@ describe("이 기기 저장 동의와 서버 저장 동의의 독립 (4-6-1)", (
     })
     // 철회가 실제로 서버 삭제(A17 DELETE)까지 갔는지 확인한다(리뷰 반영). 서버 띠는 다시 동의를 묻는다.
     expect(api.remove).toHaveBeenCalledTimes(1)
-    expect(within(serverBand()).getByRole("button", { name: "서버 저장 설정" })).toBeTruthy()
+    expect(within(serverBand()).getByRole("button", { name: "서버 저장" })).toBeTruthy()
 
-    expect(screen.getByText(/이 기기에 저장 중/)).toBeTruthy()
+    expect(screen.getByText("기기 저장", { selector: "[role=status]" })).toBeTruthy()
     expect((await loadConsentStatuses(inheritanceDb, NAMESPACE)).checklist).toBe("ready")
     const saved = await loadChecklist(inheritanceDb, NAMESPACE)
     expect(saved.ok && saved.value?.answers).toEqual(SPOUSE)

@@ -12,7 +12,7 @@ import hmac
 import os
 
 from inheritance.kakao.handoff.models import HandoffPayload
-from inheritance.kakao.handoff.repository import InMemoryHandoffStore
+from inheritance.kakao.handoff.repository import InMemoryHandoffStore, SignedHandoffStore
 
 
 class HandoffUnauthorized(Exception):
@@ -24,7 +24,9 @@ class HandoffInvalid(Exception):
 
 
 class HandoffService:
-    def __init__(self, store: InMemoryHandoffStore, secret: str | None = None) -> None:
+    def __init__(
+        self, store: InMemoryHandoffStore | SignedHandoffStore, secret: str | None = None
+    ) -> None:
         self._store = store
         self._secret = secret
 

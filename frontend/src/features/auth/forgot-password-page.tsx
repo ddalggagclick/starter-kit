@@ -4,11 +4,10 @@
  * 구현: 결과와 관계없이 같은 접수 문구를 보여 가입 여부를 드러내지 않는다. 네트워크 실패만 따로 안내한다.
  */
 import { type FormEvent, useState } from "react"
-import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
 import { requestPasswordResetRequest } from "./auth-api"
-import { AuthCard, AuthField } from "./auth-form-field"
+import { AuthCard, AuthField, AuthLink } from "./auth-form-field"
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
@@ -51,9 +50,9 @@ export function ForgotPasswordPage() {
       {result === "error" && (
         <Notice tone="danger">요청하지 못했습니다. 잠시 후 다시 시도해 주세요.</Notice>
       )}
-      <Link to="/login" className="text-sm underline underline-offset-4">
+      <AuthLink to="/login" overlay="login">
         로그인 화면으로
-      </Link>
+      </AuthLink>
     </AuthCard>
   )
 }

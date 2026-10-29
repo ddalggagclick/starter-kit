@@ -3,9 +3,11 @@
  * PRD: 태스크 4-3-1, 4-3-2, 4-3-3, 4-3-4(이 기기 부분). 화면정의서 D-04, 17장 접근성. 정책 P08-B.
  * 구현: 실행 전 확인창에서 무엇을 지우는지와 동의 유지·해제 여부를 구분해 알린다. 성공 응답을 받은 뒤에만 완료 문구를 보인다.
  *   실패하면 완료 문구 없이 남아 있는 기록을 알리고 [다시 시도]를 준다. 결과 안내는 저장 상태가 바뀌어도 남는다.
+ *   #227 최신 시안: 체크리스트는 [삭제]를 목록 아래 작은 링크로, [동의 철회]를 [저장] 모달 안에 둔다. 그래서 버튼 없이
+ *   확인창·결과 안내만 쓰는 useStorageActions를 따로 둔다(확인·결과·재시도 동작은 StorageControls와 같다).
  * 제한사항: 실제 삭제는 호출자가 넘긴 함수가 한다(shared/storage). 서버 저장 기록 삭제(A17)는 다루지 않는다.
  */
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Notice } from "@/components/ui/notice"
@@ -13,22 +15,20 @@ import { Notice } from "@/components/ui/notice"
 type Action = "delete" | "revoke"
 export type StorageActionResult = { action: Action; ok: boolean }
 
-export function StorageControls({
-  available,
+export function useStorageActions({
   itemName,
-  deleteLabel,
-  revokeLabel,
+  deleteTitle = `${itemName}을 삭제할까요?`,
+  revokeTitle = "저장 동의를 철회할까요?",
   onDelete,
   onRevoke,
   result: externalResult,
   onResultChange,
 }: {
-  // 저장 중일 때만 버튼을 보인다. 결과 안내는 이와 관계없이 남는다.
-  available: boolean
   // 지울 기록 이름(예: "체크리스트 기록", "AI 대화 기록")
   itemName: string
-  deleteLabel: string
-  revokeLabel: string
+  // 확인창 제목(시안 문구를 쓰려면 넘긴다. 예: "체크리스트를 삭제할까요?")
+  deleteTitle?: string
+  revokeTitle?: string
   onDelete: () => Promise<boolean>
   onRevoke: () => Promise<boolean>
   // 삭제·철회 뒤 화면이 바뀌어도 결과 안내를 남기려면 결과를 바깥에서 보관한다(선택).
@@ -59,31 +59,8 @@ export function StorageControls({
     setResult({ action, ok })
   }
 
-  return (
-    <div className="space-y-2">
-      {available && (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => setConfirming("delete")}
-          >
-            {deleteLabel}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => setConfirming("revoke")}
-          >
-            {revokeLabel}
-          </Button>
-        </div>
-      )}
-
+  const view: ReactNode = (
+    <>
       {result?.ok && (
         <Notice tone="success">
           {result.action === "delete"
@@ -111,11 +88,13 @@ export function StorageControls({
 
       {confirming && (
         <ConfirmDialog
-          title={confirming === "delete" ? `${itemName}을 삭제할까요?` : "저장 동의를 철회할까요?"}
+          title={confirming === "delete" ? deleteTitle : revokeTitle}
           actions={[
             {
-              label: confirming === "delete" ? `삭제: ${itemName}` : `동의 철회: ${itemName} 삭제`,
+              // #227 시안: [취소] [삭제]·[동의 철회], 되돌릴 수 없는 동작이라 빨간 버튼
+              label: confirming === "delete" ? "삭제" : "동의 철회",
               primary: true,
+              danger: true,
               onClick: () => void run(confirming),
             },
           ]}
@@ -128,6 +107,48 @@ export function StorageControls({
           </p>
         </ConfirmDialog>
       )}
+    </>
+  )
+  return { busy, request: setConfirming, view }
+}
+
+export function StorageControls({
+  available,
+  deleteLabel,
+  revokeLabel,
+  ...options
+}: Parameters<typeof useStorageActions>[0] & {
+  // 저장 중일 때만 버튼을 보인다. 결과 안내는 이와 관계없이 남는다.
+  available: boolean
+  deleteLabel: string
+  revokeLabel: string
+}) {
+  const { busy, request, view } = useStorageActions(options)
+  return (
+    <div className="space-y-2">
+      {available && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => request("delete")}
+          >
+            {deleteLabel}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => request("revoke")}
+          >
+            {revokeLabel}
+          </Button>
+        </div>
+      )}
+      {view}
     </div>
   )
 }

@@ -19,10 +19,11 @@ from fastapi import APIRouter, Header, HTTPException
 
 from inheritance.core.errors import HTTP_STATUS, ErrorCode
 from inheritance.kakao.handoff.models import ExchangeRequest, HandoffPayload, IssueResponse
-from inheritance.kakao.handoff.repository import HANDOFF_TTL_SECONDS, InMemoryHandoffStore
+from inheritance.kakao.handoff.repository import HANDOFF_TTL_SECONDS, SignedHandoffStore
 from inheritance.kakao.handoff.service import HandoffInvalid, HandoffService, HandoffUnauthorized
 
-service = HandoffService(InMemoryHandoffStore())
+# 무상태 서명 토큰: 서버가 잠들어도 토큰이 사라지지 않는다(10/29 팀 결정, 10/29 08:59 첫 클릭 실패 확인).
+service = HandoffService(SignedHandoffStore())
 router = APIRouter(prefix="/api/handoff", tags=["handoff"])
 logger = logging.getLogger(__name__)
 

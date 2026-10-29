@@ -18,7 +18,8 @@ const errorsOf = (values: InitialFormValues) => {
 }
 
 describe("initialFormSchema", () => {
-  it("아무것도 고르지 않으면 세 칸 모두 각자의 오류", () => {
+  // #227 최신 시안: 사망일은 비워도 된다(비우면 '모름'으로 저장). 관계·안심상속만 오류다.
+  it("아무것도 고르지 않으면 관계·안심상속 칸에 각자의 오류가 나고, 빈 사망일은 오류가 아니다", () => {
     expect(
       errorsOf({
         relationship: "",
@@ -28,7 +29,6 @@ describe("initialFormSchema", () => {
       }),
     ).toEqual({
       relationship: INITIAL_FORM_ERRORS.relationship,
-      deathDate: INITIAL_FORM_ERRORS.deathDateMissing,
       oneStopApplication: INITIAL_FORM_ERRORS.oneStopApplication,
     })
   })

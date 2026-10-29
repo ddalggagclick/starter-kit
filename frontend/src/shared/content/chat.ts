@@ -28,3 +28,12 @@ export const SSE_STAGE_LABELS = {
 } as const
 
 export const GUEST_DAILY_LIMIT = 10
+
+// #227 새 시안: 대화창 위쪽 줄의 짧은 저장 상태 표시. 긴 문장 대신 기호(○ ✓ ⚠)와 두세 단어로 보인다.
+//   화면낭독기에는 앞에 "AI 대화"를 붙여 읽힌다(chat-history.tsx). checking은 저장소를 여는 중인 잠깐의 상태다.
+export const CHAT_SAVE_BADGE_LABELS = {
+  checking: "저장 확인 중",
+  "not-consented": "저장 안 됨",
+  ready: "저장 중",
+  failed: "저장할 수 없음",
+} as const

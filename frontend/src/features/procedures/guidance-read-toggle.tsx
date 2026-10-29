@@ -5,6 +5,7 @@
  *   누르면 "✓ 읽음", 다시 누르면 해제. 재확인 필요 상태에서는 "다시 확인하기"로 보이고 누르면 배지가 사라진다.
  *   "신청 완료가 아님"은 마우스를 올리면 뜨는 짧은 설명(title)으로만 알리고, 화면낭독기는 같은 문장을 읽는다.
  *   체크는 화면 표시만 바꾸며 카드 순서·숨김은 바꾸지 않는다(2-5-2).
+ *   #227 새 시안(모양만): 체크리스트 버튼은 폭을 맞추고, 읽기 전에도 회색 ✓ 동그라미를 보여 누르면 초록이 됨을 알린다.
  * 제한사항: '안내 확인'은 읽음 표시이며 법원·기관 신고·신청 완료가 아니다(Q71).
  */
 import { useId } from "react"
@@ -27,13 +28,16 @@ export function GuidanceReadToggle({
   const setGuidanceRead = useInheritanceStore((s) => s.setGuidanceRead)
   const hintId = useId()
   const read = state.guidanceRead && !state.needsRecheck
-  const label = read
-    ? "읽음"
-    : state.needsRecheck
-      ? "다시 확인하기"
-      : variant === "detail"
-        ? "다 읽었어요"
-        : "읽기 전"
+  // 최신 시안: 체크리스트 버튼은 늘 "읽음"이고 회색 → 초록으로 상태를 보인다(aria-pressed로 읽힘).
+  //   상세 버튼은 [다 읽었어요] → [✓ 읽음], 재확인이 필요하면 [다시 확인하기].
+  const label =
+    variant === "card"
+      ? "읽음"
+      : read
+        ? "읽음"
+        : state.needsRecheck
+          ? "다시 확인하기"
+          : "다 읽었어요"
 
   return (
     <span className="inline-flex items-center gap-3">
@@ -45,10 +49,14 @@ export function GuidanceReadToggle({
         onClick={() => setGuidanceRead(procedureId, !read)}
         className={cn(
           "inline-flex items-center gap-2 rounded-full border-2 font-medium transition-colors",
-          variant === "detail" ? "px-4 py-1.5 text-base" : "px-3 py-1 text-sm",
+          variant === "detail"
+            ? "px-4 py-1.5 text-base"
+            : "min-w-[5.25rem] justify-center px-3 py-1 text-sm",
           read
             ? "border-success-foreground bg-success text-success-foreground"
-            : "border-input bg-card text-foreground hover:bg-muted",
+            : variant === "card"
+              ? "border-input bg-card text-muted-foreground hover:bg-muted"
+              : "border-input bg-card text-foreground hover:bg-muted",
         )}
       >
         <span
@@ -57,10 +65,12 @@ export function GuidanceReadToggle({
             "inline-grid size-4 place-items-center rounded-full border-2 text-[10px] leading-none",
             read
               ? "border-success-foreground bg-success-foreground text-card"
-              : "border-muted-foreground",
+              : variant === "card"
+                ? "border-input text-input"
+                : "border-muted-foreground",
           )}
         >
-          {read ? "✓" : ""}
+          {read || variant === "card" ? "✓" : ""}
         </span>
         {label}
       </button>
