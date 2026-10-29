@@ -1,14 +1,68 @@
-# 책임: [통합] GitHub Actions 백엔드 CD 워크플로 경계
-# 구현할 기능: CI 통과 확인; Render Backend Render Web Service 대상 배포; 배포 오류 시 중단·재실행/롤백 증빙
-# 코드 경계: Render 자격증명은 GitHub Secrets/Environment로만 전달. 호스팅 플랫폼 자체 자동배포 중복 금지.
-# 완료 기준: Render 서비스 ID/환경 보호 규칙/배포 실패 처리까지 API 담당 외 통합 관리자가 리뷰 후 활성화.
-# 상태: Contract-first 템플릿 — 실제 배포 job은 아직 비활성
-name: Render 백엔드 deployment placeholder
+# 담당: [통합] | 책임: PRD 7-3-5 — main의 CI가 모두 성공한 경우에만 백엔드 Vercel Deploy Hook을 호출한다.
+# 규칙(팀 합의 사항): main 브랜치만 배포한다. 하루 한 번(한국 00:00) 자동, 필요하면 수동 실행.
+# 비밀값: 저장소 Environment `backend-deploy`의 Secret `BACKEND_DEPLOY_HOOK_URL`에만 둔다. 코드·로그에 쓰지 않는다.
+# 주의: schedule·수동 실행은 기본 브랜치(dev)에 있는 이 파일이 실행된다. 검사·배포 대상은 항상 main이다.
+# 이 파일은 GitHub에서 아직 실행해 본 적이 없다. 첫 수동 실행 결과가 증거이다.
+name: Backend deploy
 on:
+  schedule:
+    - cron: '0 15 * * *'   # UTC 15:00 = 한국 00:00
   workflow_dispatch:
+    inputs:
+      force:
+        description: "최근 24시간 main 변경이 없어도 배포한다"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
 jobs:
-  deployment-contract-only:
-    if: false
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.check.outputs.deploy }}
+      sha: ${{ steps.check.outputs.sha }}
     steps:
-      - run: "echo Contract-first Render CD disabled until credentials and target are configured"
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - id: check
+        run: |
+          sha=$(git rev-parse HEAD)
+          n=$(git log --since="25 hours ago" --oneline | wc -l)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.force }}" = "true" ] || [ "$n" -gt 0 ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "main=$sha, 최근 25시간 커밋 $n개" >> "$GITHUB_STEP_SUMMARY"
+
+  ci:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: main
+
+  deploy:
+    # CI가 성공했을 때만 실행된다. 실패면 이 job은 건너뛰고 Hook 호출은 0회이다.
+    needs: [changes, ci]
+    if: needs.ci.result == 'success'
+    runs-on: ubuntu-latest
+    environment: backend-deploy
+    steps:
+      - name: Deploy Hook 호출
+        env:
+          HOOK_URL: ${{ secrets.BACKEND_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK_URL" ]; then echo "Secret이 설정되지 않아 호출하지 않습니다."; exit 1; fi
+          code=$(curl -sS -X POST "$HOOK_URL" -o hook.json -w "%{http_code}")
+          echo "Deploy Hook HTTP $code"
+          # 응답에는 배포 작업 번호만 있다(주소·토큰 없음).
+          cat hook.json
+          echo "배포 요청: main ${{ needs.changes.outputs.sha }}, HTTP $code" >> "$GITHUB_STEP_SUMMARY"
+          [ "$code" -lt 300 ]
