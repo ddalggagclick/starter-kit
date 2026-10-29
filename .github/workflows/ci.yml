@@ -1,16 +1,49 @@
-# 담당: [통합] | 책임: [통합] 계약 단계 CI
-# 구현할 기능: 의존 경계·문서·정적 타입 검사 기준; API 계약 확정 후 OpenAPI diff 추가
-# 코드 경계: CI/CD 자동화만 작성한다. 서비스 비밀값을 커밋하지 않는다.
-# 완료 기준: 모의 CI/Workflow 점검 및 시크릿 비노출 확인.
-# 상태: Contract-first — 구현은 소유 담당자 PR에서 진행
-name: Contracts checks
-on: [pull_request, push]
+# 담당: [통합] | 책임: PRD 7-3-1 — 구문·계약·타입·테스트·빌드를 자동 실행한다.
+# 비밀값은 사용하지 않는다.
+# 실행 시점: main/dev 대상 PR, main push, 그리고 deploy-backend.yml이 재사용 호출할 때.
+# 시험 상태(2026-10-27, dev 1a3fea0, 로컬): 계약 검사·프런트 typecheck·build·test 통과.
+# 백엔드 pytest(torch 설치 필요)와 ruff/Biome는 아직 실행·정리되지 않아 넣지 않았다. 첫 초록 실행 뒤 추가한다.
+name: CI
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: "검사할 브랜치 또는 커밋 (비우면 이벤트 기본값)"
+        type: string
+        default: ""
+permissions:
+  contents: read
 jobs:
   contract-syntax:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - run: python scripts/verify_contracts.py
+
+  frontend-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
