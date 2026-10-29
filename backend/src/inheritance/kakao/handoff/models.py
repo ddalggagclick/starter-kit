@@ -53,4 +53,4 @@ class IssueResponse(CamelModel):
 
 
 class ExchangeRequest(CamelModel):
-    token: str = Field(min_length=1, max_length=200)
+    token: str = Field(min_length=1, max_length=2000)
