@@ -31,7 +31,7 @@ describe("StorageControls", () => {
     renderControls(onDelete)
 
     fireEvent.click(screen.getByRole("button", { name: "체크리스트 삭제" }))
-    fireEvent.click(screen.getByRole("button", { name: "삭제: 체크리스트 기록" }))
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }))
 
     expect(await screen.findByText(/삭제하지 못했습니다/)).toBeTruthy()
     expect(
@@ -60,7 +60,7 @@ describe("StorageControls", () => {
     renderControls()
 
     fireEvent.click(screen.getByRole("button", { name: "체크리스트 삭제" }))
-    fireEvent.click(screen.getByRole("button", { name: "삭제: 체크리스트 기록" }))
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }))
 
     expect(
       await screen.findByText(/체크리스트 기록을 삭제했습니다. 저장 동의는 유지됩니다/),
@@ -72,7 +72,7 @@ describe("StorageControls", () => {
     renderControls(undefined, onRevoke)
 
     fireEvent.click(screen.getByRole("button", { name: "체크리스트 저장 동의 철회" }))
-    fireEvent.click(screen.getByRole("button", { name: "동의 철회: 체크리스트 기록 삭제" }))
+    fireEvent.click(screen.getByRole("button", { name: "동의 철회" }))
 
     expect(await screen.findByText(/동의를 철회하지 못했습니다/)).toBeTruthy()
     expect(screen.getByText(/그대로 남아 있고 저장 동의도 바뀌지 않았습니다/)).toBeTruthy()

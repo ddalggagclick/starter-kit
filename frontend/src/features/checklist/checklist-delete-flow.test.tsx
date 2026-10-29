@@ -2,7 +2,7 @@
 // W-02 삭제·철회 화면 흐름(4-3-1~4-3-3): 실제 라우터 + 메모리 IndexedDB. 실브라우저 검증이 아니다.
 import "fake-indexeddb/auto"
 import { QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { appRoutes, createQueryClient } from "@/app"
@@ -37,26 +37,56 @@ beforeEach(async () => {
     </QueryClientProvider>,
   )
   await screen.findByText(/이 기기에 저장한 답변을 불러왔습니다/)
-  await screen.findByText(/● 이 기기에 저장 중/)
+  // #227: 저장 중이면 초록 ✓ "기기 저장" 칸이 보인다.
+  await screen.findByText("기기 저장", { selector: "[role=status]" })
 })
 afterEach(cleanup)
 
 describe("W-02 삭제·철회", () => {
   it("[체크리스트 삭제] 뒤 화면이 바뀌어도 완료 안내가 남고, 동의는 유지된다", async () => {
     fireEvent.click(screen.getByRole("button", { name: "체크리스트 삭제" }))
-    fireEvent.click(await screen.findByRole("button", { name: "삭제: 체크리스트 기록" }))
+    // #227 시안 확인창: [취소] [삭제] 순서, [삭제]는 빨간 버튼
+    const confirm = await screen.findByRole("dialog", { name: "체크리스트를 삭제할까요?" })
+    expect(
+      within(confirm)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["취소", "삭제"])
+    expect(within(confirm).getByRole("button", { name: "삭제" }).className).toContain(
+      "bg-danger-foreground",
+    )
+    fireEvent.click(
+      within(await screen.findByRole("dialog", { name: "체크리스트를 삭제할까요?" })).getByRole(
+        "button",
+        { name: "삭제" },
+      ),
+    )
 
     expect(
       await screen.findByText(/체크리스트 기록을 삭제했습니다. 저장 동의는 유지됩니다/),
     ).toBeTruthy()
-    expect(screen.getByRole("link", { name: "질문에 답하기" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "처음 시작하기" })).toBeTruthy()
+    // #227: 삭제 직후에는 질문 모달 없이 빈 화면("먼저 상황을 알려주세요")을 그대로 보인다.
+    expect(screen.getByRole("heading", { name: "먼저 상황을 알려주세요" })).toBeTruthy()
+    expect(screen.queryByRole("dialog")).toBeNull()
     expect(await loadChecklist(inheritanceDb, GUEST_NAMESPACE)).toEqual({ ok: true, value: null })
     expect((await loadConsentStatuses(inheritanceDb, GUEST_NAMESPACE)).checklist).toBe("ready")
   })
 
   it("동의 철회 뒤 기록과 동의가 사라지고 완료 안내가 남는다", async () => {
-    fireEvent.click(screen.getByRole("button", { name: "체크리스트 저장 동의 철회" }))
-    fireEvent.click(await screen.findByRole("button", { name: "동의 철회: 체크리스트 기록 삭제" }))
+    // #227: 철회는 [저장] 모달 안에서 한다.
+    const band = screen.getByRole("region", { name: "체크리스트 저장" })
+    fireEvent.click(within(band).getByRole("button", { name: "저장" }))
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "체크리스트 저장" })).getByRole("button", {
+        name: "저장 동의 철회",
+      }),
+    )
+    fireEvent.click(
+      within(
+        await screen.findByRole("dialog", { name: "체크리스트 저장 동의를 철회할까요?" }),
+      ).getByRole("button", { name: "동의 철회" }),
+    )
 
     expect(
       await screen.findByText(/저장 동의를 철회하고 이 기기의 체크리스트 기록을 삭제했습니다/),

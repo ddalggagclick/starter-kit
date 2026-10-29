@@ -3,7 +3,7 @@
 // fake-indexeddb/auto를 먼저 불러와 앱의 IndexedDB(탈퇴 후 이 기기 기록 삭제)를 메모리로 쓴다.
 import "fake-indexeddb/auto"
 import { QueryClientProvider } from "@tanstack/react-query"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { StrictMode } from "react"
 import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -200,7 +200,7 @@ describe("/signup 유효성·인증 전 차단 (5-1-1)", () => {
     await act(() => router.navigate("/login"))
     type("이메일", MOCK_ACCOUNT.email)
     type("비밀번호", "newpass123")
-    fireEvent.click(screen.getByRole("button", { name: "로그인" }))
+    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: "로그인" }))
     expect(await screen.findByText("이메일 인증 후 로그인할 수 있습니다.")).toBeTruthy()
     expect(useAuthStore.getState().accountId).toBeNull()
 
@@ -210,7 +210,7 @@ describe("/signup 유효성·인증 전 차단 (5-1-1)", () => {
     await act(() => router.navigate("/login"))
     type("이메일", MOCK_ACCOUNT.email)
     type("비밀번호", "newpass123")
-    fireEvent.click(screen.getByRole("button", { name: "로그인" }))
+    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: "로그인" }))
     await waitFor(() => expect(useAuthStore.getState().accountId).not.toBeNull())
   })
 })
@@ -307,7 +307,7 @@ describe("/account/delete (5-4-1, 5-4-3)", () => {
     expect(await screen.findByText(/탈퇴했습니다/)).toBeTruthy()
 
     await act(() => router.navigate("/checklist"))
-    expect(screen.getByRole("link", { name: "질문에 답하기" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "처음 시작하기" })).toBeTruthy()
     expect(screen.queryByText("내 답변")).toBeNull()
     expect(useInheritanceStore.getState().answers).toBeNull()
   })

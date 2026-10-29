@@ -27,7 +27,7 @@ describe("비로그인 하루 한도 뒤 정적 기능 (3-7-1)", () => {
     expect(screen.getByText("오늘 사용할 수 있는 AI 질문을 모두 사용했습니다.")).toBeTruthy()
 
     await act(() => router.navigate("/checklist"))
-    expect(screen.getByRole("link", { name: "질문에 답하기" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "처음 시작하기" })).toBeTruthy()
 
     await act(() => router.navigate("/procedures/p01"))
     const official = await screen.findByRole("region", { name: "공식 출처" }, { timeout: 5000 })

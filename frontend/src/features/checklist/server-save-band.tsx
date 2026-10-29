@@ -10,6 +10,7 @@
  *   서버 기록 불러오기·서버 철회·실패 재시도는 그대로 보인다(리뷰 반영, 검증 ②).
  * 제한사항: A17은 계약 미확정·Backend 미구현이다. Mock 모드에서는 실제 서버 연동이 아님을 표시한다. 정책 문구는 P02 검토 전 초안.
  */
+import { Settings2 } from "lucide-react"
 import { useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -128,8 +129,11 @@ export function ServerSaveBand() {
     if (declined) {
       return (
         <div className="space-y-2">
-          <p role="status" className="text-xs text-muted-foreground">
-            서버 저장: 저장 안 함{mockNote}
+          <p
+            role="status"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-dashed px-3 py-1 text-sm font-medium text-muted-foreground"
+          >
+            서버 저장 · 저장 안 함{mockNote}
           </p>
           {revokeNotice}
         </div>
@@ -138,9 +142,19 @@ export function ServerSaveBand() {
     return (
       <section aria-label="서버 저장" className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs text-muted-foreground">서버 저장: 미동의 · 저장 안 됨{mockNote}</p>
-          <Button type="button" size="sm" variant="outline" onClick={() => setConsentOpen(true)}>
-            서버 저장 설정
+          {/* 최신 시안: 서버 저장 상태 칸 + [서버 저장] */}
+          <p className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-dashed px-3 py-1 text-sm font-medium text-muted-foreground">
+            서버 저장 · 미동의{mockNote}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-haspopup="dialog"
+            onClick={() => setConsentOpen(true)}
+          >
+            <Settings2 className="size-3.5" aria-hidden />
+            서버 저장
           </Button>
         </div>
         {revokeNotice}
@@ -169,15 +183,15 @@ export function ServerSaveBand() {
               )}
             </Modal.Body>
             <Modal.Actions>
+              <Button type="button" variant="outline" onClick={declineServerSave}>
+                저장 안 함
+              </Button>
               <Button
                 type="button"
                 disabled={!checked || busy}
                 onClick={() => void run(() => grantServerSave(accountId))}
               >
                 서버에 저장
-              </Button>
-              <Button type="button" variant="outline" onClick={declineServerSave}>
-                저장 안 함
               </Button>
             </Modal.Actions>
           </Modal>
@@ -193,7 +207,10 @@ export function ServerSaveBand() {
     <section aria-label="서버 저장" className="flex flex-wrap items-center gap-2">
       {pending ? (
         <>
-          <p role="status" className="text-xs text-muted-foreground">
+          <p
+            role="status"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-dashed px-3 py-1 text-sm font-medium text-muted-foreground"
+          >
             서버 저장 멈춤 · 서버 기록 선택 필요{mockNote}
           </p>
           <Button
@@ -206,8 +223,15 @@ export function ServerSaveBand() {
           </Button>
         </>
       ) : (
-        <p role="status" className="text-xs text-muted-foreground">
-          서버 저장: {SAVE_STATUS_LABELS[saveStatus] || "● 계정(서버)에 저장 중"}
+        <p
+          role="status"
+          className={
+            SAVE_STATUS_LABELS[saveStatus]
+              ? "inline-flex min-h-9 items-center gap-1.5 rounded-md border border-dashed px-3 py-1 text-sm font-medium text-muted-foreground"
+              : "inline-flex min-h-9 items-center gap-1.5 rounded-md border border-success-foreground/30 bg-success px-3 py-1 text-sm font-medium text-success-foreground"
+          }
+        >
+          {SAVE_STATUS_LABELS[saveStatus] || "● 계정(서버)에 저장 중"}
           {mockNote}
         </p>
       )}
@@ -267,6 +291,7 @@ export function ServerSaveBand() {
             {
               label: "철회하고 서버 기록 삭제",
               primary: true,
+              danger: true,
               onClick: () => {
                 setConfirmRevoke(false)
                 void run(() => revokeServerSave(accountId))

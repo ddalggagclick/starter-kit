@@ -27,7 +27,9 @@ describe("GuidanceReadToggle", () => {
 
   it("마우스를 올리면 '신청 완료가 아님' 짧은 설명이 뜨고, 화면낭독기도 같은 설명을 읽는다", () => {
     render(<GuidanceReadToggle procedureId="p04" />)
-    const button = screen.getByRole("button", { name: "읽기 전" })
+    // #227: 체크리스트 버튼 이름은 늘 "읽음"이고, 읽기 전에는 눌리지 않은 상태(aria-pressed=false)다.
+    const button = screen.getByRole("button", { name: /^읽음/ })
+    expect(button.getAttribute("aria-pressed")).toBe("false")
     expect(button.getAttribute("title")).toBe(GUIDANCE_READ_HINT)
     const hintId = button.getAttribute("aria-describedby") ?? ""
     expect(document.getElementById(hintId)?.textContent).toBe(GUIDANCE_READ_HINT)
@@ -41,7 +43,7 @@ describe("GuidanceReadToggle", () => {
         p04: { ...s.procedureStates.p04, needsRecheck: true },
       },
     }))
-    render(<GuidanceReadToggle procedureId="p04" />)
+    render(<GuidanceReadToggle procedureId="p04" variant="detail" />)
 
     fireEvent.click(screen.getByRole("button", { name: "다시 확인하기" }))
 

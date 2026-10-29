@@ -21,8 +21,10 @@ const VISIBLE_SOURCE_COUNT = 2
 export const MAX_MANUAL_RETRIES = 3
 
 // 문구 검토(P02) 전 Mock 문구다. 외부 공급자 이름은 공개 문구 확정 후 바꾼다.
+// #227 새 시안: 개인정보 경고(PRIVACY_WARNING) 바로 뒤에 한 줄로 붙어 보이므로, 뜻이 겹치던
+//   "이름·주민등록번호·연락처 같은 개인정보는 입력하지 마세요."는 뺐다(PRD 3-1-2: 금지 문구는 경고가 항상 보인다).
 export const EXTERNAL_TRANSFER_NOTICE =
-  "질문 내용은 답변을 만들기 위해 외부 AI 서비스로 전송됩니다. 이름·주민등록번호·연락처 같은 개인정보는 입력하지 마세요."
+  "질문 내용은 답변을 만들기 위해 외부 AI 서비스로 전송됩니다."
 
 // 실제 A08은 422 message에 코드 이름(VALIDATION_ERROR)을 그대로 넣는다. 코드는 사용자에게 보이지 않는다.
 export const inputErrorMessage = (failure: ApiFailure): string =>
@@ -83,7 +85,10 @@ export function AnsweredBubble({
   const shown = instant ? (result.answer ?? "") : typed.shown
   const done = instant || typed.done
   return (
-    <div className="space-y-3 rounded-xl border bg-card p-4" aria-busy={!done}>
+    <div
+      className="w-fit max-w-[92%] space-y-2 rounded-xl border bg-card p-4 text-base leading-7"
+      aria-busy={!done}
+    >
       <p className="whitespace-pre-wrap leading-7">{shown}</p>
       {done && <Sources sources={result.sources ?? []} />}
     </div>

@@ -4,80 +4,113 @@
  * 구현: 바로 할 행동·기한·위험·담당 기관은 접을 수 없게 항상 펼친다. 서류·방법·예외·문의는
  *   <details> 접기형(키보드 Enter/Space로 열고 닫음). 4건 이상이면 처음에 접는다(원고 1장, 명세서 8-4절).
  *   공식 출처 링크와 "공식 링크에서 직접 확인" 문구는 항상 보인다.
+ *   #227 새 시안(https://claude.ai/artifact/NgrnTfYvGvuGj5PYWnJcfu, 모양만 변경): 핵심 칸 4개를 빨간 계열로 —
+ *   기한·위험은 빨간 바탕, 바로 할 행동·담당 기관은 흰 바탕 + 빨간 아이콘·왼쪽 선(위험도 차이 유지).
+ *   접기 칸은 오른쪽 화살표로 같은 모양. 맨 위 돌아가기는 답한 뒤면 [체크리스트로], 아니면 [전체 절차로](모달).
+ *   제목 위에 "N/8", 아래에 기한 표시·한 줄 요약을 보인다.
+ *   최신 시안(사용자 지시 2026-10-29): 필요 서류·신청 방법은 처음부터 펼치고 예외·참고·문의처는 접는다(건수 규칙 대신).
+ *   '함께 보면 좋은 절차'는 시안에 없어 뺐다. 검수 상태 문구는 맨 아래 한 줄로 둔다.
  * 근거 콘텐츠: W-04 공식 안내 원고 p01~p08 (김현주, 2026-10-22) → mocks/procedures.ts.
  * 완료 기준: 접기 상태와 관계없이 행동·기한·위험·기관이 보인다.
  * 제한사항: 출처 없는 사실을 추가하지 않는다. 재방문 접힘 상태(M-10)는 미결정이다.
  */
-import { ArrowLeft, ExternalLink } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronDown,
+  ExternalLink,
+  House,
+  type LucideIcon,
+  TriangleAlert,
+} from "lucide-react"
 import { Link, useParams } from "react-router"
-import { Notice } from "@/components/ui/notice"
+import { Notice, WarningPill } from "@/components/ui/notice"
 import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
+import { cn } from "@/lib/utils"
 import type { ProcedureDetailWire } from "@/shared/api/types"
 import { COMMON_RISK_WARNING } from "@/shared/content/checklist"
 import {
   CHECK_OFFICIAL_SOURCE,
   findProcedureName,
+  MOCK_DEADLINE_TAGS,
   OFFICIAL_LINK_GAP_NOTES,
   PROCEDURE_CONTENT_STATUS,
 } from "@/shared/content/procedures"
-import { useProcedureDetail } from "./api"
+import type { ProcedureId } from "@/shared/contracts/domain"
+import { useInheritanceStore } from "@/shared/state/inheritance-store"
+import { useOverlayStore } from "@/shared/state/overlay-store"
+import { procedureNumber, useProcedureDetail, useProcedureList } from "./api"
 import { GuidanceReadToggle, RecheckBadge } from "./guidance-read-toggle"
 
-// 원고 1장·명세서 8-4절: 서류·방법·예외·문의처는 4건 이상이면 접는다(화면 시험 뒤 팀이 바꿀 수 있음).
-// 재방문 때 접힘 상태 유지 여부(M-10)는 미결정이라 정하지 않는다.
-export const COLLAPSE_MIN_ITEMS = 4
-export const isCollapsedByDefault = (itemCount: number) => itemCount >= COLLAPSE_MIN_ITEMS
-
-const ALWAYS_OPEN: { key: "action" | "deadline" | "risk" | "agency"; label: string }[] = [
-  { key: "action", label: "바로 할 행동" },
-  { key: "deadline", label: "기한" },
-  { key: "risk", label: "위험 · 주의" },
-  { key: "agency", label: "담당 기관" },
+// strong: 빨간 바탕(기한·위험). 나머지는 흰 바탕 + 빨간 아이콘·왼쪽 선.
+const ALWAYS_OPEN: {
+  key: "action" | "deadline" | "risk" | "agency"
+  label: string
+  icon: LucideIcon
+  strong: boolean
+}[] = [
+  { key: "action", label: "바로 할 행동", icon: ArrowRight, strong: false },
+  { key: "deadline", label: "기한", icon: TriangleAlert, strong: true },
+  { key: "risk", label: "위험 · 주의", icon: TriangleAlert, strong: true },
+  { key: "agency", label: "담당 기관", icon: House, strong: false },
 ]
 
-const OPTIONAL: { key: "documents" | "methods" | "exceptions" | "contacts"; label: string }[] = [
-  { key: "documents", label: "필요 서류" },
-  { key: "methods", label: "신청 방법" },
-  { key: "exceptions", label: "예외 · 참고" },
-  { key: "contacts", label: "문의처" },
+// open: 처음부터 펼침(시안). 재방문 때 접힘 상태 유지 여부(M-10)는 미결정이라 정하지 않는다.
+const OPTIONAL: {
+  key: "documents" | "methods" | "exceptions" | "contacts"
+  label: string
+  open: boolean
+}[] = [
+  { key: "documents", label: "필요 서류", open: true },
+  { key: "methods", label: "신청 방법", open: true },
+  { key: "exceptions", label: "예외 · 참고", open: false },
+  { key: "contacts", label: "문의처", open: false },
 ]
 
 function ProcedureBody({ detail }: { detail: ProcedureDetailWire }) {
   return (
     <>
       <section aria-label="항상 표시되는 핵심 안내" className="grid gap-3 sm:grid-cols-2">
-        {ALWAYS_OPEN.map(({ key, label }) => (
+        {ALWAYS_OPEN.map(({ key, label, icon: Icon, strong }) => (
           <div
             key={key}
             className={
-              key === "deadline" || key === "risk"
-                ? "rounded-xl border border-warning-foreground/20 bg-warning p-4"
-                : "rounded-xl border bg-card p-4"
+              strong
+                ? "rounded-xl border border-danger-foreground/25 bg-danger p-4"
+                : "rounded-xl border border-l-4 border-l-danger-foreground/70 bg-card p-4"
             }
           >
-            <h2 className="text-sm font-semibold text-muted-foreground">{label}</h2>
-            <p className="mt-1 leading-7">{detail[key] ?? "공식 자료에서 확인하세요."}</p>
+            <h2
+              className={cn(
+                "flex items-center gap-1.5 text-lg font-bold leading-snug",
+                strong ? "text-danger-foreground" : "text-foreground",
+              )}
+            >
+              <Icon className="size-[18px] shrink-0 text-danger-foreground" aria-hidden />
+              {label}
+            </h2>
+            <p className="mt-1.5 text-base leading-7 text-foreground">
+              {detail[key] ?? "공식 자료에서 확인하세요."}
+            </p>
           </div>
         ))}
       </section>
 
       <section aria-label="자세한 안내" className="space-y-2">
-        {OPTIONAL.map(({ key, label }) => {
+        {OPTIONAL.map(({ key, label, open }) => {
           const items = detail[key] ?? []
           if (items.length === 0) return null
           return (
-            <details
-              key={key}
-              open={!isCollapsedByDefault(items.length)}
-              className="group rounded-xl border bg-card"
-            >
-              <summary className="cursor-pointer list-none px-4 py-3 font-medium focus-visible:ring-2 focus-visible:ring-ring">
-                <span className="mr-2 inline-block transition-transform group-open:rotate-90">
-                  ›
-                </span>
-                {label} ({items.length})
+            <details key={key} open={open} className="group rounded-xl border bg-card">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-base font-semibold focus-visible:ring-2 focus-visible:ring-ring">
+                {label}
+                <span className="text-sm font-normal text-muted-foreground">({items.length})</span>
+                <ChevronDown
+                  className="ml-auto size-5 text-muted-foreground transition-transform group-open:rotate-180"
+                  aria-hidden
+                />
               </summary>
-              <ul className="list-disc space-y-1 px-9 pb-4 text-sm leading-6">
+              <ul className="list-disc space-y-1.5 px-4 pb-4 pl-9 text-base leading-7">
                 {items.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
@@ -88,16 +121,15 @@ function ProcedureBody({ detail }: { detail: ProcedureDetailWire }) {
       </section>
 
       <section aria-label="공식 출처" className="space-y-2 rounded-xl border bg-card p-4">
-        <h2 className="font-semibold">공식 출처에서 직접 확인</h2>
-        <p className="text-sm">{CHECK_OFFICIAL_SOURCE}</p>
-        <ul className="space-y-1">
+        <h2 className="text-base font-semibold">공식 출처에서 직접 확인</h2>
+        <ul className="space-y-1.5">
           {(detail.officialLinks ?? []).map((link) => (
             <li key={link.url}>
               <a
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm underline underline-offset-4"
+                className="inline-flex items-center gap-1.5 text-base underline underline-offset-4 hover:text-primary"
               >
                 {link.title}
                 <ExternalLink className="size-3.5" aria-hidden />
@@ -111,44 +143,48 @@ function ProcedureBody({ detail }: { detail: ProcedureDetailWire }) {
             {OFFICIAL_LINK_GAP_NOTES[detail.procedureId]}
           </p>
         )}
-        <p className="text-xs text-muted-foreground">
-          {PROCEDURE_CONTENT_STATUS}. 개인의 기한·자격·법적 효과를 판단하지 않습니다.
-        </p>
+        <p className="text-sm text-muted-foreground">{CHECK_OFFICIAL_SOURCE}</p>
       </section>
-
-      {(detail.relatedProcedureIds ?? []).length > 0 && (
-        <section aria-label="함께 보면 좋은 절차" className="space-y-2">
-          <h2 className="font-semibold">함께 보면 좋은 절차</h2>
-          <div className="flex flex-wrap gap-2">
-            {(detail.relatedProcedureIds ?? []).map((id) => (
-              <Link
-                key={id}
-                to={`/procedures/${id}`}
-                className="rounded-full border bg-card px-3 py-1.5 text-sm hover:bg-muted"
-              >
-                {findProcedureName(id)}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
     </>
+  )
+}
+
+// 맨 위 돌아가기: 답한 뒤면 체크리스트로, 아직이면 전체 절차 모달을 연다(시안).
+function BackLink() {
+  const hasAnswers = useInheritanceStore((s) => s.answers !== null)
+  const openOverlay = useOverlayStore((s) => s.open)
+  const className =
+    "inline-flex items-center gap-1.5 text-base font-medium text-muted-foreground hover:text-foreground"
+  if (hasAnswers)
+    return (
+      <Link to="/checklist" className={className}>
+        <ArrowLeft className="size-4" aria-hidden />
+        체크리스트로
+      </Link>
+    )
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      className={className}
+      onClick={() => openOverlay("steps")}
+    >
+      <ArrowLeft className="size-4" aria-hidden />
+      전체 절차로
+    </button>
   )
 }
 
 export function ProcedureDetailPage() {
   const { procedureId = "" } = useParams()
   const { data, isPending, isError } = useProcedureDetail(procedureId)
+  // 한 줄 요약은 목록 응답(A06)에 있다. 목록을 아직 못 받았으면 요약 없이 보인다.
+  const { data: list } = useProcedureList()
+  const summary = list?.procedures.find((item) => item.procedureId === procedureId)?.summary
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <Link
-        to="/procedures"
-        className="inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline"
-      >
-        <ArrowLeft className="size-4" aria-hidden />
-        전체 절차
-      </Link>
+    <article className="mx-auto max-w-3xl space-y-5">
+      <BackLink />
       {isPending && <p role="status">상세 안내를 불러오는 중…</p>}
       {isError && (
         <Notice tone="danger">
@@ -157,21 +193,33 @@ export function ProcedureDetailPage() {
       )}
       {data?.procedureId && (
         <>
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-muted-foreground">W-04 · 공식 절차 상세</p>
-            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold">
+          <header className="space-y-2">
+            <p className="text-sm font-semibold text-muted-foreground">
+              W-04 · 공식 절차 상세 · {procedureNumber(data.procedureId as ProcedureId)}/8
+            </p>
+            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold leading-snug sm:text-[1.75rem]">
               {findProcedureName(data.procedureId)}
               <RecheckBadge procedureId={data.procedureId} />
             </h1>
-          </div>
-          <Notice tone="warning">{COMMON_RISK_WARNING}</Notice>
+            {MOCK_DEADLINE_TAGS[data.procedureId] && (
+              <p>
+                <span className="inline-flex items-center gap-1 rounded-md bg-danger px-2 py-0.5 text-sm font-medium text-danger-foreground">
+                  <TriangleAlert className="size-3" aria-hidden />
+                  {MOCK_DEADLINE_TAGS[data.procedureId]}
+                </span>
+              </p>
+            )}
+            {summary && <p className="text-base text-muted-foreground">{summary}</p>}
+          </header>
+          <WarningPill>{COMMON_RISK_WARNING}</WarningPill>
           <ProcedureBody detail={data} />
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
             <GuidanceReadToggle procedureId={data.procedureId} variant="detail" />
             <FeedbackMockButton context={`W-04 ${data.procedureId}`} />
           </div>
+          <p className="text-sm text-muted-foreground">{PROCEDURE_CONTENT_STATUS}</p>
         </>
       )}
-    </div>
+    </article>
   )
 }

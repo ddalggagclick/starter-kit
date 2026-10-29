@@ -3,6 +3,8 @@
  * PRD: E2 / 스토리 2-1, 2-4 / 태스크 2-1-1, 2-1-2, 2-4-1.
  * 구현: react-hook-form + zod로 관계·사망일(날짜 또는 '모름')·안심상속 신청 여부를 검사한다.
  * 완료 기준: 미선택과 사망일 '모름'을 구분하고, 오류는 해당 칸에 표시하며 선택을 임의로 바꾸지 않는다.
+ *   #227 최신 시안(사용자 지시 2026-10-29): 사망일은 고르지 않아도 된다. 비워 두면 '모름'과 같게 저장한다(시안과 같음).
+ *   잘못된 날짜(형식 오류·오늘 이후)는 전처럼 막는다.
  * 제한사항: 초기 답변을 법률 판정으로 해석하지 않는다. 서버 재검증(2-1-3)은 B1 책임이다.
  */
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -63,14 +65,8 @@ export const initialFormSchema = z
         message: INITIAL_FORM_ERRORS.relationship,
       })
     }
-    if (!values.deathDateUnknown) {
-      if (!values.deathDate) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["deathDate"],
-          message: INITIAL_FORM_ERRORS.deathDateMissing,
-        })
-      } else if (!isValidPastDate(values.deathDate)) {
+    if (!values.deathDateUnknown && values.deathDate) {
+      if (!isValidPastDate(values.deathDate)) {
         ctx.addIssue({
           code: "custom",
           path: ["deathDate"],
@@ -87,13 +83,16 @@ export const initialFormSchema = z
     }
   })
 
-// 검사를 통과한 값만 넘긴다. '모름'이면 날짜는 null, deathDateUnknown은 true(A04·A05 규칙과 같음).
-export const toInitialAnswers = (values: InitialFormValues): InitialAnswers => ({
-  relationship: values.relationship as Relationship,
-  deathDate: values.deathDateUnknown ? null : values.deathDate,
-  deathDateUnknown: values.deathDateUnknown,
-  oneStopApplication: values.oneStopApplication as AnswerChoice,
-})
+// 검사를 통과한 값만 넘긴다. '모름'이거나 날짜를 비워 두면 날짜는 null, deathDateUnknown은 true(A04·A05 규칙과 같음).
+export const toInitialAnswers = (values: InitialFormValues): InitialAnswers => {
+  const unknown = values.deathDateUnknown || !values.deathDate
+  return {
+    relationship: values.relationship as Relationship,
+    deathDate: unknown ? null : values.deathDate,
+    deathDateUnknown: unknown,
+    oneStopApplication: values.oneStopApplication as AnswerChoice,
+  }
+}
 
 export const toFormValues = (answers: InitialAnswers | null): InitialFormValues => ({
   relationship: answers?.relationship ?? "",
