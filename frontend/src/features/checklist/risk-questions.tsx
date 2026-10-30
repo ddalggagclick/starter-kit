@@ -120,7 +120,7 @@ export function RiskQuestions() {
               {current?.confirmed && (
                 <div
                   role="status"
-                  className="ml-2 space-y-1.5 rounded-r-lg border-l-2 border-primary/40 bg-muted px-4 py-3 text-base leading-7"
+                  className="ml-2 space-y-1.5 rounded-r-lg bg-muted px-4 py-3 text-base leading-7 shadow-sm"
                 >
                   <p className="text-xs font-semibold text-muted-foreground">답변</p>
                   {guidance && (

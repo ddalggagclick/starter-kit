@@ -17,7 +17,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Modal } from "@/components/ui/modal"
 import { Notice } from "@/components/ui/notice"
 import { useAuthStore } from "@/features/auth/auth-store"
-import { USE_MOCK_API } from "@/shared/api/data-source"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import type { ChecklistSnapshot } from "@/shared/storage/db"
 import {
@@ -72,8 +71,6 @@ export function ServerSaveBand() {
     }
   }
 
-  const mockNote = USE_MOCK_API ? " (Mock — 실제 서버 연동 아님)" : ""
-
   const revokeNotice = revokeResult && (
     <Notice tone={revokeResult.ok ? "success" : "danger"} className="space-y-2">
       {revokeResult.ok ? (
@@ -101,7 +98,7 @@ export function ServerSaveBand() {
   if (consent === "off" || consent === "checking") {
     return (
       <p role="status" className="text-xs text-muted-foreground">
-        서버 저장 상태 확인 중…{mockNote}
+        서버 저장 상태 확인 중…
       </p>
     )
   }
@@ -109,7 +106,7 @@ export function ServerSaveBand() {
   if (consent === "unknown") {
     return (
       <Notice tone="warning" className="space-y-2">
-        <p>서버 저장 상태를 확인하지 못했습니다.{mockNote}</p>
+        <p>서버 저장 상태를 확인하지 못했습니다.</p>
         <Button
           type="button"
           size="sm"
@@ -133,7 +130,7 @@ export function ServerSaveBand() {
             role="status"
             className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-dashed px-3 py-1 text-sm font-medium text-muted-foreground"
           >
-            서버 저장 · 저장 안 함{mockNote}
+            서버 저장 · 저장 안 함
           </p>
           {revokeNotice}
         </div>
@@ -144,7 +141,7 @@ export function ServerSaveBand() {
         <div className="flex flex-wrap items-center gap-2">
           {/* 최신 시안: 서버 저장 상태 칸 + [서버 저장] */}
           <p className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-dashed px-3 py-1 text-sm font-medium text-muted-foreground">
-            서버 저장 · 미동의{mockNote}
+            서버 저장 · 미동의
           </p>
           <Button
             type="button"
@@ -160,7 +157,7 @@ export function ServerSaveBand() {
         {revokeNotice}
         {consentOpen && (
           <Modal onClose={() => setConsentOpen(false)}>
-            <Modal.Header title={`로그인한 계정(서버)에도 체크리스트를 저장할까요?${mockNote}`} />
+            <Modal.Header title={`로그인한 계정(서버)에도 체크리스트를 저장할까요?`} />
             <Modal.Body>
               <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
                 {SERVER_POLICY_ITEMS.map((item) => (
@@ -211,7 +208,7 @@ export function ServerSaveBand() {
             role="status"
             className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-dashed px-3 py-1 text-sm font-medium text-muted-foreground"
           >
-            서버 저장 멈춤 · 서버 기록 선택 필요{mockNote}
+            서버 저장 멈춤 · 서버 기록 선택 필요
           </p>
           <Button
             type="button"
@@ -232,7 +229,6 @@ export function ServerSaveBand() {
           }
         >
           {SAVE_STATUS_LABELS[saveStatus] || "● 계정(서버)에 저장 중"}
-          {mockNote}
         </p>
       )}
       {choiceOpen && (
