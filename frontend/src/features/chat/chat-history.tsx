@@ -9,17 +9,27 @@
  *   [저장 설정]·모달·동의 흐름은 그대로다.
  *   #227 사용자 요청: 저장 중이면 [저장 설정]을 숨기고, "✓ 저장 중" 표시를 버튼으로 둔다. 누르면 저장 설정 모달
  *   (상태·정책·[저장 동의 철회]·[닫기])이 열린다. 철회 확인창·결과 안내는 쓰는 쪽(onRevoke)이 처리한다.
+ *   사용자 지시(2026-10-30) "저장은 저장 네비게이팅에서만": 대화창 위쪽 줄의 띠(ChatConsentBand)는 쓰지 않고, 같은 정책·
+ *   확인 체크·[저장]·[저장 안 함]·[저장 동의 철회]를 저장 설정 창 안 칸(ChatStorageSettings, 이 기기·서버 칸과 같은 부품)으로 보인다(모달 겹침 없음).
  * 제한사항: 정책 문구는 P02 검토 전 초안이다. [대화 기록 삭제] 전체 삭제·동의 철회(4-3)는 후속 이슈다.
  */
 import { Check, Circle, type LucideIcon, Settings2, TriangleAlert } from "lucide-react"
 import { useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Modal } from "@/components/ui/modal"
+import { useStorageActions } from "@/components/ui/storage-controls"
+import {
+  StorageActions,
+  StorageChip,
+  StorageConsentForm,
+  StorageSection,
+} from "@/components/ui/storage-section"
 import { cn } from "@/lib/utils"
 import { CHAT_SAVE_BADGE_LABELS } from "@/shared/content/chat"
 import { CONSENT_COPY } from "@/shared/content/checklist"
 import type { ConversationRecord } from "@/shared/storage/db"
 import { type ChatStorageStatus, conversationDate } from "./chat-storage"
+import { useChatStorageBridge } from "./chat-storage-bridge"
 
 // #227 새 시안: 대화창 위쪽 줄의 버튼과 저장 상태 표시를 모두 같은 크기(높이 32px, 글자 12px, 아이콘 14px)로 맞춘다.
 //   첫 화면 대화창의 [이전 대화]·[새 대화]도 이 모양을 쓴다.
@@ -42,7 +52,7 @@ const SAVE_BADGE_ICONS: Record<ChatStorageStatus, LucideIcon> = {
 
 // 저장 상태 표시. 색과 함께 기호(○ ✓ ⚠)와 글자도 바뀌어 색만으로 구분하지 않는다.
 // 보이는 글자는 짧게 두고, 화면낭독기에는 "AI 대화 저장 안 됨"처럼 무엇의 상태인지 함께 읽힌다.
-function SaveStatusBadge({ status }: { status: ChatStorageStatus }) {
+export function SaveStatusBadge({ status }: { status: ChatStorageStatus }) {
   const Icon = SAVE_BADGE_ICONS[status]
   return (
     <span
@@ -244,5 +254,69 @@ export function PreviousConversations({
         </li>
       ))}
     </ul>
+  )
+}
+
+// 저장 설정 창의 "AI 대화 저장" 칸. 이 기기·서버 칸과 같은 부품(storage-section)·같은 순서로 그린다.
+//   동의 전: 정책 확인 체크 + [저장 안 함]·[저장]. 동의 후: [저장 동의 철회](같은 확인창·결과 안내).
+export function ChatStorageSettings() {
+  const bridge = useChatStorageBridge((s) => s.current)
+  const actions = useStorageActions({
+    itemName: "AI 대화 기록",
+    deleteTitle: "AI 대화 기록을 삭제할까요?",
+    revokeTitle: "AI 대화 저장 동의를 철회할까요?",
+    onDelete: async () => false,
+    onRevoke: () => bridge?.revoke() ?? Promise.resolve(false),
+  })
+  if (!bridge) return null
+  const subject = "AI 대화"
+  const { status, declined } = bridge
+  const chip =
+    status === "ready" ? (
+      <StorageChip tone="on" subject={subject}>
+        저장 중
+      </StorageChip>
+    ) : status === "not-consented" ? (
+      <StorageChip tone="off" subject={subject}>
+        {declined ? "저장 안 함" : "미동의"}
+      </StorageChip>
+    ) : status === "failed" ? (
+      <StorageChip tone="warn" subject={subject}>
+        저장 불가
+      </StorageChip>
+    ) : (
+      <StorageChip tone="muted" subject={subject}>
+        확인 중…
+      </StorageChip>
+    )
+  return (
+    <StorageSection
+      label="AI 대화 저장"
+      title="AI 대화 저장"
+      chip={chip}
+      description="질문과 답변을 이 브라우저에 저장해요."
+      policy={CHAT_POLICY_ITEMS}
+    >
+      {status === "not-consented" && (
+        <StorageConsentForm
+          checkboxLabel="AI 대화 저장 정책을 확인했습니다"
+          onDecline={bridge.decline}
+          onSave={bridge.grant}
+        />
+      )}
+      {status === "ready" && (
+        <StorageActions>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={actions.busy}
+            onClick={() => actions.request("revoke")}
+          >
+            저장 동의 철회
+          </Button>
+        </StorageActions>
+      )}
+      {actions.view}
+    </StorageSection>
   )
 }

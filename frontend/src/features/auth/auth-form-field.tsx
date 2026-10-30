@@ -9,7 +9,6 @@ import { Eye, EyeOff } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
 import { useId, useState } from "react"
 import { Link } from "react-router"
-import logoImage from "@/assets/logo.png"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { type OverlayName, useInOverlay, useOverlayStore } from "@/shared/state/overlay-store"
 
@@ -27,7 +26,6 @@ export function AuthCard({
     return (
       <div className="space-y-4">
         <div className="flex flex-col items-center gap-2 px-8 text-center">
-          <img src={logoImage} alt="" className="mx-auto mb-1 size-10 rounded-lg" />
           <h2 className="text-xl font-semibold leading-none">{title}</h2>
           {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </div>

@@ -15,9 +15,9 @@ import { RecheckBadge } from "./guidance-read-toggle"
 export function ProceduresPage() {
   const { data, isPending, isError, refetch } = useProcedureList()
   return (
-    <div className="space-y-6">
+    <div className="space-y-group md:space-y-block">
       <div className="space-y-2">
-        <p className="text-sm font-semibold text-muted-foreground">W-03 · 전체 절차</p>
+        <p className="text-sm font-semibold text-muted-foreground">전체 절차</p>
         <h1 className="text-2xl font-bold">상속 공통 절차 8가지</h1>
         <p className="text-muted-foreground">
           순서는 일반적인 안내 순서이며 법적 의무의 우선순위가 아닙니다.

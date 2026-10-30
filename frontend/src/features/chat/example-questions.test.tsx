@@ -94,7 +94,7 @@ describe("첫 화면 예시 질문 (#214)", () => {
   it("대화창 위 예시를 누르면 질문창에 담기고 초점이 옮겨지며, 보내지는 않는다", () => {
     render(
       <QueryClientProvider client={createQueryClient()}>
-        <RouterProvider router={createMemoryRouter(appRoutes, { initialEntries: ["/"] })} />
+        <RouterProvider router={createMemoryRouter(appRoutes, { initialEntries: ["/ai"] })} />
       </QueryClientProvider>,
     )
 

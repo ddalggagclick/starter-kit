@@ -3,7 +3,7 @@
 // A17은 계약 미확정·Backend 미구현이라 실제 서버 연동 검증이 아니다.
 // #197: 서버 저장 동의는 [서버 저장] 모달에서, 서버 기록 선택은 저절로 한 번 열리는 모달에서 받는다.
 import { QueryClientProvider } from "@tanstack/react-query"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createMemoryRouter, RouterProvider } from "react-router"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createQueryClient } from "@/app"
@@ -11,10 +11,12 @@ import { useAuthStore } from "@/features/auth/auth-store"
 import type { InitialAnswers } from "@/shared/contracts/domain"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import type { ChecklistSnapshot } from "@/shared/storage/db"
+import { useChecklistSaveModal } from "./checklist-consent-band"
 import { ChecklistPage } from "./checklist-page"
 import { type ServerChecklistSync, startServerChecklistSync } from "./server-checklist"
 import type { ServerChecklistApi } from "./server-checklist-api"
 import { ServerSaveBand } from "./server-save-band"
+import { ChecklistSaveModalHost } from "./storage-settings"
 
 const SPOUSE: InitialAnswers = {
   relationship: "spouse",
@@ -157,9 +159,22 @@ describe("답이 없는 화면 (리뷰 회귀)", () => {
   }
 
   const renderChecklistPage = () => {
-    const router = createMemoryRouter([{ path: "/checklist", element: <ChecklistPage /> }], {
-      initialEntries: ["/checklist"],
-    })
+    // 사용자 지시(2026-10-30): 서버 저장은 플로팅 [저장]의 저장 설정 창 안에 있다. 화면과 창을 함께 그리고 창을 연다.
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/checklist",
+          element: (
+            <>
+              <ChecklistPage />
+              <ChecklistSaveModalHost />
+            </>
+          ),
+        },
+      ],
+      { initialEntries: ["/checklist"] },
+    )
+    act(() => useChecklistSaveModal.getState().setOpen(true))
     render(
       <QueryClientProvider client={createQueryClient()}>
         <RouterProvider router={router} />
@@ -193,6 +208,11 @@ describe("답이 없는 화면 (리뷰 회귀)", () => {
     renderChecklistPage()
 
     expect(screen.getByRole("button", { name: "처음 시작하기" })).toBeTruthy()
-    expect(screen.getByRole("button", { name: "서버 저장 철회" })).toBeTruthy()
+    // 저장 설정 창의 "계정(서버) 저장" 칸: 다른 칸과 같은 이름의 [저장 동의 철회].
+    expect(
+      within(screen.getByRole("region", { name: "계정(서버) 저장" })).getByRole("button", {
+        name: "저장 동의 철회",
+      }),
+    ).toBeTruthy()
   })
 })

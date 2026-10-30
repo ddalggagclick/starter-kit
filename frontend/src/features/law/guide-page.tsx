@@ -4,18 +4,20 @@
  * 구현: B1 검수를 마친 정적 일반 설명(2026-10-26)과 공식 기관 링크를 보여준다.
  * 제한사항: 개인별 상속인 판정·세액 계산을 하지 않는다. 문구는 B1 검수(2-6-2) 전 예시다.
  */
+
 import { ExternalLink } from "lucide-react"
 import { Notice } from "@/components/ui/notice"
 import { FeedbackMockButton } from "@/features/reports/feedback-mock-dialog"
 import { INHERITANCE_TAX_GUIDE, RELATIONSHIP_GUIDE } from "@/shared/content/general-info"
+import { CitedText } from "./cited-text"
 
 type Guide = typeof RELATIONSHIP_GUIDE
 
 function GuidePage({ screenId, guide }: { screenId: "W-05" | "W-06"; guide: Guide }) {
   return (
-    <article className="mx-auto max-w-3xl space-y-6">
+    <article className="mx-auto max-w-3xl space-y-group md:space-y-block">
       <div className="space-y-2">
-        <p className="text-sm font-semibold text-muted-foreground">{screenId} · 일반 안내</p>
+        <p className="text-sm font-semibold text-muted-foreground">일반 안내</p>
         <h1 className="text-2xl font-bold">{guide.title}</h1>
       </div>
       <Notice tone="warning">{guide.notice}</Notice>
@@ -24,7 +26,9 @@ function GuidePage({ screenId, guide }: { screenId: "W-05" | "W-06"; guide: Guid
           <h2 className="font-semibold">{section.heading}</h2>
           <ul className="list-disc space-y-1 pl-5 leading-7">
             {section.body.map((line) => (
-              <li key={line}>{line}</li>
+              <li key={line}>
+                <CitedText text={line} />
+              </li>
             ))}
           </ul>
         </section>

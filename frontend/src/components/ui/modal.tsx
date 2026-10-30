@@ -4,6 +4,9 @@
  *   열리면 모달 안 첫 입력·버튼으로 초점을 옮기고, Tab·Shift+Tab은 모달 안에서만 돈다(초점 가두기).
  *   Esc 키나 바깥(어두운 배경)을 누르면 onClose를 부른다. 닫히면 모달을 열었던 요소로 초점을 돌려준다.
  *   포털 없이 그 자리에 그린다: 고정 위치(fixed)라 화면 전체를 덮고, 기존 화면 테스트가 띠(region) 안에서 버튼을 찾을 수 있다.
+ *   황금비(사용자 지시 2026-10-30): 폭 3단계 — 좁음 25rem(400) · 기본 32rem(≈400×√φ) · 넓음 40.5rem(≈400×φ).
+ *   안쪽 여백 모바일 group 20px · 데스크톱 block 32px(비율 1.6), 머리·본문·버튼 사이 group 20px, 본문 항목 사이 12px,
+ *   바깥 여백 16/32px, 모서리 14px(디자인 시스템 v1.0 7.4·5.2). 닫기(X)는 여백÷φ 위치(12/20px)에 둔다(쓰는 쪽).
  * 제한사항: 모달을 여러 겹 띄우지 않는다(7.4). 입력 중 닫기 확인이 필요하면 쓰는 쪽에서 처리한다.
  *   기존 확인창(ConfirmDialog)은 그대로 두고, 이 부품으로 옮기는 일은 후속 "공통 부품 정리"에서 한다(#197 범위 밖).
  */
@@ -81,7 +84,7 @@ function ModalRoot({
     // biome-ignore lint/a11y/noStaticElementInteractions: 바깥 누르기 닫기는 마우스용 보조 동작이고, 키보드는 Esc로 닫는다(9장).
     // biome-ignore lint/a11y/useKeyWithClickEvents: 키보드 닫기는 위 keydown(Esc)에서 처리한다.
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-8"
       onClick={(event) => {
         if (event.target === event.currentTarget) closeRef.current()
       }}
@@ -94,7 +97,7 @@ function ModalRoot({
         aria-label={label}
         tabIndex={-1}
         className={cn(
-          "max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto rounded-lg border bg-card p-5 text-card-foreground shadow-lg outline-none sm:p-6",
+          "max-h-[calc(100dvh-2rem)] w-full max-w-[32rem] space-y-group overflow-y-auto rounded-xl border bg-card p-group text-card-foreground shadow-lg outline-none sm:max-h-[calc(100dvh-4rem)] sm:p-block",
           className,
         )}
       >
@@ -107,7 +110,7 @@ function ModalRoot({
 function ModalHeader({ title, subtitle }: { title: ReactNode; subtitle?: ReactNode }) {
   const titleId = useContext(TitleIdContext)
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <h2 id={titleId} className="text-lg font-semibold leading-snug">
         {title}
       </h2>

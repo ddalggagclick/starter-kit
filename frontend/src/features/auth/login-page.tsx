@@ -13,9 +13,7 @@ import { type FormEvent, useId, useState } from "react"
 import { useLocation, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/ui/notice"
-import { MOCK_ACCOUNT } from "@/mocks/mock-api"
 import { type ApiFailure, toApiFailure } from "@/shared/api/api-error"
-import { USE_MOCK_API } from "@/shared/api/data-source"
 import { useInOverlay, useOverlayStore } from "@/shared/state/overlay-store"
 import { loginRequest } from "./auth-api"
 import { AUTH_INPUT_CLASS, AuthCard, AuthLink, PasswordInput } from "./auth-form-field"
@@ -146,11 +144,6 @@ export function LoginPage() {
             비밀번호를 잊으셨나요?
           </AuthLink>
         </p>
-        {USE_MOCK_API && (
-          <p className="rounded-md bg-muted px-3 py-2 text-left text-xs">
-            Mock 로그인 · 실제 계정 연동 아님 — {MOCK_ACCOUNT.email} / {MOCK_ACCOUNT.password}
-          </p>
-        )}
         {/* 모달에는 [닫기](X)가 있어 "로그인 없이 계속하기"는 페이지(/login)에서만 보인다. */}
         {!inOverlay && (
           <p>

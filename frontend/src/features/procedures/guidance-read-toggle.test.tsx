@@ -9,19 +9,23 @@ beforeEach(() => useInheritanceStore.getState().reset())
 afterEach(cleanup)
 
 describe("GuidanceReadToggle", () => {
-  it("상세에서는 '다 읽었어요' → 누르면 '읽음'과 읽은 개수, 다시 누르면 해제된다", () => {
+  // 사용자 지시: 상세 버튼 이름도 늘 [읽음]이고, 누르면 진한 초록 바탕(켜짐)이 된다.
+  it("상세에서는 [읽음]을 누르면 켜지고(진한 초록·aria-pressed) 읽은 개수가 늘며, 다시 누르면 해제된다", () => {
     render(<GuidanceReadToggle procedureId="p04" variant="detail" />)
-    const button = screen.getByRole("button", { name: "다 읽었어요" })
+    const button = screen.getByRole("button", { name: /^읽음/ })
+    expect(button.className).not.toContain("bg-success-foreground")
     expect(button.getAttribute("aria-pressed")).toBe("false")
     expect(screen.getByRole("status").textContent).toBe("0/8 읽음")
 
     fireEvent.click(button)
     expect(screen.getByRole("button", { name: /읽음/ }).getAttribute("aria-pressed")).toBe("true")
+    expect(button.className).toContain("bg-success-foreground")
     expect(screen.getByRole("status").textContent).toBe("1/8 읽음")
     expect(useInheritanceStore.getState().procedureStates.p04.guidanceRead).toBe(true)
 
     fireEvent.click(screen.getByRole("button", { name: /읽음/ }))
-    expect(screen.getByRole("button", { name: "다 읽었어요" })).toBeTruthy()
+    expect(button.getAttribute("aria-pressed")).toBe("false")
+    expect(button.className).not.toContain("bg-success-foreground")
     expect(useInheritanceStore.getState().procedureStates.p04.guidanceRead).toBe(false)
   })
 
@@ -35,7 +39,7 @@ describe("GuidanceReadToggle", () => {
     expect(document.getElementById(hintId)?.textContent).toBe(GUIDANCE_READ_HINT)
   })
 
-  it("답변이 바뀌어 재확인이 필요하면 '다시 확인하기'로 보이고, 누르면 읽음이 된다 (2-4-3)", () => {
+  it("답변이 바뀌어 재확인이 필요하면 [읽음]이 꺼진 상태로 보이고, 누르면 읽음이 된다 (2-4-3)", () => {
     useInheritanceStore.getState().setGuidanceRead("p04", true)
     useInheritanceStore.setState((s) => ({
       procedureStates: {
@@ -45,7 +49,9 @@ describe("GuidanceReadToggle", () => {
     }))
     render(<GuidanceReadToggle procedureId="p04" variant="detail" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "다시 확인하기" }))
+    const button = screen.getByRole("button", { name: /^읽음/ })
+    expect(button.getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(button)
 
     expect(screen.getByRole("button", { name: /읽음/ }).getAttribute("aria-pressed")).toBe("true")
     expect(useInheritanceStore.getState().procedureStates.p04.needsRecheck).toBe(false)

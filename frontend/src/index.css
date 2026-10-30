@@ -38,8 +38,12 @@
   --white: #ffffff;
 
   /* ② 시맨틱 — 화면이 쓰는 이름 */
-  --background: var(--neutral-100);
+  /* 지시서 7장(밝은 톤): 기본 바탕은 흰색, 아이보리(neutral-100)는 강조 묶음(emphasis) 바탕으로만 쓴다. */
+  --background: var(--white);
   --foreground: var(--neutral-900);
+  --emphasis: var(--neutral-100);
+  /* 첫 화면 시작 카드의 밝은 블루 */
+  --start-card: var(--navy-100);
   --card: var(--white);
   --card-foreground: var(--neutral-900);
   --primary: var(--navy-800);
@@ -54,7 +58,8 @@
      WCAG 1.4.11(그래픽 대비 3:1)을 넘는 neutral-500(3.01:1)을 쓴다(리뷰 반영). */
   --input: var(--neutral-500);
   --ring: var(--navy-500);
-  --border: var(--neutral-200);
+  /* 흰 바탕 위에서 카드 경계가 보이도록 neutral-300을 쓴다(흰 바탕 개편). */
+  --border: var(--neutral-300);
   /* 확인 안내(황금): 카카오 답변 띠·확인 메모·사용 제한 등 */
   --warning: var(--gold-100);
   --warning-foreground: var(--gold-600);
@@ -82,6 +87,8 @@
     --foreground: #e8edf2;
     --card: #1e252d;
     --card-foreground: #e8edf2;
+    --emphasis: #1a2028;
+    --start-card: #1d2a38;
     --primary: var(--navy-300);
     --primary-foreground: var(--navy-900);
     --secondary: #1f2c29;
@@ -111,6 +118,8 @@
   --foreground: #e8edf2;
   --card: #1e252d;
   --card-foreground: #e8edf2;
+  --emphasis: #1a2028;
+  --start-card: #1d2a38;
   --primary: var(--navy-300);
   --primary-foreground: var(--navy-900);
   --secondary: #1f2c29;
@@ -140,6 +149,8 @@
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
+  --color-emphasis: var(--emphasis);
+  --color-start-card: var(--start-card);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
@@ -163,6 +174,18 @@
   --color-overlay: var(--overlay);
   --shadow-sm: var(--shadow-card);
   --font-sans: var(--font-family);
+}
+
+/* 간격 리듬(사용자 지시 2026-10-30: 황금비, Design.md 참고). 디자인 시스템 v1.0 5.1 간격 토큰(4px 기준)과
+   Design.md(Calm Sanctuary) spacing(16·24·36·56, 구획 사이 56px·화면 상단 56px)에서 피보나치(8·13·21·34·55)에 가장
+   가까운 값만 골라 이름을 붙였다. 이웃 단계 비율 ≈ 1.6. 새 크기는 만들지 않는다.
+   item 12px(항목 안) → group 20px(묶음 안·카드 안쪽) → block 32px(블록 사이) → section 56px(구획 사이·화면 상단).
+   Tailwind 유틸리티로 쓴다: space-y-block, md:py-section, mt-group 등. */
+@theme {
+  --spacing-item: 0.75rem;
+  --spacing-group: 1.25rem;
+  --spacing-block: 2rem;
+  --spacing-section: 3.5rem;
 }
 
 /* 글자(4장): 크기 6단계(12·14·16·20·24·32), 굵기 400·600만. 기존 클래스 이름은 두고 값만 맞춘다. */
@@ -204,6 +227,18 @@ body {
 /* #227 새 시안: 긴 낱말이 가로 스크롤을 만들지 않게 줄을 바꾼다. 접기 표시(▶)는 직접 그린 화살표로 대신한다. */
 body {
   overflow-wrap: anywhere;
+  /* 사용자 지시(2026-10-30, 한 줄 글자 비율·개행 일괄): 한국어 낱말이 중간에서 끊기지 않게 띄어쓰기 단위로 줄을 바꾼다.
+     띄어쓰기 없는 긴 글(주소·링크)은 위 overflow-wrap이 받아 가로 넘침을 막는다. */
+  word-break: keep-all;
+}
+/* 문단·목록·제목은 줄 길이를 고르게 해 마지막 줄에 한두 낱말만 남지 않게 한다(지원 안 하는 브라우저는 보통 줄바꿈). */
+p,
+li,
+dd,
+h1,
+h2,
+h3 {
+  text-wrap: pretty;
 }
 details > summary::-webkit-details-marker {
   display: none;

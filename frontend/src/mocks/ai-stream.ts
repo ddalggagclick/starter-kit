@@ -43,14 +43,14 @@ export const MOCK_AI_SCENARIO_LABELS: Record<MockAiScenario, string> = {
 }
 
 const MOCK_SOURCES: SseSource[] = [
-  { title: "국가법령정보센터 · 민법 상속편 (Mock)", url: "https://www.law.go.kr" },
-  { title: "대법원 전자민원센터 · 상속 안내 (Mock)", url: "https://help.scourt.go.kr" },
-  { title: "대한법률구조공단 · 상속 상담 (Mock)", url: "https://www.klac.or.kr" },
+  { title: "국가법령정보센터 · 민법 상속편", url: "https://www.law.go.kr" },
+  { title: "대법원 전자민원센터 · 상속 안내", url: "https://help.scourt.go.kr" },
+  { title: "대한법률구조공단 · 상속 상담", url: "https://www.klac.or.kr" },
 ]
 
 // 링크 없이 제목만 보여 줄 출처 예시(전화 상담 안내).
 const MOCK_NO_URL_SOURCE: SseSource = {
-  title: "대한법률구조공단 · 전화 상담 132 (Mock)",
+  title: "대한법률구조공단 · 전화 상담 132",
   url: null,
 }
 
@@ -63,7 +63,7 @@ const mockAnswer = (sourceCount: number): string => {
       : "[1]"
   return (
     "상속포기는 일반적으로 상속 개시가 있음을 안 날부터 3개월 안에 가정법원에 신고하는 절차로 안내됩니다[1]. " +
-    `기한을 언제부터 셀지는 개인 상황에 따라 달라질 수 있으니 공식 자료로 확인하세요${rest}. (Mock 예시 답변)`
+    `기한을 언제부터 셀지는 개인 상황에 따라 달라질 수 있으니 공식 자료로 확인하세요${rest}.`
   )
 }
 

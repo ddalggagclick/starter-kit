@@ -49,7 +49,7 @@ describe("첫 화면 [+ 더보기] (#220)", () => {
     useChatSessionStore.setState({ externalNoticeAcknowledged: true, guestRemaining: 10 })
     render(
       <QueryClientProvider client={createQueryClient()}>
-        <RouterProvider router={createMemoryRouter(appRoutes, { initialEntries: ["/"] })} />
+        <RouterProvider router={createMemoryRouter(appRoutes, { initialEntries: ["/ai"] })} />
       </QueryClientProvider>,
     )
   })

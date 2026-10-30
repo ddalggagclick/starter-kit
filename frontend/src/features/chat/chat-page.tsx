@@ -248,7 +248,7 @@ function ChatScreen({ namespace }: { namespace: StorageNamespace }) {
     <div className="mx-auto max-w-3xl space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-muted-foreground">W-07 · AI 질문</p>
+          <p className="text-sm font-semibold text-muted-foreground">AI 질문</p>
           <h1 className="text-2xl font-bold">상속 절차를 물어보세요</h1>
         </div>
         <div className="flex flex-wrap gap-2">

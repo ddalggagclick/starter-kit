@@ -22,7 +22,7 @@ const STATIC_INFO = /체크리스트와 절차 안내는 그대로 이용할 수
 const renderHome = () =>
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <RouterProvider router={createMemoryRouter(appRoutes, { initialEntries: ["/"] })} />
+      <RouterProvider router={createMemoryRouter(appRoutes, { initialEntries: ["/ai"] })} />
     </QueryClientProvider>,
   )
 
