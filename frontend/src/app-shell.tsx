@@ -14,6 +14,7 @@
  * 제한사항: 사이드바 접힘 상태는 저장하지 않는다(새로고침하면 펼쳐진다).
  */
 import {
+  CircleCheck,
   ClipboardList,
   House,
   ListChecks,
@@ -24,6 +25,7 @@ import {
   PanelLeft,
   Receipt,
   Users,
+  UserX,
   X,
 } from "lucide-react"
 import type { MouseEvent, ReactNode } from "react"
@@ -37,6 +39,7 @@ import { useAuthStore } from "@/features/auth/auth-store"
 import { ForgotPasswordPage } from "@/features/auth/forgot-password-page"
 import { LoginPage } from "@/features/auth/login-page"
 import { SignupPage } from "@/features/auth/signup-page"
+import { EntryGateway } from "@/features/checklist/entry-gateway"
 import { InitialQuestionsPage } from "@/features/checklist/initial-questions-page"
 import { useServerChecklistStore } from "@/features/checklist/server-checklist"
 import { RelationshipModal, TaxModal } from "@/features/law/guide-modals"
@@ -128,8 +131,24 @@ function MenuList({ collapsed = false, onPicked }: { collapsed?: boolean; onPick
   )
 }
 
-// 계정 칸: 기존 헤더의 로그인·로그아웃·회원 탈퇴와 같은 동작.
-function Account({ collapsed = false, onPicked }: { collapsed?: boolean; onPicked?: () => void }) {
+// 계정 칸(계정 관리 UI 개선 지시서): 기존 로그인·로그아웃·회원 탈퇴 동작 그대로, 모양만 나눈다.
+//   구분선(border-t)은 로그인 전후 모두 바닥에서 64px 위(바닥글 선과 같은 높이)에 고정한다.
+//   - 로그인 전: 선 아래 64px 칸에 네이비 [로그인]만(기존).
+//   - 로그인 후: 선 위에 "✓ 로그인 중"(+ 메일 주소)과 전체 너비 [로그아웃](44px 보조 버튼),
+//     선 아래 64px 칸 오른쪽에 주의 색 [회원 탈퇴](14px 글자 버튼, 기존 확인 모달). 늘어난 내용은 선 위로 쌓여
+//     선과 위쪽 메뉴가 움직이지 않는다. 프로필 사진·편집은 없다(기능 없음).
+//   - 사이드바를 접으면 같은 자리에 아이콘 버튼(로그아웃·회원 탈퇴)으로 보인다.
+//   - 사용자 지시: 웹(사이드바)에서는 "로그인 중"·메일 표시를 생략하고, 모바일 메뉴 서랍(drawer)에서만 보인다.
+//     모바일에서는 [회원 탈퇴]를 [로그아웃]과 같은 가운데 정렬로 둔다(아이콘 세로줄 맞춤).
+function AccountArea({
+  collapsed = false,
+  onPicked,
+  drawer = false,
+}: {
+  collapsed?: boolean
+  onPicked?: () => void
+  drawer?: boolean
+}) {
   const open = useOverlayStore((s) => s.open)
   const accountId = useAuthStore((s) => s.accountId)
   const email = useAuthStore((s) => s.email)
@@ -140,51 +159,79 @@ function Account({ collapsed = false, onPicked }: { collapsed?: boolean; onPicke
     signOut()
     onPicked?.()
   }
+  const openOverlay = (name: "login" | "account-delete") => {
+    onPicked?.()
+    open(name)
+  }
+  const lineRow = cn(
+    "flex h-16 shrink-0 items-center border-t px-3",
+    collapsed && "justify-center px-2",
+  )
+
   if (!accountId) {
     return (
-      <Button
-        type="button"
-        className={cn("w-full", collapsed && "px-0")}
-        title="로그인"
-        aria-haspopup="dialog"
-        onClick={() => {
-          onPicked?.()
-          open("login")
-        }}
-      >
-        <LogIn className="size-4" aria-hidden />
-        <Label collapsed={collapsed}>로그인</Label>
-      </Button>
+      <div className={lineRow}>
+        <Button
+          type="button"
+          className={cn("w-full", collapsed && "px-0")}
+          title="로그인"
+          aria-haspopup="dialog"
+          onClick={() => openOverlay("login")}
+        >
+          <LogIn className="size-4" aria-hidden />
+          <Label collapsed={collapsed}>로그인</Label>
+        </Button>
+      </div>
     )
   }
+
   return (
-    <div className="space-y-2">
-      {!collapsed && (
-        // 사용자 요청: 로그인 이메일은 아래 [로그아웃]·회원 탈퇴와 같은 가운데 정렬
-        <p className="truncate text-center text-sm text-muted-foreground">{email ?? "로그인됨"}</p>
-      )}
-      <Button
-        variant="outline"
-        className={cn("w-full", collapsed && "px-0")}
-        title="로그아웃"
-        onClick={onSignOut}
-      >
-        <LogOut className="size-4" aria-hidden />
-        <Label collapsed={collapsed}>로그아웃</Label>
-      </Button>
-      {!collapsed && (
+    <div>
+      <div className={cn("space-y-3 px-3 pb-4", collapsed && "flex flex-col items-center px-2")}>
+        {drawer && (
+          <div className="space-y-0.5">
+            <p
+              role="status"
+              className="flex items-center gap-1.5 text-sm font-semibold text-success-foreground"
+            >
+              <CircleCheck className="size-4 shrink-0" aria-hidden />
+              로그인 중
+            </p>
+            {email && (
+              <p className="truncate pl-[1.375rem] text-xs text-muted-foreground" title={email}>
+                {email}
+              </p>
+            )}
+          </div>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-11 w-full border-primary/30 font-semibold text-primary hover:bg-accent",
+            collapsed && "size-11 px-0",
+          )}
+          title="로그아웃"
+          onClick={onSignOut}
+        >
+          <LogOut className="size-4" aria-hidden />
+          <Label collapsed={collapsed}>로그아웃</Label>
+        </Button>
+      </div>
+      {/* 웹: 오른쪽 정렬. 모바일 서랍: [로그아웃]과 같은 가운데 정렬. 접힌 사이드바: 가운데(아이콘만). */}
+      <div className={cn(lineRow, drawer || collapsed ? "justify-center" : "justify-end")}>
         <button
           type="button"
           aria-haspopup="dialog"
-          onClick={() => {
-            onPicked?.()
-            open("account-delete")
-          }}
-          className="block w-full text-center text-xs text-muted-foreground underline"
+          aria-label={collapsed ? "회원 탈퇴" : undefined}
+          title="회원 탈퇴"
+          onClick={() => openOverlay("account-delete")}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-danger-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
-          회원 탈퇴
+          <UserX className="size-4" aria-hidden />
+          {!collapsed && "회원 탈퇴"}
         </button>
-      )}
+      </div>
     </div>
   )
 }
@@ -228,8 +275,9 @@ export function SiteSidebar({ collapsed, onToggle }: { collapsed: boolean; onTog
         </button>
       </div>
       <MenuList collapsed={collapsed} />
-      <div className={cn("mt-auto border-t p-3", collapsed && "px-2")}>
-        <Account collapsed={collapsed} />
+      {/* 계정 칸은 맨 아래. 구분선은 로그인 전후 모두 바닥에서 64px 위라 바닥글 선과 늘 같은 수평선이다. */}
+      <div className="mt-auto">
+        <AccountArea collapsed={collapsed} />
       </div>
     </aside>
   )
@@ -286,7 +334,7 @@ export function MobileTopBar() {
 // narrow: 인증 모달은 시안처럼 좁게(25rem) 그리고 여백을 넓게 둔다.
 const GUIDES: Record<
   Exclude<OverlayName, "menu">,
-  { label: string; body: () => ReactNode; narrow?: boolean; wide?: boolean }
+  { label: string; body: () => ReactNode; narrow?: boolean; wide?: boolean; className?: string }
 > = {
   steps: { label: "전체 절차", body: () => <ProcedureSteps /> },
   relation: { label: "상속 관계", body: () => <RelationshipModal /> },
@@ -296,6 +344,12 @@ const GUIDES: Record<
   signup: { label: "회원가입", body: () => <SignupPage />, narrow: true },
   forgot: { label: "비밀번호 재설정", body: () => <ForgotPasswordPage />, narrow: true },
   "account-delete": { label: "회원 탈퇴", body: () => <AccountDeletePage />, narrow: true },
+  // 처음 들어올 때 첫 화면 위 진입 선택 창(추가 개선 지시서 1장: 폭 640px, 안쪽 여백 넓게)
+  entry: {
+    label: "시작 방법 선택",
+    body: () => <EntryGateway />,
+    className: "max-w-[40.5rem]",
+  },
 }
 
 // 지금 열린 창 하나를 그린다. Esc·바깥 누르기·[닫기]로 닫히고, 닫히면 연 버튼으로 초점이 돌아간다(Modal 부품).
@@ -314,7 +368,7 @@ export function AppOverlays() {
       <Modal
         onClose={close}
         label="메뉴"
-        className="fixed inset-y-0 left-0 max-h-none w-[85%] max-w-xs space-y-0 rounded-none border-r p-0"
+        className="fixed inset-y-0 left-0 max-h-none w-[85%] max-w-xs space-y-0 rounded-none border-r p-0 sm:max-h-none sm:p-0"
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between gap-2 p-3">
@@ -329,8 +383,8 @@ export function AppOverlays() {
             </button>
           </div>
           <MenuList onPicked={close} />
-          <div className="mt-auto border-t p-3">
-            <Account onPicked={close} />
+          <div className="mt-auto">
+            <AccountArea onPicked={close} drawer />
           </div>
         </div>
       </Modal>
@@ -347,20 +401,23 @@ export function AppOverlays() {
       // 시안 크기: 기본 576px, 질문 3개 672px, 인증 400px(여백 넓게)
       className={cn(
         "relative",
-        guide.narrow ? "max-w-[25rem] sm:p-8" : guide.wide ? "max-w-2xl" : "max-w-xl",
+        // 황금비 폭 3단계: 좁음 400 · 기본 512 · 넓음 648px(여백은 공통 모달 규칙).
+        guide.className ??
+          (guide.narrow ? "max-w-[25rem]" : guide.wide ? "max-w-[40.5rem]" : "max-w-[32rem]"),
       )}
     >
       <button
         type="button"
         aria-label="닫기"
         onClick={close}
-        className="absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        // 닫기 위치 = 안쪽 여백 ÷ φ(모바일 12px · 데스크톱 20px). 누르는 영역 36px.
+        className="absolute top-3 right-3 inline-flex size-9 items-center justify-center rounded-md opacity-70 transition-opacity hover:bg-accent hover:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:top-5 sm:right-5"
       >
         <X className="size-4" aria-hidden />
       </button>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: 링크를 누르면 창을 닫는 보조 처리다. 링크 자체는 키보드로도 동작한다. */}
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: 키보드 Enter도 링크 click 이벤트로 들어온다. */}
-      <div onClick={closeOnLink} className={guide.narrow ? undefined : "pr-6"}>
+      <div onClick={closeOnLink}>
         <InOverlayContext.Provider value={true}>{guide.body()}</InOverlayContext.Provider>
       </div>
     </Modal>

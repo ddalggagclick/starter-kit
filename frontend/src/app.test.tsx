@@ -3,9 +3,10 @@
 import { QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createMemoryRouter, RouterProvider } from "react-router"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { useAuthStore } from "@/features/auth/auth-store"
 import { useChatSessionStore } from "@/features/chat/chat-store"
+import { resetEntryGatewayForTest } from "@/features/checklist/entry-gateway"
 import { MOCK_ACCOUNT, MOCK_VALID_HANDOFF_TOKEN, resetMockApiState } from "@/mocks/mock-api"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { appRoutes, createQueryClient } from "./app"
@@ -111,6 +112,34 @@ describe("카카오 Handoff (Mock)", () => {
     expect(useInheritanceStore.getState().entrySource).toBe("kakao")
   })
 
+  // 사용자 지시(2026-10-30): 카카오 인계로 온 사용자도 첫 화면(/) 사용자와 같은 진입 선택 창을 본다.
+  //   인계 답을 받는 동안 창을 띄우고, [체크리스트로 시작하기]를 고르면 스켈레톤으로 기다린 뒤 답을 보인다.
+  it("인계 처리 중에 진입 선택 창을 띄우고, 체크리스트를 고르면 스켈레톤으로 기다린 뒤 답을 보인다", async () => {
+    resetEntryGatewayForTest()
+    const router = renderAt(`/checklist?handoff=${MOCK_VALID_HANDOFF_TOKEN}`)
+    const gateway = await screen.findByRole("dialog", { name: "시작 방법 선택" })
+    expect(router.state.location.search).toBe("")
+    // 받는 중: 체크리스트 모양 스켈레톤(화면낭독기에는 "불러오는 중").
+    expect(screen.getByRole("status", { busy: true })).toBeTruthy()
+    // 받는 중에도 [체크리스트로 시작하기]는 질문 3개를 묻지 않고 체크리스트(스켈레톤)로 간다.
+    fireEvent.click(within(gateway).getByRole("button", { name: /체크리스트로 시작하기/ }))
+    expect(screen.queryByRole("dialog", { name: "시작 방법 선택" })).toBeNull()
+    expect(screen.queryByRole("dialog", { name: "상속 절차 시작" })).toBeNull()
+    expect(router.state.location.pathname).toBe("/checklist")
+    expect(await screen.findByText(/카카오톡에서 답한 내용을 불러왔습니다/)).toBeTruthy()
+    expect(screen.queryByRole("status", { busy: true })).toBeNull()
+  })
+
+  it("인계 처리 중에 [AI에게 질문하기]로 가도 받은 답은 버리지 않는다(한 번만 쓰는 토큰)", async () => {
+    resetEntryGatewayForTest()
+    const router = renderAt(`/checklist?handoff=${MOCK_VALID_HANDOFF_TOKEN}`)
+    const gateway = await screen.findByRole("dialog", { name: "시작 방법 선택" })
+    fireEvent.click(within(gateway).getByRole("link", { name: /AI에게 질문하기/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe("/ai"))
+    await waitFor(() => expect(useInheritanceStore.getState().entrySource).toBe("kakao"))
+    expect(useInheritanceStore.getState().answers).not.toBeNull()
+  })
+
   it("이미 쓴 토큰과 없는 토큰은 같은 실패 안내를 보인다", async () => {
     renderAt(`/checklist?handoff=${MOCK_VALID_HANDOFF_TOKEN}`)
     await screen.findByText(/카카오톡에서 답한 내용을 불러왔습니다/)
@@ -184,25 +213,18 @@ describe("W-07 AI (Mock)", () => {
     expect(send.disabled).toBe(true)
   })
 
-  // #211: /ai는 첫 화면 대화창으로 합쳐졌다. 예시 질문 시험은 첫 화면 예시 질문 이슈(⑤)에서 다시 넣는다.
-  it("예전 주소 /ai는 첫 화면 대화창(/#ai)으로 바꿔 보낸다", async () => {
+  // UI 전면 개편: /ai는 다시 전체 대화 화면이다. 제목·소개 없이 대화 상자가 바로 보인다.
+  it("/ai는 전체 대화 화면으로 대화창을 바로 보인다", () => {
     const router = renderAt("/ai")
-    await waitFor(() => expect(router.state.location.pathname).toBe("/"))
-    expect(router.state.location.hash).toBe("#ai")
-    expect(screen.getByRole("region", { name: "AI에게 질문하기" }).closest("#ai")).toBeTruthy()
-    // 기록을 바꿔치기해 뒤로 가기로 /ai에 되돌아가 다시 이동하는 반복이 없다.
-    expect(router.state.historyAction).toBe("REPLACE")
+    expect(router.state.location.pathname).toBe("/ai")
+    expect(screen.getByRole("region", { name: "AI에게 질문하기" })).toBeTruthy()
+    expect(screen.getByLabelText("질문")).toBeTruthy()
   })
 
-  it("주소에 #ai가 있으면 대화창 위치로 화면을 내린다", () => {
-    // jsdom에는 scrollIntoView가 없어 시험용으로 넣는다.
-    const scrollIntoView = vi.fn()
-    Element.prototype.scrollIntoView = scrollIntoView
-    renderAt("/#ai")
-    expect(scrollIntoView).toHaveBeenCalled()
-    expect(scrollIntoView.mock.contexts[0]).toBe(document.getElementById("ai"))
-    // 다른 시험에 영향이 없도록 넣었던 함수를 지운다.
-    delete (Element.prototype as Partial<Element>).scrollIntoView
+  it("예전 주소 /#ai는 /ai로 바꿔 보낸다", async () => {
+    const router = renderAt("/#ai")
+    await waitFor(() => expect(router.state.location.pathname).toBe("/ai"))
+    expect(router.state.historyAction).toBe("REPLACE")
   })
 
   // #227: 헤더 메뉴는 왼쪽 사이드바로 옮겼다. [체크리스트]는 페이지, 나머지 3개는 화면 위 모달이다. [AI 질문]은 없다.
