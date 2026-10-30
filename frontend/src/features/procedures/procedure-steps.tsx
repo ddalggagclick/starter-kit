@@ -81,8 +81,9 @@ export function ProcedureSteps() {
   const [opened, setOpened] = useState<ReadonlySet<ProcedureId>>(() => new Set())
 
   return (
-    <div className="space-y-3">
-      <div className="space-y-1.5 pr-8">
+    // 모달 간격 리듬: 머리말 ↔ 목록 group 20px, 제목 ↔ 설명 8px(황금비 규칙, modal.tsx).
+    <div className="space-y-group">
+      <div className="space-y-2 pr-8">
         <h2 className="text-lg font-semibold leading-none">상속 공통 절차</h2>
         <p className="text-sm text-muted-foreground">
           공통 안내 순서예요. 법적 우선순위가 아닙니다.
