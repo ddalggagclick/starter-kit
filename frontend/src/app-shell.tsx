@@ -30,7 +30,6 @@ import {
 } from "lucide-react"
 import type { MouseEvent, ReactNode } from "react"
 import { Link, useLocation } from "react-router"
-import logoImage from "@/assets/logo.png"
 import { Button } from "@/components/ui/button"
 import { Modal } from "@/components/ui/modal"
 import { AccountDeletePage } from "@/features/auth/account-delete-page"
@@ -236,16 +235,16 @@ function AccountArea({
   )
 }
 
+// 사용자 지시(2026-10-30): 로고 이미지를 빼고 서비스 이름 글자만 둔다. 사이드바를 접으면 이름도 숨긴다(첫 화면은 [홈] 메뉴).
 function Logo({ collapsed = false }: { collapsed?: boolean }) {
+  if (collapsed) return null
   return (
     <Link
       to="/"
       className="flex min-w-0 items-center gap-2 font-semibold"
       aria-label="상속길잡이 첫 화면"
     >
-      {/* 로고: 사용자가 준 임시 이미지(시안과 같음, 나중에 바꿀 수 있음) */}
-      <img src={logoImage} alt="" className="size-7 shrink-0 rounded-md" />
-      {!collapsed && <span className="truncate">상속길잡이</span>}
+      <span className="truncate">상속길잡이</span>
     </Link>
   )
 }
