@@ -38,12 +38,13 @@ export function FeedbackMockButton({ context }: { context?: string }) {
         {FEEDBACK_MOCK_COPY.button}
       </Button>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4 sm:p-8">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="w-full max-w-md space-y-4 rounded-xl bg-card p-6 shadow-lg"
+            // 공통 모달과 같은 황금비 규칙(좁음 400px, 여백 20/32px, 사이 20px).
+            className="w-full max-w-[25rem] space-y-group rounded-xl border bg-card p-group shadow-lg sm:p-block"
           >
             <h2 id={titleId} className="text-lg font-semibold">
               {FEEDBACK_MOCK_COPY.title}

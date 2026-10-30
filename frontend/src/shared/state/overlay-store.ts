@@ -20,6 +20,7 @@ export type OverlayName =
   | "signup"
   | "forgot"
   | "account-delete"
+  | "entry"
 
 type OverlayState = {
   current: OverlayName | null

@@ -12,15 +12,20 @@
  *   - #227(새 시안 https://claude.ai/artifact/TuiF5t6g7WzBoez9bxFWov, 모양만 변경): 위쪽 줄 버튼·저장 상태를
  *     같은 크기로 맞추고, 개인정보 경고와 첫 외부 전송 안내를 한 줄로 합쳤다. 질문창은 한 줄 높이, 대화 상자는
  *     최대 420px(화면 높이 62%)로 줄였다. 보내기 조건·저장 동의·확인창 등 동작은 그대로다.
+ *   지시서(UI 전면 개편): 같은 부품을 세 가지 모양(variant)으로 쓴다 — 별도 대화 부품을 새로 만들지 않는다.
+ *   - "inline": 예전 첫 화면 자리(기본값, 기존 시험용). - "page": /ai 전체 대화 화면. 첫 화면에 대화·질문창이 바로 보이게
+ *     화면 높이를 채운다. - "floating": 체크리스트 위 플로팅 창(위쪽 줄에 [닫기]). 동작·저장·확인창은 모두 같다.
+ *   - 질문창: Enter 보내기, Shift+Enter 줄바꿈, 한글 조합 중 Enter는 무시. 빈 입력·진행 중 중복 전송은 submit()이 막는다.
  * 제한사항: 확인창 문구는 /ai와 같다.
  */
-import { History, MessageCircle, Send, Square, SquarePen, TriangleAlert } from "lucide-react"
-import { useCallback, useEffect, useId, useRef, useState } from "react"
+import { History, MessageCircle, Send, Square, SquarePen, TriangleAlert, X } from "lucide-react"
+import { type Ref, useCallback, useEffect, useId, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Notice } from "@/components/ui/notice"
 import { useStorageActions } from "@/components/ui/storage-controls"
 import { selectNamespace, useAuthStore } from "@/features/auth/auth-store"
+import { cn } from "@/lib/utils"
 import { createMockAskResponse } from "@/mocks/ai-stream"
 import { useMockAiScenarioStore } from "@/mocks/mock-ai-scenario"
 import { USE_MOCK_API } from "@/shared/api/data-source"
@@ -29,12 +34,7 @@ import { DELETE_BUTTON_LABELS } from "@/shared/content/checklist"
 import { CHAT_INPUT_POLICY } from "@/shared/contracts/ui"
 import type { StorageNamespace } from "@/shared/storage/db"
 import { createApiAskTransport } from "./ask-transport"
-import {
-  CHAT_POLICY_ITEMS,
-  CHAT_TOOL_BUTTON_CLASS,
-  ChatConsentBand,
-  PreviousConversations,
-} from "./chat-history"
+import { CHAT_POLICY_ITEMS, CHAT_TOOL_BUTTON_CLASS, PreviousConversations } from "./chat-history"
 import {
   AnsweredBubble,
   EXTERNAL_TRANSFER_NOTICE,
@@ -43,6 +43,7 @@ import {
   MAX_MANUAL_RETRIES,
   WithheldBubble,
 } from "./chat-parts"
+import { useChatStorageBridge } from "./chat-storage-bridge"
 import { useChatSessionStore } from "./chat-store"
 import { ExampleQuestions } from "./example-questions"
 import { useChatSession } from "./use-chat-session"
@@ -70,12 +71,27 @@ function useHomeChatTransport(): ChatTransport {
 }
 
 // 로그인 계정(저장 영역)이 바뀌면 대화창 전체를 새로 그린다(P1). 이전 계정의 대화·입력·진행 중 요청이 함께 정리된다.
-export function HomeChatWindow() {
-  const namespace = useAuthStore(selectNamespace)
-  return <HomeChatScreen key={namespace} namespace={namespace} />
+export type HomeChatWindowProps = {
+  variant?: "inline" | "page" | "floating"
+  // floating: 위쪽 줄 [닫기] 버튼과 그 버튼 ref(열릴 때 초점용)
+  onClose?: () => void
+  closeButtonRef?: Ref<HTMLButtonElement>
+  // floating: 저장 안 된 대화 이탈 확인(S11)이 떴을 때 닫힌 창을 다시 열어 확인창이 보이게 한다.
+  onBlocked?: () => void
 }
 
-function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
+export function HomeChatWindow(props: HomeChatWindowProps) {
+  const namespace = useAuthStore(selectNamespace)
+  return <HomeChatScreen key={namespace} namespace={namespace} {...props} />
+}
+
+function HomeChatScreen({
+  namespace,
+  variant = "inline",
+  onClose,
+  closeButtonRef,
+  onBlocked,
+}: { namespace: StorageNamespace } & HomeChatWindowProps) {
   const transport = useHomeChatTransport()
   const chat = useChatSession({ namespace, transport })
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -84,6 +100,11 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
   const counterId = useId()
   const messagesRef = useRef<HTMLElement>(null)
   const { storage, blocker } = chat
+  const fill = variant !== "inline"
+
+  useEffect(() => {
+    if (blocker.state === "blocked") onBlocked?.()
+  }, [blocker.state, onBlocked])
 
   // 새 질문·진행 단계·답변이 생기면 대화 상자 맨 아래로 내린다(상자 안에서만 스크롤).
   const turnCount = chat.turns.length
@@ -108,6 +129,23 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
     onRevoke: closeHistoryAfter(chat.revokeStorage),
   })
 
+  // 사용자 지시(2026-10-30): 저장 설정은 플로팅 [저장] 모달에서만 한다. 이 대화창의 저장 상태·동작을 모달에 올린다.
+  //   철회는 저장 설정 창 안에서 확인창·결과 안내까지 끝낸다(revoke: 지금 대화 비우기 + 기록 삭제).
+  const setBridge = useChatStorageBridge((s) => s.set)
+  useEffect(() => {
+    setBridge({
+      status: storage.status,
+      declined: storage.declined,
+      grant: chat.grantStorage,
+      decline: storage.decline,
+      revoke: () => {
+        setHistoryOpen(false)
+        return chat.revokeStorage()
+      },
+    })
+  })
+  useEffect(() => () => setBridge(null), [setBridge])
+
   // 예시 질문을 누르면 질문창에 담고, 바로 고쳐 쓰거나 보낼 수 있게 질문창으로 초점을 옮긴다(#214).
   const pickExample = (question: string) => {
     chat.setInput(question)
@@ -115,48 +153,72 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
   }
 
   return (
-    <div className="space-y-3">
-      <ExampleQuestions onPick={pickExample} />
+    <div
+      className={cn(
+        fill ? "flex h-full min-h-0 flex-col gap-2" : "space-y-3",
+        // 플로팅: 대화가 없으면 내용 높이만큼만(모바일 가독성), 대화가 생기면 창 높이를 채운다.
+        variant === "floating" &&
+          chat.hasConversation &&
+          "h-[calc(85dvh-env(safe-area-inset-bottom))] md:h-[min(40rem,calc(100dvh-7rem))]",
+      )}
+    >
+      {variant !== "floating" && <ExampleQuestions onPick={pickExample} />}
       {/* 높이는 최신 시안대로 최대 576px(36rem), 낮은 화면에서는 화면 높이의 80%. 대화는 이 상자 안에서만 스크롤한다. */}
       <section
         aria-labelledby={titleId}
-        className="flex h-[min(36rem,80dvh)] flex-col overflow-hidden rounded-xl border bg-card shadow-sm"
+        className={cn(
+          "flex flex-col overflow-hidden bg-card",
+          variant === "inline" && "h-[min(36rem,80dvh)] rounded-xl border shadow-sm",
+          variant === "page" && "min-h-0 flex-1 rounded-xl border shadow-sm",
+          variant === "floating" && "h-full max-h-full min-h-0",
+        )}
       >
         {/* 위쪽 한 줄: 제목과 도구. 버튼·저장 상태는 모두 같은 크기(CHAT_TOOL_BUTTON_CLASS)다. */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 sm:px-4">
-          <h2 id={titleId} className="flex items-center gap-2 font-semibold leading-none">
-            <MessageCircle className="size-4 text-muted-foreground" aria-hidden />
-            AI에게 질문하기
+        {/* 사용자 지시: 모바일(393px)에서도 제목과 버튼 3개([이전 대화]·[새 대화]·[닫기])가 한 줄. 좁으면 제목이 말줄임되고
+            [이전 대화]는 "이전"만 보인다(화면낭독기 이름은 그대로). 저장 설정은 플로팅 [저장]으로 옮겼다. */}
+        <div className="flex items-center gap-2 border-b px-3 py-2 sm:px-4">
+          <h2
+            id={titleId}
+            className="flex min-w-0 flex-1 items-center gap-2 font-semibold leading-none"
+          >
+            <MessageCircle className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate">AI에게 질문하기</span>
           </h2>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5">
+            {variant === "floating" && onClose && (
+              <Button
+                ref={closeButtonRef}
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="order-last size-9 px-0"
+                aria-label="대화창 닫기"
+                onClick={onClose}
+              >
+                <X className="size-5" aria-hidden />
+              </Button>
+            )}
             {chat.saving && (
               <Button
                 variant="outline"
                 size="sm"
-                className={CHAT_TOOL_BUTTON_CLASS}
+                className={cn(CHAT_TOOL_BUTTON_CLASS, "max-sm:px-2.5")}
                 aria-expanded={historyOpen}
                 onClick={() => setHistoryOpen((open) => !open)}
               >
                 <History className="size-3.5" aria-hidden />
-                이전 대화 {historyOpen ? "▴" : "▾"}
+                이전 <span className="max-sm:sr-only">대화 {historyOpen ? "▴" : "▾"}</span>
               </Button>
             )}
             <Button
               variant="outline"
               size="sm"
-              className={CHAT_TOOL_BUTTON_CLASS}
+              className={cn(CHAT_TOOL_BUTTON_CLASS, "max-sm:px-2.5")}
               onClick={chat.requestNewChat}
               disabled={chat.turns.length === 0 && !chat.running && !chat.hasUnsent}
             >
               <SquarePen className="size-3.5" aria-hidden />새 대화
             </Button>
-            <ChatConsentBand
-              status={storage.status}
-              declined={storage.declined}
-              onGrant={chat.grantStorage}
-              onDecline={storage.decline}
-              onRevoke={() => historyActions.request("revoke")}
-            />
           </div>
         </div>
 
@@ -200,7 +262,14 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
           className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4"
         >
           {chat.turns.length === 0 && !chat.pendingQuestion && (
-            <p className="m-auto text-base text-muted-foreground">궁금한 것을 물어보세요.</p>
+            <p
+              className={cn(
+                "m-auto text-base text-muted-foreground",
+                variant === "floating" && "py-6",
+              )}
+            >
+              궁금한 것을 물어보세요.
+            </p>
           )}
           {chat.turns.map((turn) => (
             <div key={turn.id} className="space-y-2">
@@ -284,6 +353,12 @@ function HomeChatScreen({ namespace }: { namespace: StorageNamespace }) {
               id={inputId}
               value={chat.input}
               onChange={(event) => chat.setInput(event.target.value)}
+              // Enter 보내기 · Shift+Enter 줄바꿈 · 한글 조합 중 Enter는 글자 확정이라 보내지 않는다.
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return
+                event.preventDefault()
+                chat.submit()
+              }}
               // 시안: 한 줄 높이로 줄여 대화 영역을 넓힌다. 긴 질문은 칸 안에서 스크롤된다.
               rows={1}
               placeholder="예: 상속포기 기한이 언제부터인가요?"

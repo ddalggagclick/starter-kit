@@ -16,6 +16,7 @@ import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { grantConsent } from "@/shared/storage/consent"
 import { accountNamespace, GUEST_NAMESPACE, inheritanceDb } from "@/shared/storage/db"
 import { ChatConsentBand } from "./chat-history"
+import { useChatStorageBridge } from "./chat-storage-bridge"
 import { useChatSessionStore } from "./chat-store"
 
 const ANSWER_TIMEOUT = { timeout: 6000 }
@@ -43,14 +44,23 @@ const ask = async (question: string) => {
   )
 }
 
+// 사용자 지시(2026-10-30): AI 대화 저장 설정은 대화창이 아니라 플로팅 [저장 설정] 모달 안 "AI 대화 저장" 칸에 있다.
+const chatStorageStatus = () => useChatStorageBridge.getState().current?.status
+const waitChatStorageLoaded = () =>
+  waitFor(() => expect(["not-consented", "ready", "failed"]).toContain(chatStorageStatus()))
+const openSaveSettings = async () => {
+  fireEvent.click(screen.getByRole("button", { name: "저장 설정" }))
+  return await screen.findByRole("region", { name: "AI 대화 저장" })
+}
 const consentInBand = async () => {
-  const band = await screen.findByRole("region", { name: "AI 대화 저장" })
-  // #197: 동의는 [저장 설정]을 눌러 여는 모달에서 받는다(모달은 띠 안에 그려진다).
-  fireEvent.click(within(band).getByRole("button", { name: "저장 설정" }))
-  fireEvent.click(within(band).getByLabelText("AI 대화 저장 정책을 확인했습니다"))
-  fireEvent.click(within(band).getByRole("button", { name: "저장" }))
-  // #227: 저장 상태는 대화창 위쪽 줄의 작은 표시(role="status")로 보인다.
-  await screen.findByText("저장 중", { selector: "[role=status]" })
+  await waitChatStorageLoaded()
+  const section = await openSaveSettings()
+  fireEvent.click(within(section).getByLabelText("AI 대화 저장 정책을 확인했습니다"))
+  fireEvent.click(within(section).getByRole("button", { name: "저장" }))
+  await within(section).findByText("저장 중", { selector: "[role=status]" })
+  // 모달을 닫고 대화창으로 돌아간다.
+  fireEvent.keyDown(document, { key: "Escape" })
+  await waitFor(() => expect(screen.queryByRole("region", { name: "AI 대화 저장" })).toBeNull())
 }
 
 const conversationCount = (namespace = GUEST_NAMESPACE) =>
@@ -71,7 +81,7 @@ describe("AI 대화 저장 동의 (4-1-1, D-03)", () => {
   it("체크리스트 동의만 있으면 AI 대화는 저장하지 않는다", async () => {
     await grantConsent(inheritanceDb, GUEST_NAMESPACE, "checklist")
     renderAi()
-    await screen.findByRole("region", { name: "AI 대화 저장" })
+    await waitChatStorageLoaded()
 
     await ask("상속세")
 
@@ -140,7 +150,7 @@ describe("W-07 삭제·철회 (4-3-1~4-3-3)", () => {
     ).toBeTruthy()
     expect(await conversationCount()).toBe(0)
     expect(screen.queryByText("공식 출처")).toBeNull()
-    expect(screen.getByText("저장 중", { selector: "[role=status]" })).toBeTruthy()
+    expect(chatStorageStatus()).toBe("ready")
   }, 15_000)
 
   it("동의 철회 뒤 대화가 지워지고 동의 띠가 다시 나타난다", async () => {
@@ -149,12 +159,9 @@ describe("W-07 삭제·철회 (4-3-1~4-3-3)", () => {
     await ask("상속세")
     await waitFor(async () => expect(await conversationCount()).toBe(1))
 
-    // #227: 철회는 "✓ 저장 중"을 눌러 여는 저장 설정 모달 안에 있다.
-    fireEvent.click(screen.getByRole("button", { name: /AI 대화 저장 중/ }))
+    // 철회는 플로팅 [저장 설정] 모달의 "AI 대화 저장" 칸에 있다. 확인창은 대화창에서 뜬다.
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "AI 대화 저장" })).getByRole("button", {
-        name: "저장 동의 철회",
-      }),
+      within(await openSaveSettings()).getByRole("button", { name: "저장 동의 철회" }),
     )
     fireEvent.click(
       within(
@@ -165,7 +172,7 @@ describe("W-07 삭제·철회 (4-3-1~4-3-3)", () => {
     expect(
       await screen.findByText(/저장 동의를 철회하고 이 기기의 AI 대화 기록을 삭제했습니다/),
     ).toBeTruthy()
-    expect(await screen.findByRole("region", { name: "AI 대화 저장" })).toBeTruthy()
+    await waitFor(() => expect(chatStorageStatus()).toBe("not-consented"))
     expect(await conversationCount()).toBe(0)
   }, 15_000)
 })
@@ -238,7 +245,7 @@ describe("저장 안 된 대화 이탈 확인 (S11, D-11)", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "취소" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
-    expect(router.state.location.pathname).toBe("/")
+    expect(router.state.location.pathname).toBe("/ai")
   }, 15_000)
 
   it("[저장 없이 이동]은 저장하지 않고 이동한다", async () => {
@@ -265,7 +272,7 @@ describe("저장 안 된 대화 이탈 확인 (S11, D-11)", () => {
 
   it("저장 중이거나 대화·입력이 없으면 묻지 않고 이동한다", async () => {
     const router = renderAi()
-    await screen.findByRole("region", { name: "AI 대화 저장" })
+    await waitChatStorageLoaded()
     leaveTo("체크리스트")
     await waitFor(() => expect(router.state.location.pathname).toBe("/checklist"))
   })
@@ -315,7 +322,7 @@ describe("계정별 대화 분리 (4-2-2)", () => {
 
     act(() => useAuthStore.getState().signIn({ accountId: "user-b", email: "b@example.com" }))
     // B는 대화 저장 동의 전이라 이전 대화 목록 자체가 없다.
-    await screen.findByRole("region", { name: "AI 대화 저장" })
+    await waitFor(() => expect(chatStorageStatus()).toBe("not-consented"))
     expect(screen.queryByRole("button", { name: /이전 대화/ })).toBeNull()
     expect(screen.queryByText("A의 질문")).toBeNull()
   }, 15_000)

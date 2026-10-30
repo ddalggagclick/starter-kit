@@ -90,7 +90,7 @@ export function InitialQuestionsPage() {
   const errorCount = Object.keys(errors).length
 
   return (
-    <div className={cn("space-y-5", !inOverlay && "mx-auto max-w-2xl")}>
+    <div className={cn("space-y-group", !inOverlay && "mx-auto max-w-2xl")}>
       <div className="space-y-2 pr-8">
         <h1 className="text-lg font-semibold leading-none">{INITIAL_QUESTION_COPY.title}</h1>
         <p className="text-sm text-muted-foreground">{INITIAL_QUESTION_COPY.description}</p>

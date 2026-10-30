@@ -6,10 +6,12 @@
  * 구현: 제목·부제 → 본문 → 아래쪽 [공식 사이트 링크] · [닫기]. [닫기]는 모달만 닫는다.
  * 제한사항: 개인별 상속인 판정·세액 계산을 하지 않는다.
  */
+
 import { ExternalLink } from "lucide-react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { useOverlayStore } from "@/shared/state/overlay-store"
+import { CitedText } from "./cited-text"
 
 function ModalFrame({
   title,
@@ -24,7 +26,8 @@ function ModalFrame({
 }) {
   const close = useOverlayStore((s) => s.close)
   return (
-    <div className="space-y-4">
+    // 모달 간격 리듬: 머리말 ↔ 내용 group 20px, 제목 ↔ 설명 8px(황금비 규칙, modal.tsx).
+    <div className="space-y-group">
       <div className="space-y-2 pr-8">
         <h2 className="text-lg font-semibold leading-none">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>
@@ -91,10 +94,11 @@ export function RelationshipModal() {
       </div>
       <ul className="list-disc space-y-1.5 pl-5 text-base text-muted-foreground sm:text-sm">
         <li>
-          같은 순위의 상속인이 여러 명이면 촌수가 가장 가까운 사람이 먼저 상속인이 되고, 촌수가 같은
-          사람이 여러 명이면 함께 상속인이 됩니다. (민법 제1000조 제2항)
+          <CitedText text="같은 순위의 상속인이 여러 명이면 촌수가 가장 가까운 사람이 먼저 상속인이 되고, 촌수가 같은 사람이 여러 명이면 함께 상속인이 됩니다. (민법 제1000조 제2항)" />
         </li>
-        <li>태아는 상속 순위에서 이미 태어난 것으로 봅니다. (민법 제1000조 제3항)</li>
+        <li>
+          <CitedText text="태아는 상속 순위에서 이미 태어난 것으로 봅니다. (민법 제1000조 제3항)" />
+        </li>
       </ul>
     </ModalFrame>
   )
@@ -110,11 +114,15 @@ export function TaxModal() {
       <div className="rounded-xl border p-4">
         <p className="text-xs font-medium text-muted-foreground">신고 기한</p>
         <p className="mt-1 text-xl font-semibold">달 말일부터 6개월</p>
-        <p className="mt-1 text-base text-muted-foreground sm:text-sm">
-          상속개시일이 속하는 달의 말일부터 6개월 이내 (상속세 및 증여세법 제67조 제1항)
-          <br />
-          피상속인이나 상속인이 외국에 주소를 둔 경우 9개월 (같은 법 제67조 제4항)
-        </p>
+        {/* 근거 조문 괄호는 다음 줄로(사용자 지시: "6개월 이내" 다음 괄호는 다음 줄). */}
+        <div className="mt-1 space-y-2 text-base text-muted-foreground sm:text-sm">
+          <p>
+            <CitedText text="상속개시일이 속하는 달의 말일부터 6개월 이내 (상속세 및 증여세법 제67조 제1항)" />
+          </p>
+          <p>
+            <CitedText text="피상속인이나 상속인이 외국에 주소를 둔 경우 9개월 (같은 법 제67조 제4항)" />
+          </p>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3 text-base sm:text-sm">
         <div className="rounded-xl border p-4">

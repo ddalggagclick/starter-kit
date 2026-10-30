@@ -6,6 +6,7 @@
  *   "신청 완료가 아님"은 마우스를 올리면 뜨는 짧은 설명(title)으로만 알리고, 화면낭독기는 같은 문장을 읽는다.
  *   체크는 화면 표시만 바꾸며 카드 순서·숨김은 바꾸지 않는다(2-5-2).
  *   #227 새 시안(모양만): 체크리스트 버튼은 폭을 맞추고, 읽기 전에도 회색 ✓ 동그라미를 보여 누르면 초록이 됨을 알린다.
+ *   사용자 지시: 상세 버튼 이름도 [다 읽었어요] 대신 늘 [읽음]이고, 누르면 진한 초록 바탕·흰 글자로 켜진다.
  * 제한사항: '안내 확인'은 읽음 표시이며 법원·기관 신고·신청 완료가 아니다(Q71).
  */
 import { useId } from "react"
@@ -15,7 +16,7 @@ import { countGuidance, useInheritanceStore } from "@/shared/state/inheritance-s
 
 export const GUIDANCE_READ_HINT = "읽었다는 표시예요. 신청·신고 완료가 아닙니다."
 
-// variant: card = 체크리스트 카드(작게, 읽기 전), detail = 절차 상세(크게, 다 읽었어요 + 읽은 개수)
+// variant: card = 체크리스트 카드(작게), detail = 절차 상세(크게, 읽은 개수 함께)
 export function GuidanceReadToggle({
   procedureId,
   variant = "card",
@@ -29,15 +30,8 @@ export function GuidanceReadToggle({
   const hintId = useId()
   const read = state.guidanceRead && !state.needsRecheck
   // 최신 시안: 체크리스트 버튼은 늘 "읽음"이고 회색 → 초록으로 상태를 보인다(aria-pressed로 읽힘).
-  //   상세 버튼은 [다 읽었어요] → [✓ 읽음], 재확인이 필요하면 [다시 확인하기].
-  const label =
-    variant === "card"
-      ? "읽음"
-      : read
-        ? "읽음"
-        : state.needsRecheck
-          ? "다시 확인하기"
-          : "다 읽었어요"
+  //   상세 버튼도 늘 [읽음]이고, 켜지면 진한 초록 바탕으로 바뀐다. 재확인 필요는 제목 옆 배지로 알린다.
+  const label = "읽음"
 
   return (
     <span className="inline-flex items-center gap-3">
@@ -53,7 +47,9 @@ export function GuidanceReadToggle({
             ? "px-4 py-1.5 text-base"
             : "min-w-[5.25rem] justify-center px-3 py-1 text-sm",
           read
-            ? "border-success-foreground bg-success text-success-foreground"
+            ? variant === "detail"
+              ? "border-success-foreground bg-success-foreground text-white shadow-sm"
+              : "border-success-foreground bg-success text-success-foreground"
             : variant === "card"
               ? "border-input bg-card text-muted-foreground hover:bg-muted"
               : "border-input bg-card text-foreground hover:bg-muted",
@@ -64,13 +60,13 @@ export function GuidanceReadToggle({
           className={cn(
             "inline-grid size-4 place-items-center rounded-full border-2 text-[10px] leading-none",
             read
-              ? "border-success-foreground bg-success-foreground text-card"
-              : variant === "card"
-                ? "border-input text-input"
-                : "border-muted-foreground",
+              ? variant === "detail"
+                ? "border-white bg-white text-success-foreground"
+                : "border-success-foreground bg-success-foreground text-card"
+              : "border-input text-input",
           )}
         >
-          {read || variant === "card" ? "✓" : ""}
+          ✓
         </span>
         {label}
       </button>

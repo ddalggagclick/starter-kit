@@ -37,8 +37,12 @@ beforeEach(async () => {
     </QueryClientProvider>,
   )
   await screen.findByText(/이 기기에 저장한 답변을 불러왔습니다/)
-  // #227: 저장 중이면 초록 ✓ "기기 저장" 칸이 보인다.
-  await screen.findByText("기기 저장", { selector: "[role=status]" })
+  // [체크리스트 삭제]는 목록 아래에 늘 보이고, 기기에 저장된 기록을 불러오면 누를 수 있게 된다.
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("button", { name: "체크리스트 삭제" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  )
 })
 afterEach(cleanup)
 
@@ -74,11 +78,12 @@ describe("W-02 삭제·철회", () => {
   })
 
   it("동의 철회 뒤 기록과 동의가 사라지고 완료 안내가 남는다", async () => {
-    // #227: 철회는 [저장] 모달 안에서 한다.
-    const band = screen.getByRole("region", { name: "체크리스트 저장" })
-    fireEvent.click(within(band).getByRole("button", { name: "저장" }))
+    // 철회는 플로팅 [저장 설정] 창의 "체크리스트 저장" 칸에서 한다.
+    fireEvent.click(screen.getByRole("button", { name: "저장 설정" }))
+    const device = await screen.findByRole("region", { name: "이 기기 저장" })
+    await within(device).findByText("저장 중", { selector: "[role=status]" })
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "체크리스트 저장" })).getByRole("button", {
+      within(device).getByRole("button", {
         name: "저장 동의 철회",
       }),
     )

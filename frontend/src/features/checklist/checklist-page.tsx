@@ -15,15 +15,21 @@
  *   - 입장 순서(사용자 요청 2026-10-29): 답하기 전에 들어오면 질문 3개 모달이 먼저 뜬다. 빈 화면("먼저 상황을 알려주세요")은
  *     이 화면에서 [체크리스트 삭제]를 한 직후에만 그대로 보인다. 카카오 링크 처리 중·실패, 저장 기록을 읽는 중,
  *     서버에서 불러올 기록이 있을 때(불러오기 선택을 보여야 함)는 모달을 띄우지 않는다.
+ *   사용자 지시(2026-10-30 최신): 저장은 플로팅 [저장]에서만 — 이 기기 저장·서버 저장([서버 기록 불러오기] 포함)·
+ *   (단, [체크리스트 삭제]는 사용자 지시로 목록 맨 아래 원래 자리에 남긴다) 플로팅 [저장]의 저장 설정 창(storage-settings.tsx)으로 옮겼다.
+ *   (이전) 추가 개선 지시서 3·4장: 저장 띠·서버 저장 띠([서버 기록 불러오기] 포함)·[체크리스트 삭제]를 다시 이 화면에 둔다.
+ *   띠의 [저장]과 플로팅 [저장]은 같은 저장 모달을 연다. (이전 메모) 저장 상태·동의·철회·서버 저장·[체크리스트 삭제]는 화면에서 빼고 플로팅 [저장] 버튼의
+ *   저장 설정 창(storage-settings.tsx)으로 옮겼다. 부품·동작은 그대로다.
  * 제한사항: '안내 확인' 개수를 신고·신청 완료율로 표현하지 않는다.
  */
 import { ArrowRight, Check, ChevronRight, SquarePen, Trash2, TriangleAlert } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { Link } from "react-router"
+import { Link, useLocation } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Notice, WarningPill } from "@/components/ui/notice"
 import { selectNamespace, useAuthStore } from "@/features/auth/auth-store"
-import { useHandoff } from "@/features/kakao/use-handoff"
+import { HANDOFF_QUERY_KEY } from "@/features/kakao/handoff"
+import { useHandoff, useHandoffFlight } from "@/features/kakao/use-handoff"
 import { procedureNumber, useProcedureList } from "@/features/procedures/api"
 import {
   GUIDANCE_READ_HINT,
@@ -45,12 +51,12 @@ import { MOCK_DEADLINE_TAGS } from "@/shared/content/procedures"
 import type { InitialAnswers, ProcedureId } from "@/shared/contracts/domain"
 import { useInheritanceStore } from "@/shared/state/inheritance-store"
 import { useOverlayStore } from "@/shared/state/overlay-store"
-import { ChecklistConsentBand } from "./checklist-consent-band"
+import { useChecklistSaveModal } from "./checklist-consent-band"
 import { useChecklistStorageStore } from "./checklist-storage"
 import { useChecklistStorageActions } from "./checklist-storage-controls"
+import { markEntryGatewayShown } from "./entry-gateway"
 import { RiskQuestions } from "./risk-questions"
 import { useServerChecklistStore } from "./server-checklist"
-import { ServerSaveBand } from "./server-save-band"
 
 // 시안 제목 크기(모바일 24px, 640px 이상 28px)
 const PAGE_TITLE = "text-2xl font-bold leading-snug sm:text-[1.75rem]"
@@ -160,14 +166,15 @@ function ProcedureList() {
               {read ? "✓" : procedureNumber(id)}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {/* 제목 링크를 항목 전체로 넓혀(after:absolute) 어디를 눌러도 상세로 간다. */}
-                <Link
-                  to={`/procedures/${id}`}
-                  className="text-[17px] font-semibold leading-7 outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
-                >
-                  {procedure.name}
-                </Link>
+              {/* 제목 링크를 항목 전체로 넓혀(after:absolute) 어디를 눌러도 상세로 간다.
+                  지시서 4장: 번호·제목은 한 줄, 주의 칩은 제목 바로 아래 줄, 설명은 더 작은 글씨. */}
+              <Link
+                to={`/procedures/${id}`}
+                className="block text-[17px] font-semibold leading-7 outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
+              >
+                {procedure.name}
+              </Link>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 empty:hidden">
                 {MOCK_DEADLINE_TAGS[id] && (
                   <span className="inline-flex items-center gap-1 rounded-md bg-danger px-2 py-0.5 text-xs font-medium text-danger-foreground">
                     <TriangleAlert className="size-3" aria-hidden />
@@ -201,7 +208,11 @@ function ProcedureList() {
 }
 
 export function ChecklistPage() {
-  const handoff = useHandoff()
+  // 이 화면이 받은 인계 상태. 다른 화면에서 이미 받는 중이면(교환 중 이동 후 복귀) 그것도 "받는 중"으로 본다.
+  const localHandoff = useHandoff()
+  const handoffInFlight = useHandoffFlight((s) => s.inFlight)
+  const handoff = localHandoff === "none" && handoffInFlight ? "exchanging" : localHandoff
+  const { search } = useLocation()
   const answers = useInheritanceStore((s) => s.answers)
   const entrySource = useInheritanceStore((s) => s.entrySource)
   const openOverlay = useOverlayStore((s) => s.open)
@@ -225,9 +236,19 @@ export function ChecklistPage() {
     prompted.current = true
     openOverlay("start")
   }, [answers, handoff, storageStatus, serverPending, deletedHere, openOverlay])
+  // 사용자 지시(2026-10-30): 카카오 인계 링크(/checklist?handoff=…, openapi J1)로 온 사용자는 첫 화면(/)을 거치지 않아
+  //   진입 선택 창을 못 본다. 인계 답을 받는 동안 같은 진입 선택 창을 한 번 연다(이 탭에서 이미 봤으면 열지 않음).
+  //   주소에서 토큰을 지운 뒤에 연다(주소가 바뀌면 열린 창을 닫는 앱 규칙에 바로 닫히지 않게). 받은 답은 화면을 떠나도
+  //   버리지 않으므로(use-handoff) 창에서 AI를 골라도 안전하다. [체크리스트로 시작하기]면 스켈레톤으로 기다린다.
+  const tokenInAddress = new URLSearchParams(search).has(HANDOFF_QUERY_KEY)
+  useEffect(() => {
+    // 응답이 아주 빨라 창을 열기 전에 끝났어도(이 화면에서 막 성공) 한 번은 연다. 실패면 실패 안내를 가리지 않는다.
+    const handoffArrived = handoff === "exchanging" || localHandoff === "success"
+    if (handoffArrived && !tokenInAddress && markEntryGatewayShown()) openOverlay("entry")
+  }, [handoff, localHandoff, tokenInAddress, openOverlay])
 
   if (handoff === "exchanging") {
-    return <p role="status">카카오톡에서 답한 내용을 불러오는 중…</p>
+    return <ChecklistSkeleton />
   }
 
   if (handoff === "failed" && !failureDismissed) {
@@ -278,11 +299,9 @@ export function ChecklistPage() {
             <ArrowRight className="size-4" aria-hidden />
           </Button>
         </div>
-        {/* 삭제·철회 직후 이 화면으로 바뀌어도 결과 안내가 보이고, 답이 없어도 [저장]에서 동의를 철회할 수 있다. */}
-        <ChecklistStorageArea />
-        {/* 서버 쪽도 같다: 이 기기 기록을 지운 뒤에도 서버 철회·실패 재시도를 할 수 있고(검증 ②),
-            새 기기에서 로그인하면 답이 없어도 서버 기록을 불러올 수 있다(4-6-3, 리뷰 반영). */}
-        <ServerSaveBand />
+        {/* 답이 없어도 플로팅 [저장]에서 동의 철회·서버 철회·실패 재시도·서버 기록 불러오기(4-6-3)를 할 수 있다. */}
+        {/* [체크리스트 삭제] 직후 이 화면으로 바뀌어도 결과 안내가 남는다(공용 결과 상태). */}
+        <ChecklistStorageResult />
       </div>
     )
   }
@@ -290,15 +309,53 @@ export function ChecklistPage() {
   return <AnsweredChecklist key={namespace} answers={answers} entrySource={entrySource} />
 }
 
-// 답이 없는 화면의 저장 칸: 상태 + [저장](철회) + 결과 안내
-function ChecklistStorageArea() {
-  const storage = useChecklistStorageActions()
+// 카카오 인계 답을 받는 동안 보이는 체크리스트 모양 스켈레톤(사용자 지시 2026-10-30). 움직임은 은은한 깜빡임만.
+// 화면낭독기에는 "불러오는 중"을 알리고, 모양 칸들은 읽지 않는다.
+// 공통 절차 8개 자리(고정 이름: 목록 순서가 바뀌지 않는 꾸밈용 칸).
+const SKELETON_ROWS = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"]
+
+function ChecklistSkeleton() {
+  const bar = "rounded-md bg-muted motion-safe:animate-pulse"
   return (
-    <>
-      <ChecklistConsentBand onRevoke={() => storage.request("revoke")} />
-      {storage.view}
-    </>
+    <div role="status" aria-busy="true" className="space-y-block md:space-y-section">
+      <span className="sr-only">카카오톡에서 답한 내용을 불러오는 중…</span>
+      <div aria-hidden className="space-y-item">
+        <p className="text-sm text-muted-foreground">카카오톡에서 답한 내용을 불러오는 중…</p>
+        <div className={cn(bar, "h-8 w-2/3 max-w-sm")} />
+        <div className={cn(bar, "h-7 w-full max-w-md")} />
+      </div>
+      <div aria-hidden className="space-y-item border-y py-4">
+        <div className={cn(bar, "h-5 w-24")} />
+        <div className="grid gap-2 sm:grid-cols-3">
+          {[0, 1, 2].map((n) => (
+            <div key={n} className={cn(bar, "h-12")} />
+          ))}
+        </div>
+      </div>
+      <div aria-hidden className="space-y-item">
+        <div className={cn(bar, "h-7 w-40")} />
+        <ol className="divide-y rounded-xl border bg-card">
+          {SKELETON_ROWS.map((row) => (
+            <li key={row} className="flex items-start gap-3 px-4 py-3.5 sm:gap-4 sm:px-5">
+              <div className="size-7 shrink-0 rounded-full bg-muted motion-safe:animate-pulse" />
+              <div className="flex-1 space-y-2">
+                <div className={cn(bar, "h-5 w-1/2")} />
+                <div className={cn(bar, "h-4 w-5/6")} />
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
   )
+}
+
+// 삭제·철회 결과 안내(확인창 포함). 결과는 공용 상태라 화면이 바뀌어도 이어서 보인다.
+// 저장 설정 창이 열려 있으면 창 안에서 같은 결과를 보이므로 화면 쪽은 겹쳐 보이지 않는다.
+function ChecklistStorageResult() {
+  const view = useChecklistStorageActions().view
+  const saveModalOpen = useChecklistSaveModal((s) => s.open)
+  return saveModalOpen ? null : <>{view}</>
 }
 
 function AnsweredChecklist({
@@ -310,8 +367,10 @@ function AnsweredChecklist({
 }) {
   const openOverlay = useOverlayStore((s) => s.open)
   const storage = useChecklistStorageActions()
+  const saveModalOpen = useChecklistSaveModal((s) => s.open)
   return (
-    <div className="space-y-8">
+    // 구획(머리말·내 답변·위험 질문·공통 절차) 사이: 모바일 block 32px, 데스크톱 section 56px(황금비 간격 리듬).
+    <div className="space-y-block md:space-y-section">
       <header className="space-y-3">
         <h1 className={PAGE_TITLE}>지금 확인할 공통 절차</h1>
         <WarningPill>
@@ -349,9 +408,6 @@ function AnsweredChecklist({
           </Button>
         </div>
         <AnswerSummary answers={answers} />
-        <ChecklistConsentBand onRevoke={() => storage.request("revoke")} />
-        {storage.view}
-        <ServerSaveBand />
       </section>
 
       <RiskQuestions />
@@ -365,20 +421,26 @@ function AnsweredChecklist({
           <GuidanceProgress />
         </div>
         <ProcedureList />
-        {/* 체크리스트 삭제: 목록 바로 아래, 눈에 덜 띄게(저장 중일 때만) */}
-        {storage.available && (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              disabled={storage.busy}
-              onClick={() => storage.request("delete")}
-              className="inline-flex items-center gap-1.5 px-1 text-sm text-muted-foreground underline-offset-4 hover:text-danger-foreground hover:underline"
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-              {DELETE_BUTTON_LABELS.checklist}
-            </button>
-          </div>
-        )}
+        {/* 사용자 지시: [체크리스트 삭제]는 상속 공통 절차 목록 바로 아래에 늘 보인다. 기기에 저장된 기록이 있을 때만
+            누를 수 있고(기존 4-3 동작·확인창 그대로), 없으면 누를 수 없는 이유를 짧게 함께 보인다. */}
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+          {!storage.available && (
+            <span id="checklist-delete-hint" className="text-xs text-muted-foreground">
+              기기에 저장된 기록이 있을 때 지울 수 있어요.
+            </span>
+          )}
+          <button
+            type="button"
+            disabled={storage.busy || !storage.available}
+            aria-describedby={storage.available ? undefined : "checklist-delete-hint"}
+            onClick={() => storage.request("delete")}
+            className="inline-flex min-h-11 items-center gap-1.5 px-1 text-sm text-muted-foreground underline-offset-4 enabled:hover:text-danger-foreground enabled:hover:underline disabled:opacity-50"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            {DELETE_BUTTON_LABELS.checklist}
+          </button>
+        </div>
+        {!saveModalOpen && storage.view}
       </section>
     </div>
   )
