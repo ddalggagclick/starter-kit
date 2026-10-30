@@ -18,11 +18,42 @@ type AuthState = {
   signOut: () => void
 }
 
+// 사용자 요청: "로그인됨" 대신 메일 주소를 보인다. 새로고침 복구 응답에는 이메일이 없어(A21 미확정),
+// 로그인한 탭 안에서만(sessionStorage, 탭을 닫으면 사라짐) 계정 ID와 짝지어 기억한다. 토큰은 두지 않는다.
+const EMAIL_KEY = "inheritance.login-email"
+const rememberEmail = (accountId: string, email: string) => {
+  try {
+    sessionStorage.setItem(EMAIL_KEY, JSON.stringify({ accountId, email }))
+  } catch {}
+}
+const recallEmail = (accountId: string): string | null => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(EMAIL_KEY) ?? "null") as {
+      accountId?: string
+      email?: string
+    } | null
+    return saved?.accountId === accountId && typeof saved.email === "string" ? saved.email : null
+  } catch {
+    return null
+  }
+}
+const forgetEmail = () => {
+  try {
+    sessionStorage.removeItem(EMAIL_KEY)
+  } catch {}
+}
+
 export const useAuthStore = create<AuthState>()((set) => ({
   accountId: null,
   email: null,
-  signIn: ({ accountId, email }) => set({ accountId, email }),
-  signOut: () => set({ accountId: null, email: null }),
+  signIn: ({ accountId, email }) => {
+    if (email) rememberEmail(accountId, email)
+    set({ accountId, email: email ?? recallEmail(accountId) })
+  },
+  signOut: () => {
+    forgetEmail()
+    set({ accountId: null, email: null })
+  },
 }))
 
 export const selectNamespace = (state: Pick<AuthState, "accountId">): StorageNamespace =>
