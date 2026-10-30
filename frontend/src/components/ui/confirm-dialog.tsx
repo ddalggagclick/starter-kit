@@ -41,12 +41,13 @@ export function ConfirmDialog({
   }, [onCancel])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-8">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-md space-y-4 rounded-lg border bg-card p-5 text-card-foreground shadow-lg sm:p-6"
+        // 공통 모달과 같은 황금비 규칙(좁음 400px, 여백 20/32px, 사이 20px, 모서리 14px).
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-[25rem] space-y-group overflow-y-auto rounded-xl border bg-card p-group text-card-foreground shadow-lg sm:p-block"
       >
         <h2 id={titleId} className="text-lg font-semibold leading-snug">
           {title}
