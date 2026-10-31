@@ -28,6 +28,7 @@ dev = [
     "starter-rag[ingestion]",
     "starter-llm[ollama]",  # 로컬 개발용 추가 기능; 운영 설치에서는 제외
 ]
+bootstrap = ["cryptography>=44,<51"]
 
 [tool.ruff]
 target-version = "py313"
