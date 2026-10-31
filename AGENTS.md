@@ -4,7 +4,7 @@
 
 # 상속길잡이 × AI 서비스 스타터킷 — 코딩 에이전트 규칙
 
-> **반드시 먼저 읽기.** 이 저장소는 계약 우선(contract-first) 스캐폴드입니다. **전체 아키텍처는 아직 미승인**이며 현재 코드는 운영 완료물이 아닙니다.
+> **반드시 먼저 읽기.** 이 저장소는 계약 우선(contract-first) 스캐폴드입니다. 전체 아키텍처와 ERD는 최종 승인되지 않았습니다. 개별 기능의 구현·검증 완료를 운영 배포 승인으로 간주하지 않습니다.
 > 사용자가 명확히 승인하지 않은 설계 변경, ERD/테이블 생성, 기능 추가 또는 범위 확대를 하지 마세요.
 
 ## 1. 시작 전 필수 행동
@@ -18,11 +18,11 @@
 ## 2. 현재 아키텍처와 의존 방향 (변경 금지)
 
 - `frontend/`: **[A]** React 19 + TypeScript + Vite 8 + Tailwind v4 + shadcn/ui 호환 패턴; REST는 **공통 Axios** 단일 인스턴스, **POST SSE 응답만 fetch + ReadableStream**. Zustand는 임시 UI 상태, Dexie 4는 체크리스트/채팅 동의를 분리해 허용된 데이터만 IndexedDB 보관.
-- `backend/src/inheritance/`: **상속 전용 FastAPI**. `[B]` `checklist/`, `chat/`, `law/`; `[C]` `kakao/` 및 `kakao/handoff/`; `[통합]` `auth/`, `core/`, `contracts/`, `main.py`, Alembic/DB 세션. HTTP 메서드·경로·JSON·SSE의 상세 전송 계약은 **API 담당자**가 소유한다.
+- `backend/src/inheritance/`: **상속 전용 FastAPI**. `[B]` `checklist/`, `chat/`, `law/`; `[C]` `kakao/` 및 `kakao/handoff/`; `[통합]` `auth/`, `core/`, `contracts/`, `main.py`, Alembic/DB 세션. `backend/app_entry.py`는 공개 Port를 조립하는 실행 진입점이다. HTTP 메서드·경로·JSON·SSE의 상세 전송 계약은 **API 담당자**가 소유한다.
 - `llm/starter_llm/`: **[C]** 독립 Python 패키지. LangChain Core + `ChatGoogleGenerativeAI` / `ChatGroq` / `ChatOllama`는 `ModelPort.generate/stream` 뒤에 감춘다. Backend는 SDK/내부 LangChain 객체를 import하지 않는다.
 - `rag/starter_rag/`: **[D]** 독립 Python 패키지. Docling/EmbeddingGemma 2(768d)/PostgreSQL pgvector `PGVectorStore` 구현. Backend는 `SearchPort.search`와 공개 DTO만 안다. 검수 후 게시된 안내 자료만 검색 가능; **법령 원문을 RAG에 벡터 저장 금지**.
 - 외부 연결: Frontend → Backend HTTP; Backend → LLM/RAG 공개 Port. **LLM/RAG → Backend 역참조 금지**, `llm ↔ rag` 서로 import 금지, 순환 의존 금지.
-- 법령: `backend/law/`에서 `korean-law-mcp`로 조문·연혁을 가져오고, **관련 부칙 전문은 법제처 공식 OPEN API**로 조회. 해당 개정 법률의 자동 후보 선정은 필요할 때 검증 후 구현하는 조건부 업무.
+- 법령: `backend/src/inheritance/law/`에서 `korean-law-mcp`로 조문·연혁을 가져오고, MCP가 반환한 시행본의 **관련 부칙 전문은 법제처 공식 OPEN API**로 조회한다. MCP가 반환하지 않은 개정 법률 후보를 자동 탐색하는 기능은 구현하지 않았다.
 - 호스팅: Render Static Site + Render Web Service. **DB는 Supabase PostgreSQL Session Pooler(5432)**; PostgreSQL 업무 원장은 Backend가, pgvector 사용은 RAG가 책임진다. ERD는 별도 결정 전 미승인. Render CD 템플릿은 승인 전 실행 금지.
 
 ## 3. 팀원별 소유 경계
@@ -33,7 +33,7 @@
 | [B] Backend 도메인          | `backend/src/inheritance/{checklist,chat,law}/**`                                                                                                                               | `backend/auth`, `backend/core`, `backend/kakao`, `llm/**`, `rag/**`, `frontend/**` |
 | [C] 카카오·LLM              | `backend/src/inheritance/kakao/**`, `llm/**`                                                                                                                                    | `backend/checklist`, `backend/chat`, `rag/**`, `frontend/**`                       |
 | [D] RAG                     | `rag/**`                                                                                                                                                                        | `backend/**`, `llm/**`, `frontend/**`                                              |
-| [통합] 조립/보안/환경/DB/CI | 루트 `pyproject.toml`, `.github/**`, `backend/src/inheritance/{auth,core,contracts}/**`, `backend/main.py`, `backend/migrations/**`, `backend/pyproject.toml`, 승인된 공통 문서 | 담당 기능의 내부 구현을 대리 수정 금지                                             |
+| [통합] 조립/보안/환경/DB/CI | 루트 `pyproject.toml`, `.github/**`, `backend/src/inheritance/{auth,core,contracts}/**`, `backend/src/inheritance/main.py`, `backend/app_entry.py`, `backend/migrations/**`, `backend/pyproject.toml`, 승인된 공통 문서 | 담당 기능의 내부 구현을 대리 수정 금지                                             |
 
 - 경계가 중첩·불명확하면 **소유자에게 먼저 확인**한다. 통합 관리자라고 해서 다른 사람 업무 코드를 임의 수정하지 않는다.
 - 소유자의 `pyproject.toml`/`package.json`은 해당 담당자가 제안할 수 있지만, **루트 lockfile 및 공용 의존성 변경은 통합 승인**을 받는다.
@@ -63,31 +63,39 @@
 ## 6. 설치·테스트 및 역할별 명령
 
 ```bash
-# 루트: Python 3.13 + uv; 승인된 Python 의존성 처음 한 번에 설치
-uv sync
-uv run uvicorn inheritance.main:app --reload --port 8000
+# 스타터킷 사용자: 필요한 프로필을 선택해 한 번에 설치·설정
+bash scripts/bootstrap.sh
+
+# 기여자: Python 전체 workspace와 보안 설정 도구 설치
+uv sync --locked --group dev --group bootstrap
 uv run python scripts/verify_contracts.py
 uv run python -m unittest discover -s tests -v
 uv run pytest tests
-uv run ruff check backend llm rag tests
+uv run ruff check backend llm rag scripts tests
 
-# frontend: Node.js 24 + npm; 승인된 npm 의존성 처음 한 번에 설치
+# 상속길잡이 Backend: 설정 암호 문구를 입력해 저장 설정을 자식 프로세스에 전달
+.venv/bin/python scripts/local_env.py run uv run uvicorn app_entry:app --app-dir backend --port 8000
+
+# frontend: Node.js 24.22.1+와 npm; 전체 프로필에서 의존성 설치
 cd frontend
-npm install
+npm ci
 npm run dev
 npm run build
 npm run typecheck
 npm run lint
 npm run test
 
-# 루트 workspace CLI: 패키지별 상태 명령. 기능 범위와 실행 조건은 각 패키지 문서를 따른다.
-uv run starter-llm status
-uv run starter-rag status
+# LLM/RAG CLI: 저장 설정을 사용하려면 local_env.py run으로 감싼다
+cd ..
+.venv/bin/python scripts/local_env.py run uv run --project llm --locked starter-llm status
+.venv/bin/python scripts/local_env.py run uv run --project rag --extra ingestion --locked starter-rag status
 ```
 
-- `uv sync`/`npm install`은 최초 **일괄 설치**용이다. 이후 선언/lockfile/플랫폼이 달라지면 다시 동기화한다. `uv.lock`/`frontend/package-lock.json`은 **실제 온라인 lock 해결 후 통합 관리자 PR로 커밋**한다. 모델 가중치·Ollama 프로그램·DB 확장·법령 MCP Node 서버는 패키지 매니페스트 설치 대상이 아니다.
+- Bootstrap은 Python 3.13과 uv를 요구한다. 전체 프로필에는 Node.js 24.22.1 이상과 npm이 추가로 필요하다. PostgreSQL·pgvector·Ollama가 없으면 자동 설치하지 않고 공식 설치 안내를 출력한다. 로컬 PostgreSQL/pgvector는 RAG CLI의 로컬 색인·검색에만 필요하며 전체 프로필은 설정한 Supabase Pooler를 사용한다.
+- `~/.config/starter-kit/config.json`의 비밀 설정은 Argon2id와 AES-256-GCM으로 암호화하고 POSIX에서 디렉터리/파일에 `0700`/`0600`을 적용한다. 새 암호 문구는 두 번 입력하며, 설정을 읽는 각 독립 명령은 한 번 입력한다. 비밀번호·비밀값·개인 경로를 로그나 CLI에 표시하지 않는다. 암호 문구를 잊으면 설정을 복구할 수 없어 bootstrap으로 재입력한다. RAG 소유 패키지의 `~/.config/starter-rag/config.json`은 별도 파일이며 이번 암호화 범위 밖이다.
+- `uv sync`/`npm ci`는 선택 프로필 lockfile 설치용이다. 이후 선언/lockfile/플랫폼이 달라지면 다시 동기화한다. `uv.lock`/`frontend/package-lock.json`은 **실제 온라인 lock 해결 후 통합 관리자 PR로 커밋**한다. 모델 가중치·Ollama 프로그램·DB 확장·법령 MCP Node 서버는 패키지 매니페스트 설치 대상이 아니다.
 - 패키지 추가·범위 수정은 소유자 + 통합 승인과 lockfile 업데이트가 선행되어야 하며, 승인 없이 편의 라이브러리를 도입하지 않는다.
-- `uv sync`/`npm install`의 실제 성공 여부를 확인하지 않고 '재현 설치 완료'라고 주장하지 않는다.
+- `uv sync`/`npm ci`의 실제 성공 여부를 확인하지 않고 '재현 설치 완료'라고 주장하지 않는다. Doctor는 패키지 설치와 런타임 전제 상태를 따로 출력하며 DB/API/Ollama 서비스에 연결하지 않는다.
 
 ## 7. PR 규칙과 CI 권고
 
