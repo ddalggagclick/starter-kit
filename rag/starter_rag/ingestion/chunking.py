@@ -1,13 +1,14 @@
 # 담당: [D] | 책임: 문서 구조와 출처 위치를 보존하는 청크 생성.
 # PRD: E6 / 스토리 6-1 / 태스크 6-1-1, 6-1-2 (파싱·임베딩 지원)
-# 구현할 기능: 일반 문서는 인접 요소를 그룹화하고, 표는 행별 청크를 생성한다.
-# 완료 기준: 원문 구조·위치·해시를 보존하고 표 행을 하나씩 복원할 수 있다.
+# 구현할 기능: 일반 문서는 인접 요소를 그룹화한다.
+# XLSX 표 행은 한 청크로 유지하고, 비-XLSX 표 행은 토큰 상한에 맞춰 분할한다.
+# 완료 기준: 원문 구조·위치·해시를 보존하고 모든 표 행을 누락 없이 복원한다.
 # 제한사항: 앱 시작 시 청킹이나 색인을 자동 실행하지 않는다.
 from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 from typing import Literal
 
@@ -89,6 +90,8 @@ class DocumentChunk:
     model_attempts: int
     model_failure: str | None
     fallback_used: bool
+    element_charspans: tuple[tuple[int, int], ...] = ()
+    table_charspan: tuple[int, int] | None = None
 
     @property
     def locations(self) -> tuple[DocumentLocation, ...]:
@@ -129,10 +132,14 @@ class ChunkGroupingResponseError(ChunkingError):
 @dataclass(frozen=True)
 class _ElementRef:
     element_id: str
+    grouping_id: str
     position: int
     element: DocumentElement
     text: str
     segment_index: int
+    char_start: int
+    char_end: int
+    sequence_index: int
 
 
 def _canonical_json(value: object) -> str:
@@ -172,10 +179,14 @@ def _validate_structure(structure: DocumentStructure) -> tuple[tuple[_ElementRef
         current.append(
             _ElementRef(
                 element_id=_element_id(position),
+                grouping_id=_element_id(position),
                 position=position,
                 element=element,
                 text=element.text,
                 segment_index=len(segments),
+                char_start=0,
+                char_end=len(element.text),
+                sequence_index=len(current),
             )
         )
 
@@ -264,7 +275,11 @@ def _join_element_text(refs: Sequence[_ElementRef]) -> str:
     return "\n".join(ref.text for ref in refs)
 
 
-def _document_content_hash(elements: Sequence[DocumentElement], text: str) -> str:
+def _document_content_hash(
+    elements: Sequence[DocumentElement],
+    text: str,
+    element_charspans: Sequence[tuple[int, int]],
+) -> str:
     return _digest(
         {
             "source_texts": [
@@ -272,8 +287,98 @@ def _document_content_hash(elements: Sequence[DocumentElement], text: str) -> st
                 for element in elements
             ],
             "search_text": text,
+            "element_charspans": element_charspans,
         }
     )
+
+
+def _split_text_by_token_limit(
+    text: str,
+    *,
+    count_tokens: Callable[[str], int],
+    target_tokens: int,
+) -> tuple[tuple[str, int, int], ...]:
+    if not text:
+        return (("", 0, 0),)
+    if _validate_token_count(count_tokens, text) <= target_tokens:
+        return ((text, 0, len(text)),)
+
+    pieces: list[tuple[str, int, int]] = []
+    start = 0
+    while start < len(text):
+        remainder = text[start:]
+        if _validate_token_count(count_tokens, remainder) <= target_tokens:
+            pieces.append((remainder, start, len(text)))
+            break
+
+        low = 1
+        high = len(remainder)
+        best = 0
+        while low <= high:
+            middle = (low + high) // 2
+            candidate = remainder[:middle]
+            if _validate_token_count(count_tokens, candidate) <= target_tokens:
+                best = middle
+                low = middle + 1
+            else:
+                high = middle - 1
+
+        if best == 0:
+            raise ChunkingError("문자 하나도 목표 토큰 수 안에 담을 수 없어 원문을 안전하게 분할할 수 없습니다.")
+
+        # 토큰 상한을 지키는 범위에서 가까운 공백 경계를 우선한다.
+        boundary_floor = max(1, best - max(8, best // 8))
+        whitespace_boundary = max(
+            remainder.rfind(" ", boundary_floor, best + 1),
+            remainder.rfind("\t", boundary_floor, best + 1),
+            remainder.rfind("\n", boundary_floor, best + 1),
+            remainder.rfind("\r", boundary_floor, best + 1),
+        )
+        cut = whitespace_boundary + 1 if whitespace_boundary >= boundary_floor else best
+        if _validate_token_count(count_tokens, remainder[:cut]) > target_tokens:
+            cut = best
+        piece = remainder[:cut]
+        if not piece or _validate_token_count(count_tokens, piece) > target_tokens:
+            raise ChunkingError("토큰 제한 안에서 원문을 분할할 수 없습니다.")
+        pieces.append((piece, start, start + cut))
+        start += cut
+
+    if "".join(piece for piece, _, _ in pieces) != text:
+        raise ChunkIntegrityError("토큰 분할 중 원문 문자가 누락되거나 바뀌었습니다.")
+    return tuple(pieces)
+
+
+def _split_oversized_segments(
+    segments: tuple[tuple[_ElementRef, ...], ...],
+    *,
+    count_tokens: Callable[[str], int],
+    target_tokens: int,
+) -> tuple[tuple[_ElementRef, ...], ...]:
+    split_segments: list[tuple[_ElementRef, ...]] = []
+    for segment in segments:
+        split_refs: list[_ElementRef] = []
+        for ref in segment:
+            pieces = _split_text_by_token_limit(
+                ref.text, count_tokens=count_tokens, target_tokens=target_tokens
+            )
+            for piece_index, (piece, start, end) in enumerate(pieces, 1):
+                grouping_id = (
+                    ref.element_id
+                    if len(pieces) == 1
+                    else f"{ref.element_id}:part:{piece_index:06d}"
+                )
+                split_refs.append(
+                    replace(
+                        ref,
+                        grouping_id=grouping_id,
+                        text=piece,
+                        char_start=start,
+                        char_end=end,
+                        sequence_index=len(split_refs),
+                    )
+                )
+        split_segments.append(tuple(split_refs))
+    return tuple(split_segments)
 
 
 def _row_source_cells(
@@ -382,6 +487,7 @@ def _table_content_hash(
     table: TableStructure,
     row: TableRowChunkMetadata,
     text: str,
+    charspan: tuple[int, int],
 ) -> str:
     source_cells = _row_source_cells(table, row.row_index)
     return _digest(
@@ -390,8 +496,13 @@ def _table_content_hash(
                 {"cell_index": cell_index, "text": cell.text} for cell_index, cell in source_cells
             ],
             "search_text": text,
+            "table_charspan": charspan,
         }
     )
+
+
+def _keeps_xlsx_rows_whole(source_format: str | None) -> bool:
+    return source_format == "xlsx"
 
 
 def _table_structure_payload(
@@ -454,8 +565,9 @@ def _make_document_chunk(
 ) -> DocumentChunk:
     elements = tuple(ref.element for ref in refs)
     element_ids = tuple(ref.element_id for ref in refs)
+    element_charspans = tuple((ref.char_start, ref.char_end) for ref in refs)
     text = _join_element_text(refs)
-    content_sha256 = _document_content_hash(elements, text)
+    content_sha256 = _document_content_hash(elements, text, element_charspans)
     table_structure = [asdict(element) for element in elements]
     chunk_id = _chunk_id(
         source_id=source_id,
@@ -486,6 +598,7 @@ def _make_document_chunk(
         model_attempts=model_attempts,
         model_failure=model_failure,
         fallback_used=fallback_used,
+        element_charspans=element_charspans,
     )
 
 
@@ -498,13 +611,16 @@ def _make_table_row_chunk(
     version: str,
     count_tokens: Callable[[str], int],
     target_tokens: int,
+    charspan: tuple[int, int] | None = None,
 ) -> DocumentChunk:
     table = table_element.table
     if table is None:
         raise ChunkIntegrityError("표 요소에 TableStructure가 없습니다.")
     row = _table_row_metadata(table_element, table_id, row_index)
-    text = _table_row_text(table, row)
-    content_sha256 = _table_content_hash(table, row, text)
+    full_text = _table_row_text(table, row)
+    selected_span = charspan or (0, len(full_text))
+    text = full_text[selected_span[0] : selected_span[1]]
+    content_sha256 = _table_content_hash(table, row, text, selected_span)
     element_ids = (row.row_id,)
     chunk_id = _chunk_id(
         source_id=source_id,
@@ -533,6 +649,7 @@ def _make_table_row_chunk(
         model_attempts=0,
         model_failure=None,
         fallback_used=False,
+        table_charspan=selected_span,
     )
 
 
@@ -585,24 +702,21 @@ def _validate_groups(
     target_tokens: int,
 ) -> tuple[tuple[_ElementRef, ...], ...]:
     refs = tuple(ref for segment in segments for ref in segment)
-    expected_ids = tuple(ref.element_id for ref in refs)
+    expected_ids = tuple(ref.grouping_id for ref in refs)
     flattened = tuple(element_id for group in groups for element_id in group)
     if flattened != expected_ids:
         raise ChunkGroupingResponseError(
             "모든 요소 ID를 원문 순서대로 정확히 한 번 포함해야 합니다."
         )
-    id_to_ref = {ref.element_id: ref for ref in refs}
+    id_to_ref = {ref.grouping_id: ref for ref in refs}
     validated: list[tuple[_ElementRef, ...]] = []
     for group in groups:
         group_refs = tuple(id_to_ref[element_id] for element_id in group)
         if len({ref.segment_index for ref in group_refs}) != 1:
             raise ChunkGroupingResponseError("표를 사이에 둔 요소는 한 그룹으로 묶을 수 없습니다.")
-        positions = tuple(ref.position for ref in group_refs)
+        positions = tuple(ref.sequence_index for ref in group_refs)
         if positions != tuple(range(positions[0], positions[0] + len(positions))):
             raise ChunkGroupingResponseError("그룹은 원문에서 인접한 요소만 포함해야 합니다.")
-        token_count = _validate_token_count(count_tokens, _join_element_text(group_refs))
-        if len(group_refs) > 1 and token_count > target_tokens:
-            raise ChunkGroupingResponseError("여러 요소 그룹이 목표 토큰 수를 초과했습니다.")
         validated.append(group_refs)
     return tuple(validated)
 
@@ -617,6 +731,9 @@ def _deterministic_groups(
     for segment in segments:
         current: list[_ElementRef] = []
         for ref in segment:
+            if current and current[-1].element_id == ref.element_id:
+                groups.append(tuple(current))
+                current = []
             candidate = (*current, ref)
             candidate_tokens = _validate_token_count(
                 count_tokens,
@@ -632,6 +749,22 @@ def _deterministic_groups(
     return tuple(groups)
 
 
+def _bound_agentic_groups(
+    groups: tuple[tuple[_ElementRef, ...], ...],
+    *,
+    count_tokens: Callable[[str], int],
+    target_tokens: int,
+) -> tuple[tuple[_ElementRef, ...], ...]:
+    bounded: list[tuple[_ElementRef, ...]] = []
+    for group in groups:
+        bounded.extend(
+            _deterministic_groups(
+                (group,), count_tokens=count_tokens, target_tokens=target_tokens
+            )
+        )
+    return tuple(bounded)
+
+
 def _prompt_messages(
     segments: tuple[tuple[_ElementRef, ...], ...],
     retry_note: str | None,
@@ -644,7 +777,7 @@ def _prompt_messages(
             "segment_id": f"s{segment_index + 1:06d}",
             "elements": [
                 {
-                    "id": ref.element_id,
+                    "id": ref.grouping_id,
                     "kind": ref.element.kind,
                     "text": ref.text,
                     "token_count": _validate_token_count(count_tokens, ref.text),
@@ -658,7 +791,7 @@ def _prompt_messages(
         f"목표는 그룹당 최대 {target_tokens} 토큰입니다. 각 요소의 token_count는 주입된 토큰 계산기 결과입니다. "
         "인접한 일반 문서 요소를 검색 단위 그룹으로 묶으세요. 원문 텍스트를 고치거나 요약하지 마세요. "
         "각 segment 내부에서만 인접한 ID를 묶고, 표 경계를 넘지 말며 모든 ID를 입력 순서대로 정확히 한 번 포함하세요. "
-        "단일 요소가 목표를 초과하면 해당 요소를 독립 그룹으로 유지하고 나누지 마세요. "
+        "part 번호가 붙은 ID는 이미 분할된 한 요소의 조각입니다. 각 조각은 서로 다른 그룹에 유지하세요. "
         "그룹의 실제 검색 텍스트는 요소 사이에 줄바꿈을 넣어 만들며, 그룹 전체 토큰 수는 검증 단계에서 다시 계산됩니다. "
         'JSON만 반환하세요: {"groups":[["e000001","e000002"],["e000003"]]}.'
     )
@@ -789,6 +922,16 @@ async def _agentic_groups(
             target_tokens=target_tokens,
         )
         if _prompt_token_count(model, messages, count_tokens) > prompt_token_budget:
+            if last_error is not None:
+                return (
+                    _deterministic_groups(
+                        segments,
+                        count_tokens=count_tokens,
+                        target_tokens=target_tokens,
+                    ),
+                    attempt - 1,
+                    _model_failure(last_error),
+                )
             raise ChunkingError("모델 재시도 입력이 예산을 초과해 안전하게 중단했습니다.")
         try:
             response = await model.ainvoke(messages)
@@ -799,7 +942,15 @@ async def _agentic_groups(
                 count_tokens=count_tokens,
                 target_tokens=target_tokens,
             )
-            return validated, attempt, None
+            return (
+                _bound_agentic_groups(
+                    validated,
+                    count_tokens=count_tokens,
+                    target_tokens=target_tokens,
+                ),
+                attempt,
+                None,
+            )
         except InvalidTokenCountError:
             raise
         except Exception as error:  # noqa: BLE001 - injected model providers raise different exception types
@@ -828,20 +979,26 @@ async def _agentic_groups(
     )
 
 
-def _chunk_order_key(chunk: DocumentChunk, element_positions: dict[str, int]) -> tuple[int, int]:
+def _chunk_order_key(
+    chunk: DocumentChunk, element_positions: dict[str, int]
+) -> tuple[int, int, int]:
     if chunk.kind == "table_row":
         if chunk.table_id is None or chunk.table_row is None:
             raise ChunkIntegrityError("표 행 청크에 표 메타데이터가 없습니다.")
         table_position = element_positions.get(chunk.table_id)
         if table_position is None:
             raise ChunkIntegrityError("표 행 청크의 상위 표 ID가 없습니다.")
-        return table_position, chunk.table_row.row_index
+        if chunk.table_charspan is None:
+            raise ChunkIntegrityError("표 행 청크에 원문 문자 범위가 없습니다.")
+        return table_position, chunk.table_row.row_index, chunk.table_charspan[0]
     if not chunk.element_ids:
         raise ChunkIntegrityError("일반 문서 청크에 요소 ID가 없습니다.")
     position = element_positions.get(chunk.element_ids[0])
     if position is None:
         raise ChunkIntegrityError("일반 문서 청크에 알 수 없는 요소 ID가 있습니다.")
-    return position, -1
+    if not chunk.element_charspans:
+        raise ChunkIntegrityError("일반 문서 청크에 원문 문자 범위가 없습니다.")
+    return position, -1, chunk.element_charspans[0][0]
 
 
 def validate_chunk_integrity(
@@ -858,9 +1015,11 @@ def validate_chunk_integrity(
     id_map = _all_element_ids(structure)
     element_positions = {element_id: position for element_id, (position, _) in id_map.items()}
     expected_document_ids = tuple(ref.element_id for segment in segments for ref in segment)
-    observed_document_ids: list[str] = []
+    observed_document_spans: dict[str, list[tuple[int, int]]] = {
+        element_id: [] for element_id in expected_document_ids
+    }
     expected_rows: list[tuple[str, int, str]] = []
-    observed_rows: list[tuple[str, int, str]] = []
+    observed_row_spans: dict[tuple[str, int, str], list[tuple[int, int]]] = {}
     seen_chunk_ids: set[str] = set()
 
     for position, element in enumerate(structure.elements):
@@ -880,35 +1039,47 @@ def validate_chunk_integrity(
             raise ChunkIntegrityError("중복 Chunk ID가 있습니다.")
         seen_chunk_ids.add(chunk.chunk_id)
         if chunk.kind == "document":
-            if chunk.table_row is not None or chunk.table_id is not None:
+            if chunk.table_row is not None or chunk.table_id is not None or chunk.table_charspan is not None:
                 raise ChunkIntegrityError("일반 문서 청크에 표 행 메타데이터가 포함됐습니다.")
+            if len(chunk.element_ids) != len(chunk.element_charspans):
+                raise ChunkIntegrityError("일반 문서 청크의 원문 문자 범위 수가 요소 ID와 다릅니다.")
             refs: list[_ElementRef] = []
-            for element_id in chunk.element_ids:
+            for element_id, charspan in zip(chunk.element_ids, chunk.element_charspans, strict=True):
                 source = id_map.get(element_id)
                 if source is None or source[1].kind == "table":
                     raise ChunkIntegrityError("일반 문서 청크의 요소 ID가 원문과 다릅니다.")
                 element = source[1]
                 if not isinstance(element.text, str):
                     raise ChunkIntegrityError("일반 문서 요소에 원문 텍스트가 없습니다.")
+                start, end = charspan
+                if not 0 <= start <= end <= len(element.text):
+                    raise ChunkIntegrityError("일반 문서 청크의 원문 문자 범위가 유효하지 않습니다.")
                 refs.append(
                     _ElementRef(
                         element_id=element_id,
+                        grouping_id=element_id,
                         position=source[0],
                         element=element,
-                        text=element.text,
+                        text=element.text[start:end],
                         segment_index=-1,
+                        char_start=start,
+                        char_end=end,
+                        sequence_index=len(refs),
                     )
                 )
             if not refs:
                 raise ChunkIntegrityError("빈 일반 문서 청크가 있습니다.")
             positions = tuple(ref.position for ref in refs)
-            if positions != tuple(range(positions[0], positions[0] + len(positions))):
+            if len(set(positions)) != len(positions) or positions != tuple(
+                range(positions[0], positions[0] + len(positions))
+            ):
                 raise ChunkIntegrityError("일반 문서 청크가 비인접 요소를 묶었습니다.")
             if any(structure.elements[position].kind == "table" for position in positions):
                 raise ChunkIntegrityError("일반 문서 청크가 표를 가로질렀습니다.")
             elements = tuple(ref.element for ref in refs)
+            element_charspans = tuple((ref.char_start, ref.char_end) for ref in refs)
             expected_text = _join_element_text(refs)
-            expected_hash = _document_content_hash(elements, expected_text)
+            expected_hash = _document_content_hash(elements, expected_text, element_charspans)
             expected_id = _chunk_id(
                 source_id=source_id,
                 version=version,
@@ -917,12 +1088,22 @@ def validate_chunk_integrity(
                 content_sha256=expected_hash,
                 structure=[asdict(element) for element in elements],
             )
-            if chunk.source_elements != elements or chunk.text != expected_text:
+            if (
+                chunk.source_elements != elements
+                or chunk.element_charspans != element_charspans
+                or chunk.text != expected_text
+            ):
                 raise ChunkIntegrityError("일반 문서 원문 텍스트 또는 구조가 변조됐습니다.")
-            observed_document_ids.extend(chunk.element_ids)
+            for element_id, charspan in zip(chunk.element_ids, element_charspans, strict=True):
+                observed_document_spans[element_id].append(charspan)
             _validate_model_metadata(chunk)
         elif chunk.kind == "table_row":
-            if chunk.table_id is None or chunk.table_row is None:
+            if (
+                chunk.table_id is None
+                or chunk.table_row is None
+                or chunk.table_charspan is None
+                or chunk.element_charspans
+            ):
                 raise ChunkIntegrityError("표 행 청크에 행 메타데이터가 없습니다.")
             table_source = id_map.get(chunk.table_id)
             if table_source is None or table_source[1].kind != "table":
@@ -935,8 +1116,14 @@ def validate_chunk_integrity(
             if not 0 <= row_index < table.row_count:
                 raise ChunkIntegrityError("표 행 인덱스가 범위를 벗어났습니다.")
             expected_row = _table_row_metadata(table_element, chunk.table_id, row_index)
-            expected_text = _table_row_text(table, expected_row)
-            expected_hash = _table_content_hash(table, expected_row, expected_text)
+            full_row_text = _table_row_text(table, expected_row)
+            start, end = chunk.table_charspan
+            if not 0 <= start <= end <= len(full_row_text):
+                raise ChunkIntegrityError("표 행 청크의 원문 문자 범위가 유효하지 않습니다.")
+            expected_text = full_row_text[start:end]
+            expected_hash = _table_content_hash(
+                table, expected_row, expected_text, chunk.table_charspan
+            )
             expected_ids = (expected_row.row_id,)
             expected_id = _chunk_id(
                 source_id=source_id,
@@ -953,18 +1140,17 @@ def validate_chunk_integrity(
                 or chunk.text != expected_text
             ):
                 raise ChunkIntegrityError("표 행 청크의 원문·셀 참조·병합 구조가 다릅니다.")
-            observed_rows.append((chunk.table_id, row_index, expected_row.row_id))
+            row_key = (chunk.table_id, row_index, expected_row.row_id)
+            observed_row_spans.setdefault(row_key, []).append(chunk.table_charspan)
             _validate_model_metadata(chunk)
         else:
             raise ChunkIntegrityError(f"알 수 없는 청크 유형입니다: {chunk.kind}")
 
         expected_tokens = _validate_token_count(count_tokens, chunk.text)
-        if (
-            chunk.kind == "document"
-            and len(chunk.element_ids) > 1
-            and expected_tokens > target_tokens
+        if expected_tokens > target_tokens and not (
+            chunk.kind == "table_row" and _keeps_xlsx_rows_whole(structure.source_format)
         ):
-            raise ChunkIntegrityError("여러 일반 요소를 묶은 청크가 목표 토큰 수를 초과했습니다.")
+            raise ChunkIntegrityError("청크가 최대 토큰 수를 초과했습니다.")
         if (
             chunk.content_sha256 != expected_hash
             or chunk.chunk_id != expected_id
@@ -973,13 +1159,47 @@ def validate_chunk_integrity(
         ):
             raise ChunkIntegrityError("청크 해시, 토큰 수 또는 Chunk ID가 원문과 다릅니다.")
 
-    if tuple(observed_document_ids) != expected_document_ids:
-        raise ChunkIntegrityError("일반 문서 요소가 누락·중복되었거나 순서가 바뀌었습니다.")
-    if observed_rows != expected_rows:
-        raise ChunkIntegrityError("원본 표 행이 누락·중복되었거나 순서가 바뀌었습니다.")
+    for element_id in expected_document_ids:
+        element = id_map[element_id][1]
+        if not isinstance(element.text, str):
+            raise ChunkIntegrityError("일반 문서 요소에 원문 텍스트가 없습니다.")
+        _validate_span_coverage(
+            observed_document_spans[element_id], len(element.text), f"문서 요소 {element_id}"
+        )
+    if set(observed_row_spans) != set(expected_rows):
+        raise ChunkIntegrityError("원본 표 행이 누락되었거나 추가되었습니다.")
+    for table_id, row_index, row_id in expected_rows:
+        table = id_map[table_id][1].table
+        if table is None:
+            raise ChunkIntegrityError("표 요소에 TableStructure가 없습니다.")
+        row = _table_row_metadata(id_map[table_id][1], table_id, row_index)
+        row_text = _table_row_text(table, row)
+        _validate_span_coverage(
+            observed_row_spans[(table_id, row_index, row_id)],
+            len(row_text),
+            f"표 행 {row_id}",
+        )
     order_keys = tuple(_chunk_order_key(chunk, element_positions) for chunk in chunks)
     if order_keys != tuple(sorted(order_keys)):
         raise ChunkIntegrityError("최종 청크 순서가 원문 순서와 다릅니다.")
+
+
+def _validate_span_coverage(
+    spans: Sequence[tuple[int, int]], expected_length: int, label: str
+) -> None:
+    if not spans:
+        raise ChunkIntegrityError(f"{label}의 원문 범위가 없습니다.")
+    if expected_length == 0:
+        if tuple(spans) != ((0, 0),):
+            raise ChunkIntegrityError(f"{label}의 빈 원문 범위가 중복되거나 변조됐습니다.")
+        return
+    cursor = 0
+    for start, end in spans:
+        if start != cursor or end <= start or end > expected_length:
+            raise ChunkIntegrityError(f"{label} 원문 조각에 누락·중복·순서 오류가 있습니다.")
+        cursor = end
+    if cursor != expected_length:
+        raise ChunkIntegrityError(f"{label} 원문 끝부분이 누락됐습니다.")
 
 
 def _validate_model_metadata(chunk: DocumentChunk) -> None:
@@ -1041,7 +1261,8 @@ async def chunk_document(
     prompt_token_budget: int = DEFAULT_PROMPT_TOKEN_BUDGET,
     progress: Callable[[int, int], None] | None = None,
 ) -> tuple[DocumentChunk, ...]:
-    # 일반 요소는 인접 그룹으로, 표는 원본 행마다 하나의 청크로 만든다.
+    # 일반 요소는 토큰 상한에 맞게 나눈 뒤 인접 그룹으로 묶는다.
+    # XLSX 표는 행마다 한 청크로 유지하고, 다른 표는 토큰 상한에 맞춰 나눈다.
     # 병합 셀의 원문은 소유 행에 두고 후속 행의 검색 텍스트에는 참조로 표시한다.
     if not source_id or not version:
         raise ChunkingError("source_id와 version은 외부에서 제공해야 합니다.")
@@ -1056,7 +1277,11 @@ async def chunk_document(
     if not isinstance(model, BaseChatModel):
         raise TypeError("model은 외부에서 주입한 BaseChatModel이어야 합니다.")
 
-    segments = _validate_structure(structure)
+    segments = _split_oversized_segments(
+        _validate_structure(structure),
+        count_tokens=count_tokens,
+        target_tokens=target_tokens,
+    )
     chunks: list[DocumentChunk] = []
     all_general_refs = tuple(ref for segment in segments for ref in segment)
     if all_general_refs:
@@ -1101,17 +1326,28 @@ async def chunk_document(
             raise ChunkIntegrityError("표 요소에 TableStructure가 없습니다.")
         table_id = _element_id(position)
         for row_index in range(table.row_count):
-            chunks.append(
-                _make_table_row_chunk(
-                    element,
-                    table_id,
-                    row_index,
-                    source_id=source_id,
-                    version=version,
-                    count_tokens=count_tokens,
-                    target_tokens=target_tokens,
+            row = _table_row_metadata(element, table_id, row_index)
+            row_text = _table_row_text(table, row)
+            if _keeps_xlsx_rows_whole(structure.source_format):
+                # 상속길잡이 XLSX는 한 행이 한 정보이므로 행 경계를 유지한다.
+                row_pieces = ((row_text, 0, len(row_text)),)
+            else:
+                row_pieces = _split_text_by_token_limit(
+                    row_text, count_tokens=count_tokens, target_tokens=target_tokens
                 )
-            )
+            for _, start, end in row_pieces:
+                chunks.append(
+                    _make_table_row_chunk(
+                        element,
+                        table_id,
+                        row_index,
+                        source_id=source_id,
+                        version=version,
+                        count_tokens=count_tokens,
+                        target_tokens=target_tokens,
+                        charspan=(start, end),
+                    )
+                )
 
     element_positions = {
         element_id: position for element_id, (position, _) in _all_element_ids(structure).items()
