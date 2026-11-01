@@ -249,13 +249,19 @@ def _chunk(
     )
 
 
-def _validate_chunks(structure: DocumentStructure, chunks: tuple[DocumentChunk, ...]) -> None:
+def _validate_chunks(
+    structure: DocumentStructure,
+    chunks: tuple[DocumentChunk, ...],
+    *,
+    target_tokens: int = chunking.DEFAULT_TARGET_TOKENS,
+) -> None:
     validate_chunk_integrity(
         structure,
         chunks,
         source_id="guide-1",
         version="v1",
         count_tokens=_tokens,
+        target_tokens=target_tokens,
     )
 
 
@@ -335,7 +341,7 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
             )
         self.assertEqual(rejected_model.calls, 0)
 
-    def test_재시도_문구가_예산을_넘으면_추가_호출하지_않는다(self) -> None:
+    def test_재시도_문구가_예산을_넘으면_결정적_fallback으로_전환한다(self) -> None:
         structure = _structure(_element("짧은 문단"))
         count_tokens = len
         segments = chunking._validate_structure(structure)
@@ -345,19 +351,20 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
         first_budget = sum(len(str(message.content)) for message in first_messages)
         model = _MockChatModel(("{}", _response(("e000001",))))
 
-        with self.assertRaisesRegex(ChunkingError, "재시도 입력"):
-            asyncio.run(
-                chunk_document(
-                    structure,
-                    source_id="guide-1",
-                    version="v1",
-                    model=model,
-                    count_tokens=count_tokens,
-                    prompt_token_budget=first_budget,
-                )
+        chunks = asyncio.run(
+            chunk_document(
+                structure,
+                source_id="guide-1",
+                version="v1",
+                model=model,
+                count_tokens=count_tokens,
+                prompt_token_budget=first_budget,
             )
+        )
 
         self.assertEqual(model.calls, 1)
+        self.assertTrue(all(chunk.fallback_used for chunk in chunks))
+        self.assertTrue(all(chunk.token_count <= 512 for chunk in chunks))
 
     def test_인접_요소_ID_그룹과_원문_공백을_보존한다(self) -> None:
         structure = _structure(
@@ -409,20 +416,16 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
             [chunk.element_ids for chunk in chunks], [("e000001",), ("e000002", "e000003")]
         )
 
-    def test_목표_토큰을_넘는_다중_요소_그룹은_재요청한다(self) -> None:
+    def test_목표_토큰을_넘는_모델_그룹은_결정적으로_나눈다(self) -> None:
         structure = _structure(_element("가"), _element("나"))
-        model = _MockChatModel(
-            (
-                _response(("e000001", "e000002")),
-                _response(("e000001",), ("e000002",)),
-            )
-        )
+        model = _MockChatModel((_response(("e000001", "e000002")),))
         token_counter = lambda text: 513 if text == "가\n나" else 1
 
         chunks = _chunk(structure, model, count_tokens=token_counter, target_tokens=512)
 
-        self.assertEqual(model.calls, 2)
+        self.assertEqual(model.calls, 1)
         self.assertEqual([chunk.element_ids for chunk in chunks], [("e000001",), ("e000002",)])
+        self.assertTrue(all(chunk.token_count <= 512 for chunk in chunks))
 
     def test_모델_실패_fallback도_목표_토큰에_맞춰_인접_그룹을_만든다(self) -> None:
         structure = _structure(_element("가"), _element("나"), _element("다"))
@@ -534,23 +537,28 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
         self.assertTrue(all(chunk.fallback_used for chunk in chunks))
         self.assertTrue(all("429" in chunk.model_failure for chunk in chunks))
 
-    def test_단일_512토큰_초과_요소는_자르지_않고_초과_표시한다(self) -> None:
+    def test_단일_목표_초과_요소를_원문_범위를_보존해_분할한다(self) -> None:
         structure = _structure(_element("큰 본문"))
-        model = _MockChatModel((_response(("e000001",)),))
+        model = _MockChatModel(
+            (_response(("e000001:part:000001",), ("e000001:part:000002",)),)
+        )
 
         chunks = _chunk(
             structure,
             model,
-            count_tokens=lambda text: 513 if text == "큰 본문" else 1,
+            count_tokens=len,
+            target_tokens=3,
         )
 
-        self.assertEqual(len(chunks), 1)
-        self.assertEqual(chunks[0].text, "큰 본문")
-        self.assertEqual(chunks[0].token_count, 513)
-        self.assertTrue(chunks[0].over_target)
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual("".join(chunk.text for chunk in chunks), "큰 본문")
+        self.assertTrue(all(chunk.token_count <= 3 for chunk in chunks))
+        spans = tuple(span for chunk in chunks for span in chunk.element_charspans)
+        self.assertEqual(spans[0][0], 0)
+        self.assertEqual(spans[-1][1], len("큰 본문"))
+        self.assertTrue(all(left[1] == right[0] for left, right in zip(spans, spans[1:])))
         system_prompt = model.last_messages[0].content
-        self.assertIn("독립 그룹", system_prompt)
-        self.assertIn("나누지 마세요", system_prompt)
+        self.assertIn("part 번호", system_prompt)
 
     def test_기본_512토큰_목표와_요소별_토큰_수를_프롬프트에_넣는다(self) -> None:
         structure = _structure(_element("첫 요소"), _element("둘째 요소"))
@@ -669,7 +677,7 @@ class AgenticDocumentChunkingTests(unittest.TestCase):
 
 
 class XlsxRowChunkingTests(unittest.TestCase):
-    def test_큰_표_요소는_모델_예산과_무관하게_원문과_위치를_보존한다(self) -> None:
+    def test_큰_xlsx_표_행은_정보_단위로_유지한다(self) -> None:
         text = "cell value " * 1000
         table = _table_element(1, 1, (_cell(text, 0, 0),))
         structure = _structure(table)
@@ -688,8 +696,27 @@ class XlsxRowChunkingTests(unittest.TestCase):
 
         self.assertEqual(model.calls, 0)
         self.assertEqual(len(chunks), 1)
-        self.assertIn(text.strip(), chunks[0].text)
+        self.assertTrue(chunks[0].over_target)
+        row = chunking._table_row_metadata(table, "e000001", 0)
+        full_text = chunking._table_row_text(table.table, row)
+        self.assertEqual(chunks[0].text, full_text)
+        self.assertEqual(chunks[0].table_charspan, (0, len(full_text)))
         self.assertEqual(chunks[0].locations, (table.location,))
+        _validate_chunks(structure, chunks)
+
+    def test_xlsx_외_표_행은_토큰_상한에_맞춰_분할한다(self) -> None:
+        table = _table_element(1, 1, (_cell("긴 행 " * 8, 0, 0),))
+        structure = replace(_structure(table), source_format="pdf")
+
+        chunks = _chunk(structure, count_tokens=_tokens, target_tokens=2)
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(chunk.token_count <= 2 for chunk in chunks))
+        row = chunking._table_row_metadata(table, "e000001", 0)
+        self.assertEqual(
+            "".join(chunk.text for chunk in chunks),
+            chunking._table_row_text(table.table, row),
+        )
         _validate_chunks(structure, chunks)
 
     def test_실제_행_범위보다_큰_row_span을_거부한다(self) -> None:
@@ -906,14 +933,18 @@ class XlsxRowChunkingTests(unittest.TestCase):
         self.assertEqual([row.row_index for row in row_chunks], [0, 1])
         self.assertEqual((row_chunks[0].row_count, row_chunks[0].column_count), (2, 2))
 
-    def test_행_512토큰_초과도_분할하지_않고_초과_상태를_표시한다(self) -> None:
+    def test_xlsx_목표_토큰_초과_행도_분할하지_않고_원문을_보존한다(self) -> None:
         table = _table_element(1, 1, (_cell("긴 행", 0, 0),))
 
-        chunks = _chunk(_structure(table), count_tokens=lambda _text: 600)
+        chunks = _chunk(_structure(table), count_tokens=_tokens, target_tokens=2)
 
         self.assertEqual(len(chunks), 1)
-        self.assertEqual(chunks[0].token_count, 600)
         self.assertTrue(chunks[0].over_target)
+        row = chunking._table_row_metadata(table, "e000001", 0)
+        full_text = chunking._table_row_text(table.table, row)
+        self.assertEqual(chunks[0].text, full_text)
+        self.assertEqual(chunks[0].table_charspan, (0, len(full_text)))
+        _validate_chunks(_structure(table), chunks, target_tokens=2)
 
     def test_동일_행은_결정적_ID를_만들고_값_변경은_해시와_ID를_바꾼다(self) -> None:
         first_structure = _structure(_table_element(1, 1, (_cell("값 A", 0, 0),)))
