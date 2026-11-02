@@ -21,7 +21,8 @@ export function ExampleQuestionsModal({
   onClose: () => void
 }) {
   return (
-    <Modal onClose={onClose}>
+    // #246: 질문이 덜 줄바꿈되게 넓음 폭(40.5rem, 황금비 3단계 중 가장 넓음)을 쓴다. 모바일은 화면 폭(w-full)을 넘지 않는다.
+    <Modal onClose={onClose} className="max-w-[40.5rem]">
       {/* #227 시안: 부제와 칩 모양을 첫 화면 칩과 같게. 긴 질문은 모달 안에서 줄을 바꾼다. */}
       <Modal.Header title="자주 묻는 질문" subtitle="누르면 질문창에 담깁니다." />
       <Modal.Body className="space-y-4">
@@ -36,7 +37,12 @@ export function ExampleQuestionsModal({
                   key={question}
                   type="button"
                   onClick={() => onPick(question)}
-                  className={cn(CHIP_CLASS, "h-auto min-h-9 whitespace-normal py-1.5 text-left")}
+                  // #246 팀 피드백: 칩 줄의 shrink-0 때문에 모바일에서 긴 질문이 오른쪽으로 잘렸다.
+                  //   모달 안쪽 폭(max-w-full)까지 줄어들게(shrink) 하고, 긴 낱말도 줄을 바꾸게(break-words) 한다.
+                  className={cn(
+                    CHIP_CLASS,
+                    "h-auto min-h-9 max-w-full shrink whitespace-normal break-words py-1.5 text-left",
+                  )}
                 >
                   {question}
                 </button>

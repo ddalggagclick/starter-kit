@@ -2,8 +2,9 @@
  * 담당: [A] | 책임: 앱 공통 틀 — 왼쪽 사이드바(데스크톱), 위쪽 줄과 메뉴 서랍(모바일), 화면 위에 여는 안내 모달.
  * 근거: #227 새 시안 https://claude.ai/artifact/NgrnTfYvGvuGj5PYWnJcfu (사용자 지시: 이 시안대로 화면 전부 변경).
  * 구현:
- *   - 헤더 메뉴를 왼쪽 사이드바로 옮겼다. [체크리스트]는 페이지로 가고, [전체 절차]·[상속 관계]·[상속세]는 지금 화면 위
- *     모달로 연다(페이지 이동이 없어 첫 화면 대화가 끊기지 않는다). 사이드바는 접으면 아이콘 줄만 남는다.
+ *   - 헤더 메뉴를 왼쪽 사이드바로 옮겼다. [체크리스트]·[AI 질문](#246, /ai)은 페이지로 가고,
+ *     [전체 절차]·[상속 관계]·[상속세]는 지금 화면 위 모달로 연다(페이지 이동이 없어 첫 화면 대화가 끊기지 않는다).
+ *     사이드바는 접으면 아이콘 줄만 남는다.
  *   - 아래쪽 계정 칸: 로그인 전 [로그인], 로그인 뒤 이메일·[로그아웃]·회원 탈퇴(기존 헤더와 같은 동작).
  *   - 768px 미만: 사이드바를 숨기고 위쪽 줄의 [메뉴 열기]로 왼쪽 서랍을 연다.
  *   - 모달 안 내용은 기존 화면 부품(RelationshipGuidePage·TaxGuidePage·InitialQuestionsPage·로그인 등)을 그대로
@@ -22,6 +23,7 @@ import {
   LogOut,
   type LucideIcon,
   Menu,
+  MessageCircle,
   PanelLeft,
   Receipt,
   Users,
@@ -51,10 +53,12 @@ type MenuItem =
   | { kind: "page"; to: string; label: string; icon: LucideIcon }
   | { kind: "modal"; open: OverlayName; label: string; icon: LucideIcon }
 
-// 시안 메뉴 4개 + [홈](사용자 요청 2026-10-29: 사이드바에서 첫 화면으로 가기). [AI 질문]은 대화창이 첫 화면에 있어 넣지 않는다.
+// 시안 메뉴 4개 + [홈](사용자 요청 2026-10-29: 사이드바에서 첫 화면으로 가기).
+// #246: [AI 질문]은 진입 선택 창 [AI에게 질문하기]와 같은 /ai로 간다([홈]으로 돌아온 뒤에도 AI 질문으로 갈 수 있게).
 const MENU: readonly MenuItem[] = [
   { kind: "page", to: "/", label: "홈", icon: House },
   { kind: "page", to: "/checklist", label: "체크리스트", icon: ListChecks },
+  { kind: "page", to: "/ai", label: "AI 질문", icon: MessageCircle },
   { kind: "modal", open: "steps", label: "전체 절차", icon: ClipboardList },
   { kind: "modal", open: "relation", label: "상속 관계", icon: Users },
   { kind: "modal", open: "tax", label: "상속세", icon: Receipt },

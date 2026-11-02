@@ -227,14 +227,23 @@ describe("W-07 AI (Mock)", () => {
     expect(router.state.historyAction).toBe("REPLACE")
   })
 
-  // #227: 헤더 메뉴는 왼쪽 사이드바로 옮겼다. [체크리스트]는 페이지, 나머지 3개는 화면 위 모달이다. [AI 질문]은 없다.
-  it("사이드바 주요 메뉴는 체크리스트·전체 절차·상속 관계·상속세이고 [AI 질문]은 없다", () => {
+  // #227: 헤더 메뉴는 왼쪽 사이드바로 옮겼다. [체크리스트]는 페이지, 나머지 3개는 화면 위 모달이다.
+  // #246: [체크리스트] 바로 아래에 /ai로 가는 [AI 질문]을 더했다.
+  it("사이드바 주요 메뉴는 홈·체크리스트·AI 질문·전체 절차·상속 관계·상속세 순서다", () => {
     renderAt("/")
     const nav = screen.getByRole("navigation", { name: "주요 메뉴" })
-    expect(within(nav).queryByText("AI 질문")).toBeNull()
+    expect(Array.from(nav.querySelectorAll("a, button"), (item) => item.textContent)).toEqual([
+      "홈",
+      "체크리스트",
+      "AI 질문",
+      "전체 절차",
+      "상속 관계",
+      "상속세",
+    ])
     expect(within(nav).getByRole("link", { name: "체크리스트" }).getAttribute("href")).toBe(
       "/checklist",
     )
+    expect(within(nav).getByRole("link", { name: "AI 질문" }).getAttribute("href")).toBe("/ai")
     for (const name of ["전체 절차", "상속 관계", "상속세"]) {
       expect(within(nav).getByRole("button", { name }).getAttribute("aria-haspopup")).toBe("dialog")
     }
@@ -424,5 +433,29 @@ describe("사이드바 [홈] (#227 사용자 요청)", () => {
     fireEvent.click(home)
     await waitFor(() => expect(router.state.location.pathname).toBe("/"))
     expect(within(nav).getByRole("link", { name: "홈" }).getAttribute("aria-current")).toBe("page")
+  })
+})
+
+describe("사이드바 [AI 질문] (#246)", () => {
+  it("첫 화면에서 [AI 질문]을 누르면 /ai로 가고, /ai에서만 선택 표시된다", async () => {
+    const router = renderAt("/")
+    const nav = screen.getByRole("navigation", { name: "주요 메뉴" })
+    const ai = within(nav).getByRole("link", { name: "AI 질문" })
+    expect(ai.getAttribute("aria-current")).toBeNull()
+    fireEvent.click(ai)
+    await waitFor(() => expect(router.state.location.pathname).toBe("/ai"))
+    expect(within(nav).getByRole("link", { name: "AI 질문" }).getAttribute("aria-current")).toBe(
+      "page",
+    )
+    expect(within(nav).getByRole("link", { name: "홈" }).getAttribute("aria-current")).toBeNull()
+  })
+
+  it("좁은 화면 메뉴 서랍에도 [AI 질문]이 있고, 누르면 서랍을 닫고 /ai로 간다", async () => {
+    const router = renderAt("/")
+    fireEvent.click(screen.getByRole("button", { name: "메뉴 열기" }))
+    const drawer = screen.getByRole("dialog", { name: "메뉴" })
+    fireEvent.click(within(drawer).getByRole("link", { name: "AI 질문" }))
+    await waitFor(() => expect(router.state.location.pathname).toBe("/ai"))
+    expect(screen.queryByRole("dialog", { name: "메뉴" })).toBeNull()
   })
 })
