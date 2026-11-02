@@ -21,7 +21,8 @@ export function ExampleQuestionsModal({
   onClose: () => void
 }) {
   return (
-    <Modal onClose={onClose}>
+    // #246: 질문이 덜 줄바꿈되게 넓음 폭(40.5rem, 황금비 3단계 중 가장 넓음)을 쓴다. 모바일은 화면 폭(w-full)을 넘지 않는다.
+    <Modal onClose={onClose} className="max-w-[40.5rem]">
       {/* #227 시안: 부제와 칩 모양을 첫 화면 칩과 같게. 긴 질문은 모달 안에서 줄을 바꾼다. */}
       <Modal.Header title="자주 묻는 질문" subtitle="누르면 질문창에 담깁니다." />
       <Modal.Body className="space-y-4">

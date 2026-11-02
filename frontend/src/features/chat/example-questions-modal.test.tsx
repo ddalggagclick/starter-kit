@@ -41,6 +41,15 @@ describe("ExampleQuestionsModal 부품", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+  // #246: 질문이 덜 줄바꿈되게 넓음 폭(40.5rem)을 쓴다. 기본 폭(32rem)은 남지 않는다.
+  it("모달은 넓음 폭(40.5rem)으로 열린다", () => {
+    render(
+      <ExampleQuestionsModal groups={EXAMPLE_QUESTION_GROUPS} onPick={vi.fn()} onClose={vi.fn()} />,
+    )
+    const { className } = screen.getByRole("dialog", { name: "자주 묻는 질문" })
+    expect(className).toContain("max-w-[40.5rem]")
+    expect(className).not.toContain("max-w-[32rem]")
+  })
 })
 
 describe("첫 화면 [+ 더보기] (#220)", () => {
