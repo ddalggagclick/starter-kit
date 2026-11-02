@@ -142,6 +142,13 @@ describe("ServerSaveBand", () => {
 
     await waitFor(() => expect(screen.getByText(/서버에 체크리스트 기록이 남아 있고/)).toBeTruthy())
     fail.remove = false
+    // 실패 안내는 철회 작업 안에서 먼저 그려지고, 버튼 잠금(busy)은 그 뒤에 풀린다. 느린 CI에서 아직 잠긴 버튼을
+    // 눌러 클릭이 무시되지 않게, 다시 누를 수 있을 때까지 기다린 뒤 누른다(#246 CI 실패).
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "서버 삭제 다시 시도" }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    )
     fireEvent.click(screen.getByRole("button", { name: "서버 삭제 다시 시도" }))
 
     await waitFor(() =>
