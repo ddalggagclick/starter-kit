@@ -37,7 +37,12 @@ export function ExampleQuestionsModal({
                   key={question}
                   type="button"
                   onClick={() => onPick(question)}
-                  className={cn(CHIP_CLASS, "h-auto min-h-9 whitespace-normal py-1.5 text-left")}
+                  // #246 팀 피드백: 칩 줄의 shrink-0 때문에 모바일에서 긴 질문이 오른쪽으로 잘렸다.
+                  //   모달 안쪽 폭(max-w-full)까지 줄어들게(shrink) 하고, 긴 낱말도 줄을 바꾸게(break-words) 한다.
+                  className={cn(
+                    CHIP_CLASS,
+                    "h-auto min-h-9 max-w-full shrink whitespace-normal break-words py-1.5 text-left",
+                  )}
                 >
                   {question}
                 </button>
