@@ -21,8 +21,8 @@ afterEach(cleanup)
 describe("예시 질문 문구 규칙", () => {
   const all = EXAMPLE_QUESTION_GROUPS.flatMap((group) => group.questions)
 
-  // #246 팀 제공 문구: 모달은 주제 4개 × 2개 = 8개, 대화창 위 추천 질문은 4개.
-  it("예시는 주제 4개에 2개씩 8개이고, 대화창 위에는 추천 질문 4개가 보인다", () => {
+  // #246 팀 제공 문구: 주제 4개 × 2개 = 8개, 대화창 위에는 주제마다 첫 질문 1개씩(4개).
+  it("예시는 주제 4개에 2개씩 8개이고, 대화창 위에는 주제별 첫 질문 4개가 보인다", () => {
     expect(EXAMPLE_QUESTION_GROUPS.map((group) => group.title)).toEqual([
       "절차 · 기한",
       "상속세",
@@ -31,10 +31,10 @@ describe("예시 질문 문구 규칙", () => {
     ])
     for (const group of EXAMPLE_QUESTION_GROUPS) expect(group.questions).toHaveLength(2)
     expect(FEATURED_EXAMPLE_QUESTIONS).toEqual([
-      "사망신고와 안심상속은 함께 신청할 수 있나요?",
-      "상속세는 언제까지 신고해야 하나요?",
-      "고인의 빚이 더 많으면 어떻게 하나요?",
-      "상속포기에는 어떤 서류가 필요한가요?",
+      "안심상속 신청처와 조회 대상은?",
+      "상속세 신고기한은 사망월 기준 언제까지?",
+      "고인 금융채무는 어디서 조회하나요?",
+      "한정승인 신고서류는 무엇인가요?",
     ])
   })
 
@@ -47,6 +47,11 @@ describe("예시 질문 문구 규칙", () => {
     }
     expect(new Set(all).size).toBe(all.length)
     expect(new Set(FEATURED_EXAMPLE_QUESTIONS).size).toBe(FEATURED_EXAMPLE_QUESTIONS.length)
+  })
+
+  // Git 봇 피드백(#246): 대화창 위에서 본 질문을 [더보기] 모달에서도 고를 수 있어야 한다.
+  it("대화창 위 예시는 [더보기] 전체 목록에도 들어 있다", () => {
+    for (const question of FEATURED_EXAMPLE_QUESTIONS) expect(all).toContain(question)
   })
 })
 
