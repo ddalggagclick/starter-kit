@@ -1,48 +1,59 @@
 <!--
-담당: [A] | 책임: Mock 데이터·Mock API·클릭 Mock의 범위와 사용법.
-완료 기준: Mock 결과를 실제 연동·검수 완료로 오인하지 않는다.
+담당: [A] | 책임: Mock 응답·클릭 Mock·Mock/Backend 전환을 안내한다.
+완료 기준: Mock 시나리오와 Backend 연동 결과를 구분해 설명한다.
 -->
-# Mock (10/23 1차 발표 · 화면 개발용)
+# Frontend Mock과 데이터 연결
 
-**실제 Backend · LLM · RAG · DB 연동이 아닙니다.** 가짜 서버 응답과 Mock 전용 문구만 둡니다.
+## 데이터 모드
 
-## 근거
+`VITE_USE_MOCK_API`가 없거나 값이 정확히 `false`가 아니면 서비스 API는 Mock을 사용합니다. 실제 Backend를 호출하려면 `frontend/.env.development`에 다음 값을 설정합니다.
 
-- `docs/contracts/openapi.yaml` 0.2.0-draft (2026-10-21): 경로 · 필드 · enum · 오류 코드
-- 화면정의서 v1.4 (2026-10-16): 화면 ID · 문구 · 상태 · 예외(D-01~D-17)
+```dotenv
+VITE_API_BASE_URL=http://localhost:8000
+VITE_USE_MOCK_API=false
+```
 
-## 파일
+`VITE_API_BASE_URL`은 `http://` 또는 `https://`로 시작하는 API origin이어야 합니다. 환경변수를 바꾼 뒤 Vite 개발 서버를 다시 시작합니다.
 
-| 파일 | 내용 | API / 화면 |
-|---|---|---|
-| `wire-types.ts` | openapi 스키마를 옮긴 Mock 전용 타입(절차 화면 타입은 `shared/contracts/procedure.ts`에서 가져옴) | 전체 |
-| `ai-stream.ts` | SSE `Response` 생성기 · 시나리오(S3/S6/S7/S9) | A08 · W-07 |
-| `conversations.ts` | 이전 대화 · S8 · S11 문구 | W-07 S8 · S10 · S11 |
-| `mock-api.ts` | 지연 · 취소 · HTTP 오류를 흉내 내는 함수 | A05 · A07 · A08 · A11~A17 |
+## Mock 파일
 
-### 실제 화면 문구는 `shared/content/`로 옮겼습니다 (2026-10-27)
+| 파일 | 역할 |
+|---|---|
+| `mock-api.ts` | A05·A07·A08·인증·A17의 가짜 API 응답, 지연·취소·오류 시나리오 |
+| `wire-types.ts` | OpenAPI 0.2.1-draft (2026-10-22)의 Mock wire 타입 |
+| `ai-stream.ts`, `mock-ai-scenario.ts` | 채팅 SSE 응답과 S3·S6·S7·S9 화면 시나리오 |
+| `conversations.ts` | 저장 동의 전용 UI에 쓰는 대화 Mock 데이터 |
+| `html-mock/` | 해시 라우팅으로 화면 흐름을 재현하는 클릭 Mock |
 
-실제 서비스 화면에 나가는 문구가 이 폴더에 있어 가짜 데이터로 오해되던 문제를 고쳤습니다. 문구는 바꾸지 않고 위치만 옮겼습니다. Mock과 화면이 같은 파일을 함께 씁니다.
+제품 화면의 공통 문구는 `shared/content/`에 있습니다. 주요 파일은 `procedures.ts`, `checklist.ts`, `general-info.ts`, `chat.ts`입니다. 이 콘텐츠와 API Mock 데이터는 서로 다른 역할을 합니다.
 
-| 파일 | 내용 | 화면 |
-|---|---|---|
-| `shared/content/procedures.ts` | 절차 8개 원고(작성자 공식 원문 대조) · 기한 꼬리표 · 공식 링크. 백엔드 시험이 이 파일과 원고를 비교 | A07 · W-02 · W-03 · W-04 · K-04 |
-| `shared/content/checklist.ts` | 초기 3문항 · 위험 질문 3개 · 공통 경고 · 저장 상태 · 진입 시나리오 | W-01 · W-02 R/P/C · K-01~K-03 |
-| `shared/content/general-info.ts` | 상속 관계 · 상속세(B1 검수 완료) · 오류 제보 문구 | W-05 · W-06 · W-08 |
-| `shared/content/chat.ts` | 예시 질문 · 개인정보 경고 · 판단 유보 · 진행 단계 · 하루 한도 | W-07 |
+## Backend 전환 범위
 
-## 확인용 값
+`VITE_USE_MOCK_API=false`이면 구현된 API 모듈은 Backend 요청 경로를 사용합니다.
 
-- Handoff 유효 토큰: `mock-handoff-valid` (1회만 성공, 나머지는 같은 400 `HANDOFF_INVALID`)
-- 로그인: `demo@example.com` / `mockpass1` (5번 실패 후 429)
+| 영역 | 실제 요청 |
+|---|---|
+| Handoff | A05 |
+| 절차 | A07 목록·상세 |
+| 채팅 | A08 POST SSE |
+| 인증 | A11~A16 |
+| 서버 체크리스트 | A17 GET·PUT·DELETE |
+
+Backend는 인증 서비스 설정이 유효할 때 인증과 A17 라우터를 등록합니다. W-08 제보는 `VITE_USE_MOCK_API=false`에서도 Mock 모달입니다. `/mock.html`도 데이터 전환 변수와 관계없이 Mock API를 사용합니다.
 
 ## 클릭 Mock
 
-`npm run dev` 후 `http://localhost:5173/mock.html`. 개발 서버 전용이며 `npm run build` 결과에 포함되지 않습니다.
+`npm --prefix frontend run dev` 실행 후 `http://localhost:5173/mock.html`을 엽니다. `mock.html`은 개발용 진입점이며 `npm --prefix frontend run build` 결과에 포함되지 않습니다.
 
-## 아직 정해지지 않은 것 (Mock 값으로 대신함)
+## 코드에 고정된 미확정 계약값
 
-- p01~p08과 절차 이름 대응(D6), 관련 절차 필드(D4), 위험-절차 연결표(Q126 C)
-- W-04 '길 때' 접는 기준(S01), 초기 접힘(M-10)
-- 공식 URL(S01) — 기관 대표 주소만 사용
-- `itemStates` 구조(A17), 대화 제목 길이 · 목록 상한(P02)
+다음 항목은 화면 Mock 동작은 구현·검증됐지만 API·제품 값으로 확정되지 않았습니다. 각 항목의 현재 코드는 표시한 Mock 규칙을 사용합니다.
+
+- `relatedProcedureIds` (D4): 공통 절차 콘텐츠에서 빈 배열을 사용합니다.
+- 위험 질문과 절차의 연결표 (Q126 C): `shared/content/checklist.ts`의 Mock 배정을 사용합니다.
+- W-04 상세 접기 상태 (M-10): 현재 화면은 신청 방법·필요 서류를 펼쳐 표시하고 예외·참고·문의처를 접어 표시합니다. 재방문 때 펼침 상태를 유지할지는 정해지지 않았습니다.
+- A17 `itemStates` 내부 스키마: Frontend는 `server-checklist-api.ts`에서 현재 체크리스트 모양으로 변환합니다. OpenAPI는 내부 항목 구조를 확정하지 않았습니다.
+- 대화 제목·목록 상한 (P02): 현재 코드는 첫 질문 앞 30 Unicode 코드 포인트로 제목을 만들고, 30개를 넘으면 말줄임표를 붙입니다. 제품 제목 규격과 목록 상한은 정해지지 않았으며, 현재 목록은 저장된 대화 전체를 표시합니다.
+- S7 판단 유보 화면의 공식 확인 URL (S01): 현재 Mock은 확정 URL을 제공하지 않습니다.
+
+Mock 화면과 Backend API 전환 흐름의 구현·검증을 완료했습니다. Mock 응답은 실제 API 응답으로 사용되지 않습니다.

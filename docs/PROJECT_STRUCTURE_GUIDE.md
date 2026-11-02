@@ -5,20 +5,21 @@
 
 **문서 버전:** v1  
 **목적:** 코드 위치와 담당 경계를 통일해 병렬 작업 충돌을 막는다.  
-**적용:** 현재 FastAPI·React/Vite·uv Workspace 구조. ERD와 전체 아키텍처는 별도 최종 승인 전이다.
+**적용:** 현재 FastAPI·React/Vite·uv Workspace 구조. 전체 아키텍처와 ERD는 최종 승인되지 않았다.
 
 ## 1. 모노레포와 의존 방향
 
 ```text
 starter-kit/
 ├── frontend/                 [A] React·Vite 브라우저 앱
+├── backend/app_entry.py      [통합] Backend 실행·의존성 조립 진입점
 ├── backend/src/inheritance/ [B·C·통합] FastAPI 앱
 ├── llm/starter_llm/          [C] Gemini·Groq·Ollama 공통 모델 패키지
 ├── rag/starter_rag/          [D] Docling·임베딩·검색 패키지
 ├── tests/                    [통합] 계약·진입점 테스트
-├── scripts/                  [통합] 계약 검사
+├── scripts/                  [통합] 환경 bootstrap·진단·계약 검사
 ├── .github/workflows/        [통합] CI·배포 설정
-├── docs/                     [통합] 5개 개발 정본
+├── docs/                     [통합] 4개 개발 정본
 ├── pyproject.toml            [통합] uv Workspace 설정
 └── .env.example              [통합] 단일 환경변수 예시
 ```
@@ -31,6 +32,8 @@ flowchart LR
 ```
 
 **경계:** `llm/`과 `rag/`는 서로의 내부 모듈을 import하지 않는다. 두 패키지에서 Backend를 역참조하지 않는다. 외부 공개 계약은 [`contracts/INTERFACE_FINAL_v1.md`](contracts/INTERFACE_FINAL_v1.md)를 따른다.
+
+`scripts/bootstrap.sh`는 전체 앱·LLM CLI·RAG CLI 중 프로필을 선택해 잠금 의존성을 설치한다. `scripts/local_env.py`는 숨김 입력, 암호화된 사용자 설정과 자식 프로세스 환경 전달을 담당한다. `scripts/doctor.py`는 필수 개발 도구와 선택 프로필 런타임 전제를 검사하되 DB·API·Ollama 서비스에는 연결하지 않는다. 비밀 설정은 저장소 밖 `~/.config/starter-kit/config.json`에 Argon2id/AES-256-GCM 암호화 형식으로 보관한다.
 
 ## 2. 폴더별 책임
 
@@ -52,6 +55,7 @@ src/
 │   └── reports/          # 오류 제보
 ├── shared/
 │   ├── api/              # Axios, 인증, OpenAPI 생성 타입
+│   ├── content/          # 화면에서 쓰는 안내 문구와 절차 자료
 │   ├── contracts/        # 프론트엔드 공통 타입
 │   ├── state/            # Zustand 메모리 상태
 │   └── storage/          # Dexie 저장과 사용자 동의
@@ -71,6 +75,8 @@ src/
 
 ### 2.2 Backend — `backend/src/inheritance/` (B·C·통합 담당)
 
+실행·의존성 조립 진입점은 패키지 밖의 `backend/app_entry.py`에 둔다. 여기서 LLM·RAG·법령 구현을 공개 Port로 연결해 `create_app(chat_service=...)`에 전달한다. `inheritance/main.py`는 FastAPI 앱과 라우터를 구성한다.
+
 ```text
 inheritance/
 ├── main.py               [통합] FastAPI 앱·lifespan
@@ -78,6 +84,8 @@ inheritance/
 ├── auth/                 [통합] 회원가입·로그인·JWT·Refresh
 ├── contracts/            [통합] 팀 간 공통 DTO·Protocol
 ├── checklist/            [B] 공통 8개 절차 안내·질문 규칙
+│   ├── server_router.py  [B] 계정 서버 체크리스트 API
+│   └── server_storage.py [B] 체크리스트 서버 저장소
 ├── chat/                 [B] 채팅 답변 조립·문맥·출처 검증
 │   └── services/         answer, context, prompt_builder,
 │                        citation_validation
@@ -87,6 +95,7 @@ inheritance/
 
 | 파일/패턴 | 책임 |
 |---|---|
+| `backend/app_entry.py` | 실제 실행 진입점. LLM·RAG·법령 Port를 조립해 `create_app()`에 채팅 서비스를 전달 |
 | `main.py`, `core/health.py` | FastAPI 생성·`/health` |
 | `core/config.py`, `database.py`, `dependencies.py` | 환경변수, Session Pooler 연결, Port 주입 |
 | `auth/{router,service,jwt,password}.py` | 자체 인증, JWT, Argon2id |
@@ -143,7 +152,7 @@ RAG 공통 단위 테스트 fixture는 `tests/rag_test_fixtures.py`에 둔다. �
 | **B · Backend 도메인** | `backend/src/inheritance/checklist/**`, `chat/**`, `law/**` | 절차 안내·채팅·법령 조회 |
 | **C · 카카오/LLM** | `backend/src/inheritance/kakao/**`, `llm/**` | 카카오 Handoff, Gemini/Groq/Ollama |
 | **D · RAG** | `rag/**` | Docling, 임베딩, 검색, 게시 |
-| **통합 관리자** | 루트 설정, `backend/src/inheritance/{auth,core,contracts}/**`, `main.py`, `backend/migrations/**`, `tests/**`, `scripts/**`, `.github/**`, `docs/**` | 인증·DB·DI·계약·CI·문서 |
+| **통합 관리자** | 루트 설정, `backend/src/inheritance/{auth,core,contracts}/**`, `backend/src/inheritance/main.py`, `backend/app_entry.py`, `backend/migrations/**`, `tests/**`, `scripts/**`, `.github/**`, `docs/**` | 인증·DB·DI·실행 조립·계약·CI·문서 |
 | **API 담당자** | HTTP 공개 규격의 **정의·승인** | URL·Method·JSON·SSE 이벤트. 실제 수정은 파일 소유자와 협의 |
 
 **예외:** 각 영역의 `pyproject.toml`·`package.json` 변경은 해당 소유자가 제안할 수 있다. 루트 의존성·lockfile·공개 Port·OpenAPI의 변경은 통합 관리자 승인도 필요하다.
